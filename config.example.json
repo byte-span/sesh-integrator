@@ -1,0 +1,19 @@
+{
+  "lockWaitSeconds": 900,
+  "codexCommand": "codex",
+  "repositories": [
+    {
+      "path": "/Users/you/Developer/my-project",
+      "integrationBranch": "codex-handoff/integration",
+      "sourceValidationCommands": [
+        ["pnpm", "typecheck"],
+        ["pnpm", "test"]
+      ],
+      "integrationValidationCommands": [
+        ["pnpm", "typecheck"],
+        ["pnpm", "test"]
+      ],
+      "conflictInstructions": "Preserve compatible intent from both changes. Follow repository AGENTS.md and current architecture."
+    }
+  ]
+}
