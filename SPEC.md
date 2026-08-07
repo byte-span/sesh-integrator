@@ -105,6 +105,7 @@ Example `~/.codex-handoff/config.json`:
     {
       "path": "/Users/you/Developer/my-app",
       "integrationBranch": "codex-handoff/integration",
+      "setupCommands": [["corepack", "pnpm", "install", "--frozen-lockfile"]],
       "sourceValidationCommands": [
         ["pnpm", "typecheck"],
         ["pnpm", "test"]
@@ -156,10 +157,12 @@ Add a repository entry using:
 
 If already registered, show current config instead of duplicating it.
 
-When `--auto-config` is present, inspect root `package.json` scripts without
-executing them. Support pnpm, Yarn, npm, and Bun. Populate empty command lists
-only, preserving every non-empty list:
+When `--auto-config` is present, detect setup commands without executing them.
+Prefer an executable `scripts/bootstrap`, `scripts/setup`, or `bin/setup`, then detect common
+language lockfiles. Also inspect root `package.json` scripts. Populate empty
+command lists only, preserving every non-empty list:
 
+- worktree setup: detected bootstrap or dependency setup commands
 - source validation: `format:check`, `typecheck`, `lint`, `test`
 - integration validation: the detected source commands followed by `build`
 - post-integration: only the explicit `handoff:post-integration` script
@@ -170,6 +173,8 @@ end-to-end, and other unrecognized scripts. The flag also applies safe detected
 settings to an existing registration.
 
 Registration initializes an empty post-integration command list.
+Unknown ecosystems may supply repeatable JSON argument arrays with
+`--setup-command` during registration.
 
 ## 8. `begin`
 
@@ -207,6 +212,7 @@ Record:
 Requirements:
 
 - repo registered
+- configured setup commands succeed before branch or session creation
 - worktree clean
 - a detached/default-branch worktree is switched to a unique
   `codex/session-...` branch before the session is recorded
@@ -314,13 +320,14 @@ Do not merge the mutable branch ref.
 
 If merge is clean:
 
-1. run integration validation
-2. if successful, create merge commit
-3. record integration commit and timestamp
-4. run post-integration commands in order after the integration branch advances
-5. mark session succeeded
-6. release lock
-7. exit 0
+1. run setup commands
+2. run integration validation
+3. if successful, create merge commit
+4. record integration commit and timestamp
+5. run post-integration commands in order after the integration branch advances
+6. mark session succeeded
+7. release lock
+8. exit 0
 
 If a post-integration command fails, preserve the already-advanced integration
 commit and command output, mark the session `needs_review`, release the lock, and
@@ -477,3 +484,4 @@ The MVP is ready when disposable repo tests prove:
 14. Post-integration commands run only after the integration branch advances.
 15. A post-integration failure preserves the advanced commit and command result.
 16. `doctor` reports both ready and actionable not-ready states without mutation.
+17. Setup runs before session creation and before integration validation.

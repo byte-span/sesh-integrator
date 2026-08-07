@@ -21,7 +21,11 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     case "register":
       {
         const options = parseRegisterOptions(args);
-        await registerCommand(options.path, options.autoConfig);
+        await registerCommand(
+          options.path,
+          options.autoConfig,
+          options.setupCommands,
+        );
       }
       break;
     case "begin": {
@@ -99,24 +103,55 @@ function rejectArguments(args: string[]): void {
 function parseRegisterOptions(args: string[]): {
   path: string | undefined;
   autoConfig: boolean;
+  setupCommands: [string, ...string[]][];
 } {
   let path: string | undefined;
   let autoConfig = false;
-  for (const argument of args) {
+  const setupCommands: [string, ...string[]][] = [];
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = args[index]!;
     if (argument === "--auto-config" && !autoConfig) {
       autoConfig = true;
+    } else if (argument === "--setup-command") {
+      const value = args[index + 1];
+      if (value === undefined) throw registerUsageError();
+      setupCommands.push(parseCommand(value));
+      index += 1;
     } else if (!argument.startsWith("--") && path === undefined) {
       path = argument;
     } else {
-      throw new Error(
-        "Usage: codex-handoff register [repo-path] [--auto-config]",
-      );
+      throw registerUsageError();
     }
   }
-  return { path, autoConfig };
+  return { path, autoConfig, setupCommands };
 }
 
-const helpText = `codex-handoff - one-shot Git integration\n\nUsage:\n  codex-handoff init\n  codex-handoff register [repo-path] [--auto-config]\n  codex-handoff begin --summary \"...\" [--no-auto-branch] [--depends-on <session-id>]...\n  codex-handoff integrate --summary \"...\"\n  codex-handoff status\n  codex-handoff audit-legacy\n  codex-handoff doctor\n`;
+function parseCommand(value: string): [string, ...string[]] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new Error(`Invalid --setup-command JSON: ${value}`);
+  }
+  if (
+    !Array.isArray(parsed) ||
+    parsed.length === 0 ||
+    !parsed.every((part) => typeof part === "string" && part.length > 0)
+  ) {
+    throw new Error(
+      '--setup-command must be a JSON array of non-empty strings, for example \'["make","setup"]\'',
+    );
+  }
+  return parsed as [string, ...string[]];
+}
+
+function registerUsageError(): Error {
+  return new Error(
+    "Usage: codex-handoff register [repo-path] [--auto-config] [--setup-command '<json-array>']...",
+  );
+}
+
+const helpText = `codex-handoff - one-shot Git integration\n\nUsage:\n  codex-handoff init\n  codex-handoff register [repo-path] [--auto-config] [--setup-command '<json-array>']...\n  codex-handoff begin --summary \"...\" [--no-auto-branch] [--depends-on <session-id>]...\n  codex-handoff integrate --summary \"...\"\n  codex-handoff status\n  codex-handoff audit-legacy\n  codex-handoff doctor\n`;
 
 if (isMainModule()) {
   main().catch((error: unknown) => {

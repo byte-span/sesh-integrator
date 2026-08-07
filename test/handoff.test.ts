@@ -94,6 +94,50 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     expect(await sessions(fixture)).toEqual([]);
   });
 
+  it("runs configured setup before beginning a session", async () => {
+    const fixture = await createFixture();
+    const marker = join(fixture.root, "setup-ran");
+    await updateConfig(fixture, (config) => {
+      config.repositories[0].setupCommands = [
+        [
+          process.execPath,
+          "-e",
+          `require("fs").writeFileSync(${JSON.stringify(marker)}, "ready\\n")`,
+        ],
+      ];
+    });
+
+    const result = await runCli(fixture, fixture.repo, [
+      "begin",
+      "--summary",
+      "setup task",
+    ]);
+
+    expect(result.code, result.stderr).toBe(0);
+    expect(result.stdout).toContain("Running setup command:");
+    expect(await readFile(marker, "utf8")).toBe("ready\n");
+  });
+
+  it("does not create a session or branch when setup fails", async () => {
+    const fixture = await createFixture();
+    await updateConfig(fixture, (config) => {
+      config.repositories[0].setupCommands = [
+        [process.execPath, "-e", "process.exit(7)"],
+      ];
+    });
+
+    const result = await runCli(fixture, fixture.repo, [
+      "begin",
+      "--summary",
+      "failing setup",
+    ]);
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("Setup command failed (7)");
+    expect(git(fixture.repo, "branch", "--show-current")).toBe("main");
+    expect(await sessions(fixture)).toEqual([]);
+  });
+
   it("supports opting out of automatic branch creation", async () => {
     const fixture = await createFixture();
 
@@ -153,6 +197,47 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     expect(git(worktree, "status", "--porcelain=v1")).toBe(sourceStatus);
     expect(await readFile(join(worktree, "clean.txt"), "utf8")).toBe(
       "source change\n",
+    );
+  });
+
+  it("runs setup in the integration worktree before validation", async () => {
+    const fixture = await createFixture();
+    await writeFile(join(fixture.repo, ".gitignore"), ".setup-ready\n");
+    git(fixture.repo, "add", ".gitignore");
+    git(fixture.repo, "commit", "-m", "ignore setup marker");
+    await updateConfig(fixture, (config) => {
+      config.repositories[0].setupCommands = [
+        [
+          process.execPath,
+          "-e",
+          'require("fs").writeFileSync(".setup-ready", "ready\\n")',
+        ],
+      ];
+      config.repositories[0].integrationValidationCommands = [
+        [
+          process.execPath,
+          "-e",
+          'if (!require("fs").existsSync(".setup-ready")) process.exit(9)',
+        ],
+      ];
+    });
+    const worktree = await addWorktree(fixture, "setup-integration");
+    await runCliOk(fixture, worktree, [
+      "begin",
+      "--summary",
+      "integration setup task",
+    ]);
+    commitFile(worktree, "setup.txt", "change\n", "setup source commit");
+
+    const result = await runCli(fixture, worktree, [
+      "integrate",
+      "--summary",
+      "integration setup complete",
+    ]);
+
+    expect(result.code, result.stderr).toBe(0);
+    expect(result.stdout.indexOf("Running setup command:")).toBeLessThan(
+      result.stdout.indexOf("Running validation:"),
     );
   });
 
@@ -690,6 +775,10 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
   it("auto-configures safe package scripts for an existing registration", async () => {
     const fixture = await createFixture();
     await writeFile(
+      join(fixture.repo, "pnpm-lock.yaml"),
+      "lockfileVersion: '9.0'\n",
+    );
+    await writeFile(
       join(fixture.repo, "package.json"),
       `${JSON.stringify(
         {
@@ -720,6 +809,9 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     const config = JSON.parse(
       await readFile(join(fixture.runtime, "config.json"), "utf8"),
     );
+    expect(config.repositories[0].setupCommands).toEqual([
+      ["corepack", "pnpm", "install", "--frozen-lockfile"],
+    ]);
     expect(config.repositories[0].sourceValidationCommands).toEqual([
       ["corepack", "pnpm", "run", "format:check"],
       ["corepack", "pnpm", "run", "typecheck"],
@@ -738,6 +830,43 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     ]);
     expect(JSON.stringify(config)).not.toContain("test:e2e");
     expect(JSON.stringify(config)).not.toContain("deploy-production");
+  });
+
+  it("auto-configures setup for a non-JavaScript repository", async () => {
+    const fixture = await createFixture();
+    await writeFile(join(fixture.repo, "uv.lock"), "version = 1\n");
+
+    const result = await runCli(fixture, fixture.repo, [
+      "register",
+      "--auto-config",
+    ]);
+
+    expect(result.code, result.stderr).toBe(0);
+    expect(result.stdout).toContain("Auto-configuration detected uv");
+    const config = JSON.parse(
+      await readFile(join(fixture.runtime, "config.json"), "utf8"),
+    );
+    expect(config.repositories[0].setupCommands).toEqual([
+      ["uv", "sync", "--frozen"],
+    ]);
+  });
+
+  it("stores an explicit setup command for an unknown ecosystem", async () => {
+    const fixture = await createFixture();
+
+    const result = await runCli(fixture, fixture.repo, [
+      "register",
+      "--setup-command",
+      '["make","bootstrap"]',
+    ]);
+
+    expect(result.code, result.stderr).toBe(0);
+    const config = JSON.parse(
+      await readFile(join(fixture.runtime, "config.json"), "utf8"),
+    );
+    expect(config.repositories[0].setupCommands).toEqual([
+      ["make", "bootstrap"],
+    ]);
   });
 
   it("preserves configured commands and supports explicit handoff scripts", async () => {

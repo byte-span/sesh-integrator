@@ -5,6 +5,7 @@ export interface RepositoryConfig {
   gitCommonDir: string;
   defaultBranch: string;
   integrationBranch: string;
+  setupCommands: Command[];
   sourceValidationCommands: Command[];
   integrationValidationCommands: Command[];
   postIntegrationCommands: Command[];

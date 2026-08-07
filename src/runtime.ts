@@ -49,6 +49,7 @@ export async function readConfig(): Promise<Config> {
     throw new Error(`Invalid configuration: ${paths.config}`);
   }
   for (const repository of value.repositories) {
+    repository.setupCommands ??= [];
     repository.postIntegrationCommands ??= [];
   }
   return value;

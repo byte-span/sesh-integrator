@@ -1,4 +1,5 @@
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
+import { constants } from "node:fs";
 import { join } from "node:path";
 import type { Command } from "./types.js";
 
@@ -9,7 +10,8 @@ const INTEGRATION_OVERRIDE = "handoff:integration";
 const POST_INTEGRATION_SCRIPT = "handoff:post-integration";
 
 export interface AutoConfig {
-  packageManager: string;
+  environments: string[];
+  setupCommands: Command[];
   sourceValidationCommands: Command[];
   integrationValidationCommands: Command[];
   postIntegrationCommands: Command[];
@@ -18,39 +20,24 @@ export interface AutoConfig {
 export async function detectAutoConfig(
   repositoryPath: string,
 ): Promise<AutoConfig | null> {
-  const packageJsonPath = join(repositoryPath, "package.json");
-  let contents: string;
-  try {
-    contents = await readFile(packageJsonPath, "utf8");
-  } catch (error) {
-    if (isMissingFile(error)) return null;
-    throw error;
-  }
-
-  let value: unknown;
-  try {
-    value = JSON.parse(contents);
-  } catch {
-    throw new Error(
-      `Cannot auto-configure: invalid JSON in ${packageJsonPath}`,
-    );
-  }
-  if (!isRecord(value) || !isRecord(value.scripts)) {
-    return null;
-  }
-
-  const scripts = new Set(
-    Object.entries(value.scripts)
-      .filter(
-        (entry): entry is [string, string] => typeof entry[1] === "string",
-      )
-      .map(([name]) => name),
-  );
-  const packageManager = await detectPackageManager(
+  const packageJson = await readPackageJson(repositoryPath);
+  const packageManager = packageJson
+    ? await detectPackageManager(repositoryPath, packageJson.packageManager)
+    : null;
+  const setup = await detectSetup(
     repositoryPath,
-    value.packageManager,
+    packageManager,
+    packageJson?.packageManager,
   );
-  if (!packageManager) return null;
+  const scripts = new Set(
+    packageJson && isRecord(packageJson.scripts)
+      ? Object.entries(packageJson.scripts)
+          .filter(
+            (entry): entry is [string, string] => typeof entry[1] === "string",
+          )
+          .map(([name]) => name)
+      : [],
+  );
 
   const sourceScripts = scripts.has(SOURCE_OVERRIDE)
     ? [SOURCE_OVERRIDE]
@@ -65,24 +52,102 @@ export async function detectAutoConfig(
     ? [POST_INTEGRATION_SCRIPT]
     : [];
 
+  if (!packageManager && setup.commands.length === 0) return null;
   return {
-    packageManager,
-    sourceValidationCommands: sourceScripts.map((name) =>
-      packageScriptCommand(packageManager, name),
-    ),
-    integrationValidationCommands: integrationScripts.map((name) =>
-      packageScriptCommand(packageManager, name),
-    ),
-    postIntegrationCommands: postIntegrationScripts.map((name) =>
-      packageScriptCommand(packageManager, name),
-    ),
+    environments: setup.environments,
+    setupCommands: setup.commands,
+    sourceValidationCommands: packageManager
+      ? sourceScripts.map((name) => packageScriptCommand(packageManager, name))
+      : [],
+    integrationValidationCommands: packageManager
+      ? integrationScripts.map((name) =>
+          packageScriptCommand(packageManager, name),
+        )
+      : [],
+    postIntegrationCommands: packageManager
+      ? postIntegrationScripts.map((name) =>
+          packageScriptCommand(packageManager, name),
+        )
+      : [],
   };
+}
+
+async function readPackageJson(
+  repositoryPath: string,
+): Promise<Record<string, unknown> | null> {
+  const path = join(repositoryPath, "package.json");
+  let contents: string;
+  try {
+    contents = await readFile(path, "utf8");
+  } catch (error) {
+    if (isMissingFile(error)) return null;
+    throw error;
+  }
+  try {
+    const value: unknown = JSON.parse(contents);
+    if (!isRecord(value)) throw new Error("root value must be an object");
+    return value;
+  } catch (error) {
+    throw new Error(
+      `Cannot auto-configure: invalid JSON in ${path}: ${errorMessage(error)}`,
+    );
+  }
+}
+
+async function detectSetup(
+  repositoryPath: string,
+  packageManager: string | null,
+  declaredPackageManager: unknown,
+): Promise<{ environments: string[]; commands: Command[] }> {
+  for (const path of ["scripts/bootstrap", "scripts/setup", "bin/setup"]) {
+    if (await isExecutable(join(repositoryPath, path))) {
+      return {
+        environments: [`repository bootstrap (${path})`],
+        commands: [[`./${path}`]],
+      };
+    }
+  }
+
+  const environments: string[] = [];
+  const commands: Command[] = [];
+  if (packageManager) {
+    environments.push(packageManager);
+    const command = await packageInstallCommand(
+      repositoryPath,
+      packageManager,
+      declaredPackageManager,
+    );
+    if (command) commands.push(command);
+  }
+  for (const candidate of [
+    ["uv.lock", "uv", ["uv", "sync", "--frozen"]],
+    [
+      "poetry.lock",
+      "Poetry",
+      ["poetry", "install", "--sync", "--no-interaction"],
+    ],
+    ["Cargo.lock", "Cargo", ["cargo", "fetch", "--locked"]],
+    ["go.sum", "Go modules", ["go", "mod", "download"]],
+    ["Gemfile.lock", "Bundler", ["bundle", "install"]],
+    [
+      "composer.lock",
+      "Composer",
+      ["composer", "install", "--no-interaction", "--no-progress"],
+    ],
+    ["mix.lock", "Mix", ["mix", "deps.get"]],
+  ] as const) {
+    if (await exists(join(repositoryPath, candidate[0]))) {
+      environments.push(candidate[1]);
+      commands.push([...candidate[2]] as Command);
+    }
+  }
+  return { environments, commands };
 }
 
 async function detectPackageManager(
   repositoryPath: string,
   declared: unknown,
-): Promise<string | null> {
+): Promise<string> {
   if (typeof declared === "string") {
     const name = declared.split("@", 1)[0];
     if (name && ["pnpm", "yarn", "npm", "bun"].includes(name)) return name;
@@ -94,14 +159,36 @@ async function detectPackageManager(
     ["bun.lock", "bun"],
     ["bun.lockb", "bun"],
   ] as const) {
-    try {
-      await readFile(join(repositoryPath, file));
-      return name;
-    } catch (error) {
-      if (!isMissingFile(error)) throw error;
-    }
+    if (await exists(join(repositoryPath, file))) return name;
   }
   return "npm";
+}
+
+async function packageInstallCommand(
+  repositoryPath: string,
+  packageManager: string,
+  declared: unknown,
+): Promise<Command | null> {
+  switch (packageManager) {
+    case "pnpm":
+      return (await exists(join(repositoryPath, "pnpm-lock.yaml")))
+        ? ["corepack", "pnpm", "install", "--frozen-lockfile"]
+        : null;
+    case "yarn":
+      if (!(await exists(join(repositoryPath, "yarn.lock")))) return null;
+      return typeof declared === "string" && /^yarn@1(?:\.|$)/.test(declared)
+        ? ["corepack", "yarn", "install", "--frozen-lockfile"]
+        : ["corepack", "yarn", "install", "--immutable"];
+    case "bun":
+      return (await exists(join(repositoryPath, "bun.lock"))) ||
+        (await exists(join(repositoryPath, "bun.lockb")))
+        ? ["bun", "install", "--frozen-lockfile"]
+        : null;
+    default:
+      return (await exists(join(repositoryPath, "package-lock.json")))
+        ? ["npm", "ci"]
+        : null;
+  }
 }
 
 function packageScriptCommand(packageManager: string, script: string): Command {
@@ -114,10 +201,32 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+async function exists(path: string): Promise<boolean> {
+  try {
+    await access(path, constants.F_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function isExecutable(path: string): Promise<boolean> {
+  try {
+    await access(path, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function isMissingFile(error: unknown): boolean {
   return (
     error instanceof Error &&
     "code" in error &&
     (error as NodeJS.ErrnoException).code === "ENOENT"
   );
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

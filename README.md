@@ -53,7 +53,7 @@ These are the complete commands implemented by the MVP:
 
 ```bash
 codex-handoff init
-codex-handoff register [repo-path] [--auto-config]
+codex-handoff register [repo-path] [--auto-config] [--setup-command '<json-array>']...
 codex-handoff begin --summary "Implement feature" [--no-auto-branch] [--depends-on <session-id>]...
 codex-handoff integrate --summary "Implemented feature and tests"
 codex-handoff status
@@ -88,17 +88,21 @@ cd ~/Developer/my-project
 codex-handoff register
 ```
 
-Registration records the real Git common directory, detected default branch, default integration branch, empty validation and post-integration command lists, and empty conflict instructions. Re-registering prints the existing entry rather than adding a duplicate.
+Registration records the real Git common directory, branches, and central
+setup/validation commands. Re-registering updates requested empty command lists
+rather than adding a duplicate.
 
-Pass `--auto-config` to populate empty command lists from safe root
-`package.json` scripts. It works both during initial registration and when a
-repository is already registered:
+Pass `--auto-config` to detect setup commands plus safe root `package.json`
+validation scripts. It works during initial registration and for an existing
+registration:
 
 ```bash
 codex-handoff register --auto-config
 ```
 
-For pnpm, Yarn, npm, and Bun projects, auto-configuration detects
+Setup detection prefers an executable `scripts/bootstrap`, `scripts/setup`, or `bin/setup`.
+Otherwise it recognizes pnpm, Yarn, npm, Bun, uv, Poetry, Cargo, Go modules,
+Bundler, Composer, and Mix lockfiles. For JavaScript projects it also detects
 `format:check`, `typecheck`, `lint`, and `test` for source validation, then adds
 `build` for integration validation. It ignores scripts such as end-to-end
 tests, deployment, and release commands. Existing non-empty command lists are
@@ -124,6 +128,13 @@ argument arrays to `~/.codex-handoff/config.json`. If no supported scripts are
 found, registration still succeeds and reports that the command lists remain
 unconfigured.
 
+For an unknown ecosystem, provide one or more argument arrays once during
+registration:
+
+```bash
+codex-handoff register --setup-command '["make","bootstrap"]'
+```
+
 Edit `~/.codex-handoff/config.json` to add validation and conflict settings. Commands are argument arrays and are never passed through a shell:
 
 ```json
@@ -136,6 +147,7 @@ Edit `~/.codex-handoff/config.json` to add validation and conflict settings. Com
       "gitCommonDir": "/Users/you/Developer/my-project/.git",
       "defaultBranch": "main",
       "integrationBranch": "codex-handoff/integration",
+      "setupCommands": [["corepack", "pnpm", "install", "--frozen-lockfile"]],
       "sourceValidationCommands": [
         ["pnpm", "typecheck"],
         ["pnpm", "test"]
@@ -151,7 +163,11 @@ Edit `~/.codex-handoff/config.json` to add validation and conflict settings. Com
 }
 ```
 
-The workflow skill runs `sourceValidationCommands` before it creates the focused source commit. The CLI runs `integrationValidationCommands` in the dedicated integration worktree and commits only if every command succeeds. After that commit advances the integration branch, it runs `postIntegrationCommands` sequentially from the integration worktree. All commands are argument arrays and are executed directly without a shell.
+`begin` runs `setupCommands` before creating a branch or session. Integration
+runs them after merging and before `integrationValidationCommands`. The workflow
+skill runs `sourceValidationCommands` before creating the focused source commit.
+After the integration branch advances, the CLI runs `postIntegrationCommands`.
+All commands are argument arrays executed directly without a shell.
 
 ### `begin`
 
@@ -161,7 +177,10 @@ The workflow skill starts from any clean source worktree:
 codex-handoff begin --summary "Implement comment editing"
 ```
 
-`begin` creates a unique `codex/session-...` branch when the worktree is detached or on the registered default branch, so Codex-created worktrees require no manual branch setup. Existing non-default branches are unchanged. Automatic branching requires a clean worktree and never runs on the integration branch.
+`begin` first runs centrally configured setup commands, then creates a unique
+`codex/session-...` branch when the worktree is detached or on the registered
+default branch. A failed setup creates neither a branch nor a session. Existing
+non-default branches are unchanged.
 
 Repeat `--depends-on` for explicit dependencies. Pass `--no-auto-branch` only when strict detached/default-branch rejection is desired. `begin` always rejects unregistered or dirty worktrees, the integration branch, unknown dependencies, and duplicate active sessions.
 

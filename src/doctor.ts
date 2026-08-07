@@ -52,6 +52,10 @@ export async function doctorCommand(cwd = process.cwd()): Promise<void> {
   let config: Config | undefined;
   try {
     config = JSON.parse(await readFile(paths.config, "utf8")) as Config;
+    for (const repository of config.repositories ?? []) {
+      repository.setupCommands ??= [];
+      repository.postIntegrationCommands ??= [];
+    }
     validateConfig(config);
     checks.push(pass("Configuration", paths.config));
   } catch (error) {
@@ -182,6 +186,17 @@ async function repositoryChecks(config: Config, cwd: string): Promise<Check[]> {
   for (const repository of repositories) {
     checks.push(await repositoryCheck(repository));
     checks.push(
+      repository.setupCommands.length > 0
+        ? pass(
+            `Worktree setup (${repository.path})`,
+            `${repository.setupCommands.length} command(s)`,
+          )
+        : warn(
+            `Worktree setup (${repository.path})`,
+            "no commands configured; registration found no setup requirement",
+          ),
+    );
+    checks.push(
       repository.sourceValidationCommands.length > 0
         ? pass(
             `Source validation (${repository.path})`,
@@ -306,6 +321,7 @@ function validateConfig(config: Config): void {
     if (
       typeof repository.path !== "string" ||
       typeof repository.gitCommonDir !== "string" ||
+      !Array.isArray(repository.setupCommands) ||
       !Array.isArray(repository.sourceValidationCommands) ||
       !Array.isArray(repository.integrationValidationCommands)
     ) {

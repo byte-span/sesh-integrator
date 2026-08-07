@@ -29,13 +29,15 @@ Before modifying files:
 5. If approved:
 
    ```bash
-   codex-handoff register
+   codex-handoff register --auto-config
    codex-handoff begin --summary "<concise task summary>"
    ```
 
-6. If the worktree is dirty or on the handoff integration branch, stop and explain. Never create or switch a branch manually as a workaround for `begin`.
-7. If the user explicitly says this work depends on another handoff session, pass its ID with `--depends-on`.
-8. Do not infer dependencies from start time alone.
+6. `begin` runs centrally configured setup commands before creating a task
+   branch or session. If setup fails, stop and report it.
+7. If the worktree is dirty or on the handoff integration branch, stop and explain. Never create or switch a branch manually as a workaround for `begin`.
+8. If the user explicitly says this work depends on another handoff session, pass its ID with `--depends-on`.
+9. Do not infer dependencies from start time alone.
 
 ## During work
 

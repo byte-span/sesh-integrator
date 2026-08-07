@@ -19,6 +19,7 @@ Complete personal MVP implementation checklist.
 - [x] Prevent duplicate registrations
 - [x] Default to `codex-handoff/integration`
 - [x] Optionally auto-configure safe package validation scripts without overwriting existing commands
+- [x] Detect, store, and run centralized worktree setup commands for registered repositories
 
 ## Session start
 

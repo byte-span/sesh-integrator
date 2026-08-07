@@ -12,7 +12,12 @@ import {
   unmergedFiles,
 } from "./git.js";
 import { acquireRepoLock, releaseRepoLock, type LockHandle } from "./lock.js";
-import { run, runCommandList, runValidation } from "./process.js";
+import {
+  run,
+  runCommandList,
+  runRequiredCommands,
+  runValidation,
+} from "./process.js";
 import {
   DEFAULT_INTEGRATION_BRANCH,
   ensureRuntime,
@@ -25,7 +30,7 @@ import {
   writeLog,
   writeSession,
 } from "./runtime.js";
-import type { Config, RepositoryConfig, Session } from "./types.js";
+import type { Command, Config, RepositoryConfig, Session } from "./types.js";
 
 export async function initCommand(): Promise<void> {
   const paths = await ensureRuntime();
@@ -36,6 +41,7 @@ export async function initCommand(): Promise<void> {
 export async function registerCommand(
   pathArgument?: string,
   autoConfig = false,
+  setupCommands: Command[] = [],
 ): Promise<RepositoryConfig> {
   const context = await inspectGit(pathArgument ?? process.cwd());
   const config = await readConfig();
@@ -43,10 +49,11 @@ export async function registerCommand(
     (repo) => repo.gitCommonDir === context.gitCommonDir,
   );
   if (existing) {
+    configureExplicitSetup(existing, setupCommands);
     if (autoConfig) {
       await autoConfigureRepository(existing);
-      await writeConfig(config);
     }
+    if (autoConfig || setupCommands.length > 0) await writeConfig(config);
     process.stdout.write(
       `Repository already registered:\n${JSON.stringify(existing, null, 2)}\n`,
     );
@@ -57,6 +64,7 @@ export async function registerCommand(
     gitCommonDir: context.gitCommonDir,
     defaultBranch: await detectDefaultBranch(context.worktreePath),
     integrationBranch: DEFAULT_INTEGRATION_BRANCH,
+    setupCommands,
     sourceValidationCommands: [],
     integrationValidationCommands: [],
     postIntegrationCommands: [],
@@ -70,13 +78,26 @@ export async function registerCommand(
   return repository;
 }
 
+function configureExplicitSetup(
+  repository: RepositoryConfig,
+  setupCommands: Command[],
+): void {
+  if (setupCommands.length === 0) return;
+  if (repository.setupCommands.length > 0) {
+    throw new Error(
+      "Setup commands are already configured; edit the central config explicitly to replace them",
+    );
+  }
+  repository.setupCommands = setupCommands;
+}
+
 async function autoConfigureRepository(
   repository: RepositoryConfig,
 ): Promise<void> {
   const detected = await detectAutoConfig(repository.path);
   if (!detected) {
     process.stdout.write(
-      "Auto-configuration found no supported package.json scripts.\n",
+      "Auto-configuration found no supported setup convention, lockfile, or package scripts.\n",
     );
     return;
   }
@@ -84,6 +105,7 @@ async function autoConfigureRepository(
   const configured: string[] = [];
   const preserved: string[] = [];
   for (const [label, key] of [
+    ["setup", "setupCommands"],
     ["source validation", "sourceValidationCommands"],
     ["integration validation", "integrationValidationCommands"],
     ["post-integration", "postIntegrationCommands"],
@@ -99,7 +121,7 @@ async function autoConfigureRepository(
   }
 
   process.stdout.write(
-    `Auto-configuration detected ${detected.packageManager}.\n`,
+    `Auto-configuration detected ${detected.environments.join(", ")}.\n`,
   );
   process.stdout.write(
     configured.length > 0
@@ -142,6 +164,14 @@ export async function beginCommand(
     if (!sessions.some((session) => session.id === dependency)) {
       throw new Error(`Unknown dependency session: ${dependency}`);
     }
+  }
+  await runRequiredCommands(
+    repository.setupCommands,
+    context.worktreePath,
+    "setup command",
+  );
+  if (!(await isClean(context.worktreePath))) {
+    throw new Error("Setup command left the worktree dirty");
   }
   const sessionId = makeSessionId();
   let branch = context.branch;
@@ -377,6 +407,11 @@ async function mergeAndValidate(
       throw new Error(`Unresolved conflicts remain: ${remaining.join(", ")}`);
   }
 
+  await runRequiredCommands(
+    repository.setupCommands,
+    worktree,
+    "setup command",
+  );
   await runValidation(repository.integrationValidationCommands, worktree);
   await assertNoUnstagedChanges(worktree);
   const integrationBranchAdvanced = await hasMergeInProgress(worktree);

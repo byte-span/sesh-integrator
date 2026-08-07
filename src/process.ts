@@ -58,17 +58,27 @@ export async function runValidation(
   commands: Command[],
   cwd: string,
 ): Promise<void> {
+  await runRequiredCommands(commands, cwd, "validation");
+}
+
+export async function runRequiredCommands(
+  commands: Command[],
+  cwd: string,
+  label: string,
+): Promise<void> {
   for (const [command, ...args] of commands) {
-    process.stdout.write(
-      `Running validation: ${[command, ...args].join(" ")}\n`,
-    );
+    process.stdout.write(`Running ${label}: ${[command, ...args].join(" ")}\n`);
     const result = await run(command, args, { cwd, echo: true });
     if (result.code !== 0) {
       throw new Error(
-        `Validation failed (${result.code}): ${[command, ...args].join(" ")}`,
+        `${capitalize(label)} failed (${result.code}): ${[command, ...args].join(" ")}`,
       );
     }
   }
+}
+
+function capitalize(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
 export async function runCommandList(
