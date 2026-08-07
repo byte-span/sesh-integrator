@@ -536,6 +536,81 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     expect(await snapshot(fixture.auditHome)).toEqual(before);
     expect(await snapshot(fixture.runtime)).toEqual(runtimeBefore);
   });
+
+  it("reports READY when installation and current repository checks pass", async () => {
+    const fixture = await createFixture();
+    await updateConfig(fixture, (config) => {
+      config.codexCommand = process.execPath;
+      config.repositories[0].sourceValidationCommands = [
+        [process.execPath, "--version"],
+      ];
+      config.repositories[0].integrationValidationCommands = [
+        [process.execPath, "--version"],
+      ];
+    });
+    const skillRoot = join(
+      fixture.auditHome,
+      ".agents",
+      "skills",
+      "codex-handoff-workflow",
+    );
+    await mkdir(join(skillRoot, "agents"), { recursive: true });
+    await writeFile(
+      join(skillRoot, "SKILL.md"),
+      await readFile(
+        join(process.cwd(), "skill", "codex-handoff-workflow", "SKILL.md"),
+        "utf8",
+      ),
+    );
+    await writeFile(
+      join(skillRoot, "agents", "openai.yaml"),
+      await readFile(
+        join(
+          process.cwd(),
+          "skill",
+          "codex-handoff-workflow",
+          "agents",
+          "openai.yaml",
+        ),
+        "utf8",
+      ),
+    );
+    await mkdir(join(fixture.auditHome, ".codex"), { recursive: true });
+    await writeFile(
+      join(fixture.auditHome, ".codex", "AGENTS.md"),
+      "Use codex-handoff-workflow.\n",
+    );
+    await mkdir(join(fixture.auditHome, "Library", "LaunchAgents"), {
+      recursive: true,
+    });
+    const beforeHome = await snapshot(fixture.auditHome);
+    const beforeRuntime = await snapshot(fixture.runtime);
+
+    const result = await runCli(fixture, fixture.repo, ["doctor"]);
+
+    expect(result.code, result.stderr).toBe(0);
+    expect(result.stdout).toContain("codex-handoff doctor (read-only)");
+    expect(result.stdout).toContain("PASS  Workflow skill");
+    expect(result.stdout).toContain("PASS  Registered repository");
+    expect(result.stdout).toContain("READY");
+    expect(await snapshot(fixture.auditHome)).toEqual(beforeHome);
+    expect(await snapshot(fixture.runtime)).toEqual(beforeRuntime);
+  });
+
+  it("reports NOT READY with actionable installation and validation failures", async () => {
+    const fixture = await createFixture();
+    await updateConfig(fixture, (config) => {
+      config.codexCommand = process.execPath;
+    });
+
+    const result = await runCli(fixture, fixture.repo, ["doctor"]);
+
+    expect(result.code).toBe(1);
+    expect(result.stdout).toContain("FAIL  Workflow skill");
+    expect(result.stdout).toContain("FAIL  Global guidance");
+    expect(result.stdout).toContain("no commands configured");
+    expect(result.stdout).toContain("NOT READY");
+  });
 });
 
 async function createFixture(sharedContents?: string): Promise<Fixture> {
@@ -603,6 +678,7 @@ async function runCli(
         ...process.env,
         CODEX_HANDOFF_HOME: fixture.runtime,
         CODEX_HANDOFF_AUDIT_HOME: fixture.auditHome,
+        CODEX_HANDOFF_DOCTOR_HOME: fixture.auditHome,
       },
       stdio: ["ignore", "pipe", "pipe"],
     });

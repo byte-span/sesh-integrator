@@ -58,6 +58,7 @@ codex-handoff begin --summary "Implement feature" [--depends-on <session-id>]...
 codex-handoff integrate --summary "Implemented feature and tests"
 codex-handoff status
 codex-handoff audit-legacy
+codex-handoff doctor
 ```
 
 There are no `run`, `daemon`, `watch`, or service-management commands.
@@ -152,6 +153,16 @@ Shows every session, active/ready/waiting/succeeded/`needs_review` state, timest
 
 If a process dies, a same-host dead-PID lock is removed automatically only when the integration worktree is verifiably clean and has no merge in progress. Otherwise the lock and worktree are preserved with manual recovery guidance. A missing owner record or remote-host owner is treated conservatively.
 
+### `doctor`
+
+Run one read-only readiness check from the project you intend to use:
+
+```bash
+codex-handoff doctor
+```
+
+It checks Node.js, Git, the configured Codex executable, runtime/config files, the installed workflow skill, global guidance, current-project registration, source and integration validation commands, active locks, and conflicting legacy automation. It prints `READY`, `READY WITH ... WARNINGS`, or `NOT READY` with actionable details. A `NOT READY` result exits nonzero. Warnings cover checks that could not be confirmed safely, such as an unavailable `launchctl` query.
+
 ## Disposable-repository verification
 
 The Vitest suite creates only disposable temporary Git repositories and uses fake Codex executables for deterministic conflicts:
@@ -163,7 +174,7 @@ pnpm test
 pnpm build
 ```
 
-It proves begin metadata, exact clean merges, simultaneous serialization, refreshed integration state, contextual conflict resolution, non-precedence of start time, dependencies, validation failure, unresolved conflicts, untouched source worktrees, conservative stale-lock behavior, and read-only legacy audit.
+It proves begin metadata, exact clean merges, simultaneous serialization, refreshed integration state, contextual conflict resolution, non-precedence of start time, dependencies, validation failure, unresolved conflicts, untouched source worktrees, conservative stale-lock behavior, read-only legacy audit, and both successful and failing read-only doctor checks.
 
 A manual clean-merge trial can also be run:
 

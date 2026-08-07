@@ -381,7 +381,25 @@ Show:
 
 Keep it simple.
 
-## 13. `audit-legacy`
+## 13. `doctor`
+
+Run one read-only readiness check from the intended project worktree.
+
+Check:
+
+- Node.js, Git, and the configured Codex executable
+- runtime and configuration integrity
+- installed workflow skill and global guidance
+- current repository registration
+- configured source and integration validation commands
+- active integration locks
+- likely active legacy automation
+
+Print `READY`, `READY WITH ... WARNINGS`, or `NOT READY`. Exit nonzero for
+missing required readiness conditions. Do not mutate runtime, configuration,
+Git state, or legacy components.
+
+## 14. `audit-legacy`
 
 Read-only by default.
 
@@ -409,7 +427,7 @@ For each found component, explain whether it can conflict with `codex-handoff`.
 
 Do not disable anything automatically.
 
-## 14. Failure / Sleep Behavior
+## 15. Failure / Sleep Behavior
 
 The tool is intentionally one-shot.
 
@@ -424,7 +442,7 @@ If the process dies:
 
 Do not blindly restart a merge over an existing unresolved merge state.
 
-## 15. Acceptance Criteria
+## 16. Acceptance Criteria
 
 The MVP is ready when disposable repo tests prove:
 
@@ -443,3 +461,4 @@ The MVP is ready when disposable repo tests prove:
 13. Old daemon components are only audited, never silently removed.
 14. Post-integration commands run only after the integration branch advances.
 15. A post-integration failure preserves the advanced commit and command result.
+16. `doctor` reports both ready and actionable not-ready states without mutation.

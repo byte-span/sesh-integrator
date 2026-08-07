@@ -2,6 +2,7 @@
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { auditLegacyCommand } from "./audit.js";
+import { doctorCommand } from "./doctor.js";
 import {
   beginCommand,
   initCommand,
@@ -39,6 +40,10 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     case "audit-legacy":
       rejectArguments(args);
       await auditLegacyCommand();
+      break;
+    case "doctor":
+      rejectArguments(args);
+      await doctorCommand();
       break;
     case "help":
     case "--help":
@@ -81,7 +86,7 @@ function rejectArguments(args: string[]): void {
   if (args.length) throw new Error(`Unexpected arguments: ${args.join(" ")}`);
 }
 
-const helpText = `codex-handoff - one-shot Git integration\n\nUsage:\n  codex-handoff init\n  codex-handoff register [repo-path]\n  codex-handoff begin --summary \"...\" [--depends-on <session-id>]...\n  codex-handoff integrate --summary \"...\"\n  codex-handoff status\n  codex-handoff audit-legacy\n`;
+const helpText = `codex-handoff - one-shot Git integration\n\nUsage:\n  codex-handoff init\n  codex-handoff register [repo-path]\n  codex-handoff begin --summary \"...\" [--depends-on <session-id>]...\n  codex-handoff integrate --summary \"...\"\n  codex-handoff status\n  codex-handoff audit-legacy\n  codex-handoff doctor\n`;
 
 if (isMainModule()) {
   main().catch((error: unknown) => {

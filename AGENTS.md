@@ -70,6 +70,7 @@ codex-handoff begin [--summary "..."] [--depends-on <session-id>]
 codex-handoff integrate [--summary "..."]
 codex-handoff status
 codex-handoff audit-legacy
+codex-handoff doctor
 ```
 
 Optional only if it remains small:

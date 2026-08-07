@@ -7,15 +7,29 @@ import { run } from "./process.js";
 import { runtimePaths } from "./runtime.js";
 import type { Config } from "./types.js";
 
-type FindingState = "FOUND" | "NOT FOUND" | "UNKNOWN";
+export type FindingState = "FOUND" | "NOT FOUND" | "UNKNOWN";
 
-interface Finding {
+export interface Finding {
   label: string;
   state: FindingState;
   detail: string;
 }
 
 export async function auditLegacyCommand(): Promise<Finding[]> {
+  const findings = await collectLegacyFindings();
+  for (const finding of findings) {
+    process.stdout.write(
+      `${finding.state.padEnd(9)} ${finding.label}: ${finding.detail}\n`,
+    );
+  }
+  process.stdout.write(
+    "\nRead-only audit complete. Disable legacy automation with the old project's documented stop/uninstall commands; " +
+      "review the old skill, global AGENTS.md, and hooks individually. Nothing was changed.\n",
+  );
+  return findings;
+}
+
+export async function collectLegacyFindings(): Promise<Finding[]> {
   const home = process.env.CODEX_HANDOFF_AUDIT_HOME ?? homedir();
   const findings: Finding[] = [];
   const oldSource = join(home, "Developer", "tools", "codex-integrator");
@@ -133,15 +147,6 @@ export async function auditLegacyCommand(): Promise<Finding[]> {
     );
   }
 
-  for (const finding of findings) {
-    process.stdout.write(
-      `${finding.state.padEnd(9)} ${finding.label}: ${finding.detail}\n`,
-    );
-  }
-  process.stdout.write(
-    "\nRead-only audit complete. Disable legacy automation with the old project's documented stop/uninstall commands; " +
-      "review the old skill, global AGENTS.md, and hooks individually. Nothing was changed.\n",
-  );
   return findings;
 }
 

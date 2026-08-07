@@ -1,0 +1,340 @@
+import { constants } from "node:fs";
+import { access, readFile, readdir, realpath } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { collectLegacyFindings } from "./audit.js";
+import { inspectGit } from "./git.js";
+import { run } from "./process.js";
+import { runtimePaths } from "./runtime.js";
+import type { Config, RepositoryConfig } from "./types.js";
+
+type CheckState = "PASS" | "WARN" | "FAIL";
+
+interface Check {
+  state: CheckState;
+  label: string;
+  detail: string;
+}
+
+export async function doctorCommand(cwd = process.cwd()): Promise<void> {
+  const checks: Check[] = [];
+  const major = Number(process.versions.node.split(".")[0]);
+  checks.push(
+    major >= 20
+      ? pass("Node.js", process.version)
+      : fail("Node.js", `${process.version}; version 20 or newer is required`),
+  );
+  checks.push(await executableCheck("Git", "git", ["--version"]));
+
+  const paths = runtimePaths();
+  const requiredPaths = [
+    paths.config,
+    paths.state,
+    paths.sessions,
+    paths.locks,
+    paths.logs,
+    paths.worktrees,
+  ];
+  const missingPaths: string[] = [];
+  for (const path of requiredPaths) {
+    if (!(await exists(path))) missingPaths.push(path);
+  }
+  checks.push(
+    missingPaths.length === 0
+      ? pass("Runtime", paths.root)
+      : fail(
+          "Runtime",
+          `missing ${missingPaths.join(", ")}; run codex-handoff init`,
+        ),
+  );
+
+  let config: Config | undefined;
+  try {
+    config = JSON.parse(await readFile(paths.config, "utf8")) as Config;
+    validateConfig(config);
+    checks.push(pass("Configuration", paths.config));
+  } catch (error) {
+    checks.push(fail("Configuration", errorMessage(error)));
+  }
+
+  if (config) {
+    checks.push(
+      await executableCheck("Codex CLI", config.codexCommand, ["--version"]),
+    );
+  }
+
+  const home = process.env.CODEX_HANDOFF_DOCTOR_HOME ?? homedir();
+  const skillRoot = join(home, ".agents", "skills", "codex-handoff-workflow");
+  const skillFiles = [
+    join(skillRoot, "SKILL.md"),
+    join(skillRoot, "agents", "openai.yaml"),
+  ];
+  const bundledSkillRoot = fileURLToPath(
+    new URL("../skill/codex-handoff-workflow", import.meta.url),
+  );
+  const bundledSkillFiles = [
+    join(bundledSkillRoot, "SKILL.md"),
+    join(bundledSkillRoot, "agents", "openai.yaml"),
+  ];
+  if (!(await allExist(skillFiles))) {
+    checks.push(
+      fail(
+        "Workflow skill",
+        `missing installation at ${skillRoot}; run scripts/install-skill.sh`,
+      ),
+    );
+  } else if (
+    (await allExist(bundledSkillFiles)) &&
+    !(await filesMatch(skillFiles, bundledSkillFiles))
+  ) {
+    checks.push(
+      fail(
+        "Workflow skill",
+        `installed files differ from this CLI; run scripts/install-skill.sh`,
+      ),
+    );
+  } else {
+    checks.push(pass("Workflow skill", skillRoot));
+  }
+
+  const agentsPath = join(home, ".codex", "AGENTS.md");
+  try {
+    const guidance = await readFile(agentsPath, "utf8");
+    checks.push(
+      /codex-handoff-workflow/.test(guidance)
+        ? pass("Global guidance", agentsPath)
+        : fail(
+            "Global guidance",
+            `${agentsPath} does not reference codex-handoff-workflow`,
+          ),
+    );
+  } catch (error) {
+    checks.push(fail("Global guidance", errorMessage(error)));
+  }
+
+  if (config) checks.push(...(await repositoryChecks(config, cwd)));
+  checks.push(await lockCheck(paths.locks));
+  checks.push(...legacyChecks(await collectLegacyFindings()));
+
+  process.stdout.write("codex-handoff doctor (read-only)\n\n");
+  for (const check of checks) {
+    process.stdout.write(
+      `${check.state.padEnd(5)} ${check.label}: ${check.detail}\n`,
+    );
+  }
+
+  const failures = checks.filter((check) => check.state === "FAIL").length;
+  const warnings = checks.filter((check) => check.state === "WARN").length;
+  process.stdout.write(
+    failures === 0
+      ? `\nREADY${warnings ? ` WITH ${warnings} WARNING${warnings === 1 ? "" : "S"}` : ""}\n`
+      : `\nNOT READY (${failures} failure${failures === 1 ? "" : "s"}, ${warnings} warning${warnings === 1 ? "" : "s"})\n`,
+  );
+  if (failures > 0) process.exitCode = 1;
+}
+
+async function repositoryChecks(config: Config, cwd: string): Promise<Check[]> {
+  if (config.repositories.length === 0) {
+    return [
+      fail(
+        "Repositories",
+        "none registered; run codex-handoff register from a project",
+      ),
+    ];
+  }
+
+  let currentCommonDir: string | undefined;
+  try {
+    currentCommonDir = await realpath((await inspectGit(cwd)).gitCommonDir);
+  } catch {
+    // Outside a Git worktree, check every configured repository.
+  }
+  const repositories = currentCommonDir
+    ? config.repositories.filter(
+        (repository) => repository.gitCommonDir === currentCommonDir,
+      )
+    : config.repositories;
+  if (currentCommonDir && repositories.length === 0) {
+    return [
+      fail("Current repository", "not registered; run codex-handoff register"),
+    ];
+  }
+
+  const checks: Check[] = [];
+  for (const repository of repositories) {
+    checks.push(await repositoryCheck(repository));
+    checks.push(
+      repository.sourceValidationCommands.length > 0
+        ? pass(
+            `Source validation (${repository.path})`,
+            `${repository.sourceValidationCommands.length} command(s)`,
+          )
+        : fail(
+            `Source validation (${repository.path})`,
+            "no commands configured",
+          ),
+    );
+    checks.push(
+      repository.integrationValidationCommands.length > 0
+        ? pass(
+            `Integration validation (${repository.path})`,
+            `${repository.integrationValidationCommands.length} command(s)`,
+          )
+        : fail(
+            `Integration validation (${repository.path})`,
+            "no commands configured",
+          ),
+    );
+  }
+  return checks;
+}
+
+async function repositoryCheck(repository: RepositoryConfig): Promise<Check> {
+  try {
+    const context = await inspectGit(repository.path);
+    const actual = await realpath(context.gitCommonDir);
+    const configured = await realpath(repository.gitCommonDir);
+    return actual === configured
+      ? pass("Registered repository", repository.path)
+      : fail(
+          "Registered repository",
+          `${repository.path} Git directory does not match configuration`,
+        );
+  } catch (error) {
+    return fail("Registered repository", errorMessage(error));
+  }
+}
+
+async function lockCheck(path: string): Promise<Check> {
+  try {
+    const locks = (await readdir(path)).filter((name) =>
+      name.endsWith(".lock"),
+    );
+    return locks.length === 0
+      ? pass("Integration locks", "none")
+      : warn(
+          "Integration locks",
+          `${locks.length} active; run codex-handoff status`,
+        );
+  } catch (error) {
+    return fail("Integration locks", errorMessage(error));
+  }
+}
+
+function legacyChecks(
+  findings: Awaited<ReturnType<typeof collectLegacyFindings>>,
+): Check[] {
+  const conflicts = findings.filter(
+    (finding) =>
+      finding.state === "FOUND" &&
+      (finding.label === "Old global skill" ||
+        finding.label === "Legacy LaunchAgent plist" ||
+        finding.label === "Loaded legacy launchctl job" ||
+        finding.label.startsWith("Legacy Git hooks")),
+  );
+  const uncertain = findings.filter(
+    (finding) =>
+      finding.state === "UNKNOWN" &&
+      (finding.label === "Legacy LaunchAgent plist" ||
+        finding.label === "Loaded legacy launchctl job" ||
+        finding.label.startsWith("Legacy Git hooks")),
+  );
+  if (conflicts.length > 0) {
+    return [
+      fail(
+        "Legacy automation",
+        `${conflicts.map((finding) => finding.label).join(", ")}; run codex-handoff audit-legacy`,
+      ),
+    ];
+  }
+  if (uncertain.length > 0) {
+    return [
+      warn(
+        "Legacy automation",
+        `could not verify ${uncertain.map((finding) => finding.label).join(", ")}; run codex-handoff audit-legacy`,
+      ),
+    ];
+  }
+  return [pass("Legacy automation", "no active legacy trigger found")];
+}
+
+async function executableCheck(
+  label: string,
+  command: string,
+  args: string[],
+): Promise<Check> {
+  try {
+    const result = await run(command, args);
+    const detail = (result.stdout || result.stderr).trim().split("\n")[0];
+    return result.code === 0
+      ? pass(label, detail || command)
+      : fail(label, `${command} exited ${result.code}`);
+  } catch (error) {
+    return fail(label, `${command}: ${errorMessage(error)}`);
+  }
+}
+
+function validateConfig(config: Config): void {
+  if (
+    !config ||
+    typeof config.lockWaitSeconds !== "number" ||
+    typeof config.codexCommand !== "string" ||
+    config.codexCommand.length === 0 ||
+    !Array.isArray(config.repositories)
+  ) {
+    throw new Error("invalid config.json structure");
+  }
+  for (const repository of config.repositories) {
+    if (
+      typeof repository.path !== "string" ||
+      typeof repository.gitCommonDir !== "string" ||
+      !Array.isArray(repository.sourceValidationCommands) ||
+      !Array.isArray(repository.integrationValidationCommands)
+    ) {
+      throw new Error("invalid repository entry in config.json");
+    }
+  }
+}
+
+async function allExist(paths: string[]): Promise<boolean> {
+  return (await Promise.all(paths.map(exists))).every(Boolean);
+}
+
+async function filesMatch(
+  installed: string[],
+  bundled: string[],
+): Promise<boolean> {
+  const [installedContents, bundledContents] = await Promise.all([
+    Promise.all(installed.map((path) => readFile(path, "utf8"))),
+    Promise.all(bundled.map((path) => readFile(path, "utf8"))),
+  ]);
+  return installedContents.every(
+    (contents, index) => contents === bundledContents[index],
+  );
+}
+
+async function exists(path: string): Promise<boolean> {
+  try {
+    await access(path, constants.F_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function pass(label: string, detail: string): Check {
+  return { state: "PASS", label, detail };
+}
+
+function warn(label: string, detail: string): Check {
+  return { state: "WARN", label, detail };
+}
+
+function fail(label: string, detail: string): Check {
+  return { state: "FAIL", label, detail };
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}

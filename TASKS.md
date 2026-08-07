@@ -7,7 +7,7 @@ Complete personal MVP implementation checklist.
 - [x] Initialize pnpm + TypeScript + ESM
 - [x] Enable strict TypeScript
 - [x] Add build, typecheck, test, and formatting scripts
-- [x] Add the six-command CLI
+- [x] Add the seven-command CLI
 - [x] Keep the module set small
 
 ## Runtime data and registration
@@ -66,6 +66,12 @@ Complete personal MVP implementation checklist.
 - [x] Print `FOUND` / `NOT FOUND` / `UNKNOWN` and safe disable guidance
 - [x] Never edit or delete legacy components
 
+## Readiness doctor
+
+- [x] Implement one read-only `doctor` command
+- [x] Check installation, runtime, configuration, repository validation, locks, and legacy automation
+- [x] Print `READY` or actionable `NOT READY` output with meaningful exit status
+
 ## Skill and global guidance
 
 - [x] Preserve and clarify `codex-handoff-workflow`
@@ -88,6 +94,7 @@ Complete personal MVP implementation checklist.
 - [x] Source worktrees remain untouched
 - [x] Dirty interrupted integration makes stale-lock recovery conservative
 - [x] Legacy audit does not mutate legacy fixtures
+- [x] Doctor ready/failure paths do not mutate runtime or home fixtures
 
 ## Documentation
 
