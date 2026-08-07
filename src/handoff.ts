@@ -1,6 +1,7 @@
 import { access, readFile } from "node:fs/promises";
 import { constants } from "node:fs";
 import { join } from "node:path";
+import { detectAutoConfig } from "./auto-config.js";
 import {
   detectDefaultBranch,
   git,
@@ -34,6 +35,7 @@ export async function initCommand(): Promise<void> {
 
 export async function registerCommand(
   pathArgument?: string,
+  autoConfig = false,
 ): Promise<RepositoryConfig> {
   const context = await inspectGit(pathArgument ?? process.cwd());
   const config = await readConfig();
@@ -41,6 +43,10 @@ export async function registerCommand(
     (repo) => repo.gitCommonDir === context.gitCommonDir,
   );
   if (existing) {
+    if (autoConfig) {
+      await autoConfigureRepository(existing);
+      await writeConfig(config);
+    }
     process.stdout.write(
       `Repository already registered:\n${JSON.stringify(existing, null, 2)}\n`,
     );
@@ -56,11 +62,58 @@ export async function registerCommand(
     postIntegrationCommands: [],
     conflictInstructions: "",
   };
+  if (autoConfig) await autoConfigureRepository(repository);
   config.repositories.push(repository);
   await writeConfig(config);
   process.stdout.write(`Registered ${repository.path}\n`);
   process.stdout.write(`Integration branch: ${repository.integrationBranch}\n`);
   return repository;
+}
+
+async function autoConfigureRepository(
+  repository: RepositoryConfig,
+): Promise<void> {
+  const detected = await detectAutoConfig(repository.path);
+  if (!detected) {
+    process.stdout.write(
+      "Auto-configuration found no supported package.json scripts.\n",
+    );
+    return;
+  }
+
+  const configured: string[] = [];
+  const preserved: string[] = [];
+  for (const [label, key] of [
+    ["source validation", "sourceValidationCommands"],
+    ["integration validation", "integrationValidationCommands"],
+    ["post-integration", "postIntegrationCommands"],
+  ] as const) {
+    if (repository[key].length > 0) {
+      preserved.push(label);
+      continue;
+    }
+    if (detected[key].length > 0) {
+      repository[key] = detected[key];
+      configured.push(label);
+    }
+  }
+
+  process.stdout.write(
+    `Auto-configuration detected ${detected.packageManager}.\n`,
+  );
+  process.stdout.write(
+    configured.length > 0
+      ? `Configured: ${configured.join(", ")}.\n`
+      : "No empty command lists had matching scripts.\n",
+  );
+  if (preserved.length > 0) {
+    process.stdout.write(`Preserved existing: ${preserved.join(", ")}.\n`);
+  }
+  if (repository.postIntegrationCommands.length === 0) {
+    process.stdout.write(
+      "Post-integration remains empty; add a handoff:post-integration script to opt in.\n",
+    );
+  }
 }
 
 export async function beginCommand(

@@ -18,6 +18,7 @@ Complete personal MVP implementation checklist.
 - [x] Detect and store the default branch
 - [x] Prevent duplicate registrations
 - [x] Default to `codex-handoff/integration`
+- [x] Optionally auto-configure safe package validation scripts without overwriting existing commands
 
 ## Session start
 

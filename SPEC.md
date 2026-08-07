@@ -144,7 +144,7 @@ Usage:
 
 ```bash
 cd <repo>
-codex-handoff register
+codex-handoff register [--auto-config]
 ```
 
 Add a repository entry using:
@@ -155,6 +155,19 @@ Add a repository entry using:
 - empty conflict instructions
 
 If already registered, show current config instead of duplicating it.
+
+When `--auto-config` is present, inspect root `package.json` scripts without
+executing them. Support pnpm, Yarn, npm, and Bun. Populate empty command lists
+only, preserving every non-empty list:
+
+- source validation: `format:check`, `typecheck`, `lint`, `test`
+- integration validation: the detected source commands followed by `build`
+- post-integration: only the explicit `handoff:post-integration` script
+
+If `handoff:source` or `handoff:integration` exists, use that explicit aggregate
+script instead of the corresponding inferred list. Ignore deployment, release,
+end-to-end, and other unrecognized scripts. The flag also applies safe detected
+settings to an existing registration.
 
 Registration initializes an empty post-integration command list.
 

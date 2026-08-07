@@ -19,9 +19,10 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
       await initCommand();
       break;
     case "register":
-      if (args.length > 1 || args[0]?.startsWith("--"))
-        throw new Error("Usage: codex-handoff register [repo-path]");
-      await registerCommand(args[0]);
+      {
+        const options = parseRegisterOptions(args);
+        await registerCommand(options.path, options.autoConfig);
+      }
       break;
     case "begin": {
       const options = parseOptions(args, true);
@@ -86,7 +87,27 @@ function rejectArguments(args: string[]): void {
   if (args.length) throw new Error(`Unexpected arguments: ${args.join(" ")}`);
 }
 
-const helpText = `codex-handoff - one-shot Git integration\n\nUsage:\n  codex-handoff init\n  codex-handoff register [repo-path]\n  codex-handoff begin --summary \"...\" [--depends-on <session-id>]...\n  codex-handoff integrate --summary \"...\"\n  codex-handoff status\n  codex-handoff audit-legacy\n  codex-handoff doctor\n`;
+function parseRegisterOptions(args: string[]): {
+  path: string | undefined;
+  autoConfig: boolean;
+} {
+  let path: string | undefined;
+  let autoConfig = false;
+  for (const argument of args) {
+    if (argument === "--auto-config" && !autoConfig) {
+      autoConfig = true;
+    } else if (!argument.startsWith("--") && path === undefined) {
+      path = argument;
+    } else {
+      throw new Error(
+        "Usage: codex-handoff register [repo-path] [--auto-config]",
+      );
+    }
+  }
+  return { path, autoConfig };
+}
+
+const helpText = `codex-handoff - one-shot Git integration\n\nUsage:\n  codex-handoff init\n  codex-handoff register [repo-path] [--auto-config]\n  codex-handoff begin --summary \"...\" [--depends-on <session-id>]...\n  codex-handoff integrate --summary \"...\"\n  codex-handoff status\n  codex-handoff audit-legacy\n  codex-handoff doctor\n`;
 
 if (isMainModule()) {
   main().catch((error: unknown) => {

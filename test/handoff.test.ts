@@ -597,6 +597,100 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     expect(await snapshot(fixture.runtime)).toEqual(beforeRuntime);
   });
 
+  it("auto-configures safe package scripts for an existing registration", async () => {
+    const fixture = await createFixture();
+    await writeFile(
+      join(fixture.repo, "package.json"),
+      `${JSON.stringify(
+        {
+          packageManager: "pnpm@10.14.0",
+          scripts: {
+            "format:check": "prettier --check .",
+            typecheck: "tsc --noEmit",
+            lint: "eslint .",
+            test: "vitest run",
+            build: "tsc",
+            "test:e2e": "playwright test",
+            deploy: "deploy-production",
+            "handoff:post-integration": "notify-integration",
+          },
+        },
+        null,
+        2,
+      )}\n`,
+    );
+
+    const result = await runCli(fixture, fixture.repo, [
+      "register",
+      "--auto-config",
+    ]);
+
+    expect(result.code, result.stderr).toBe(0);
+    expect(result.stdout).toContain("Auto-configuration detected pnpm");
+    const config = JSON.parse(
+      await readFile(join(fixture.runtime, "config.json"), "utf8"),
+    );
+    expect(config.repositories[0].sourceValidationCommands).toEqual([
+      ["corepack", "pnpm", "run", "format:check"],
+      ["corepack", "pnpm", "run", "typecheck"],
+      ["corepack", "pnpm", "run", "lint"],
+      ["corepack", "pnpm", "run", "test"],
+    ]);
+    expect(config.repositories[0].integrationValidationCommands).toEqual([
+      ["corepack", "pnpm", "run", "format:check"],
+      ["corepack", "pnpm", "run", "typecheck"],
+      ["corepack", "pnpm", "run", "lint"],
+      ["corepack", "pnpm", "run", "test"],
+      ["corepack", "pnpm", "run", "build"],
+    ]);
+    expect(config.repositories[0].postIntegrationCommands).toEqual([
+      ["corepack", "pnpm", "run", "handoff:post-integration"],
+    ]);
+    expect(JSON.stringify(config)).not.toContain("test:e2e");
+    expect(JSON.stringify(config)).not.toContain("deploy-production");
+  });
+
+  it("preserves configured commands and supports explicit handoff scripts", async () => {
+    const fixture = await createFixture();
+    await updateConfig(fixture, (config) => {
+      config.repositories[0].sourceValidationCommands = [
+        [process.execPath, "--version"],
+      ];
+    });
+    await writeFile(
+      join(fixture.repo, "package.json"),
+      `${JSON.stringify(
+        {
+          scripts: {
+            "handoff:source": "custom-source-check",
+            "handoff:integration": "custom-integration-check",
+          },
+        },
+        null,
+        2,
+      )}\n`,
+    );
+
+    const result = await runCli(fixture, fixture.repo, [
+      "register",
+      fixture.repo,
+      "--auto-config",
+    ]);
+
+    expect(result.code, result.stderr).toBe(0);
+    expect(result.stdout).toContain("Preserved existing: source validation");
+    const config = JSON.parse(
+      await readFile(join(fixture.runtime, "config.json"), "utf8"),
+    );
+    expect(config.repositories[0].sourceValidationCommands).toEqual([
+      [process.execPath, "--version"],
+    ]);
+    expect(config.repositories[0].integrationValidationCommands).toEqual([
+      ["npm", "run", "handoff:integration"],
+    ]);
+    expect(config.repositories[0].postIntegrationCommands).toEqual([]);
+  });
+
   it("reports NOT READY with actionable installation and validation failures", async () => {
     const fixture = await createFixture();
     await updateConfig(fixture, (config) => {
