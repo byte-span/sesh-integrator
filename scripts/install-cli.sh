@@ -1,0 +1,19 @@
+#!/bin/sh
+set -eu
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+project_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
+source_file="$project_dir/dist/cli.js"
+target_dir=${CODEX_HANDOFF_BIN_DIR:-"${HOME}/.local/bin"}
+target_file="$target_dir/codex-handoff"
+
+if [ ! -f "$source_file" ]; then
+  printf '%s\n' "Missing $source_file; run pnpm build first." >&2
+  exit 1
+fi
+
+mkdir -p "$target_dir"
+chmod +x "$source_file"
+ln -sfn "$source_file" "$target_file"
+
+printf '%s\n' "Installed codex-handoff at $target_file"

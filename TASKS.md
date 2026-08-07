@@ -1,158 +1,97 @@
 # TASKS.md
 
-Implement the complete personal MVP.
+Complete personal MVP implementation checklist.
 
 ## Foundation
 
-- [ ] Initialize pnpm + TypeScript + ESM
-- [ ] Enable strict TypeScript
-- [ ] Add build, typecheck, test scripts
-- [ ] Add minimal CLI
-- [ ] Keep module count small
+- [x] Initialize pnpm + TypeScript + ESM
+- [x] Enable strict TypeScript
+- [x] Add build, typecheck, test, and formatting scripts
+- [x] Add the six-command CLI
+- [x] Keep the module set small
 
-## Runtime Data
+## Runtime data and registration
 
-- [ ] Implement `~/.codex-handoff/` paths
-- [ ] Implement `init`
-- [ ] Implement JSON config
-- [ ] Implement lightweight JSON state
-- [ ] Implement atomic file writes where practical
+- [x] Create the separate `~/.codex-handoff/` namespace
+- [x] Implement idempotent `init`, JSON config/state, and atomic writes
+- [x] Implement `register` with real repository/common-dir resolution
+- [x] Detect and store the default branch
+- [x] Prevent duplicate registrations
+- [x] Default to `codex-handoff/integration`
 
-## Repository Registration
+## Session start
 
-- [ ] Implement `register`
-- [ ] Resolve Git repository root
-- [ ] Detect default branch
-- [ ] Prevent duplicate registrations
-- [ ] Default integration branch to `codex-handoff/integration`
+- [x] Implement `begin`
+- [x] Reject dirty worktrees, detached HEAD, default/integration branches, and duplicate active sessions
+- [x] Record worktree, branch, start commit, integration HEAD, timestamp, summary, and dependencies
+- [x] Reject unknown explicit dependencies
 
-## Session Start
+## One-shot integration
 
-- [ ] Implement `begin`
-- [ ] Detect worktree path
-- [ ] Reject dirty worktree
-- [ ] Reject detached HEAD
-- [ ] Reject default branch
-- [ ] Reject integration branch
-- [ ] Record start commit
-- [ ] Record integration HEAD at start
-- [ ] Record task summary
-- [ ] Record optional dependencies
-- [ ] Prevent duplicate active session per worktree
+- [x] Find the current worktree session and require a clean unchanged source branch
+- [x] Persist the exact ready commit, timestamp, and completion summary before integration
+- [x] Enforce explicit dependency results before and after lock acquisition
+- [x] Acquire an atomic per-repository lock with bounded waiting and owner metadata
+- [x] Refresh integration state after lock acquisition
+- [x] Create/reuse a dedicated integration worktree without resetting its branch
+- [x] Refuse dirty or unfinished integration worktrees
+- [x] Merge the exact ready SHA rather than a mutable branch
+- [x] Never modify the source worktree
 
-## One-Shot Integration
+## Conflict resolution, validation, and result
 
-- [ ] Implement `integrate`
-- [ ] Find active session
-- [ ] Require clean source worktree
-- [ ] Capture exact ready commit
-- [ ] Persist ready metadata before Git integration
-- [ ] Check dependencies
-- [ ] Acquire per-repo lock
-- [ ] Wait cleanly if another integration holds lock
-- [ ] Refresh integration state after lock acquisition
+- [x] Detect unmerged files and invoke Codex non-interactively
+- [x] Persist a prompt containing timing, summaries, commits, conflicts, later integrations, dependencies, `AGENTS.md`, and conflict instructions
+- [x] State that timestamps are context and do not determine precedence
+- [x] Verify all conflicts are resolved and staged
+- [x] Run integration validation commands in order and stop on first failure
+- [x] Commit only after successful validation
+- [x] Run post-integration commands only after the integration branch advances
+- [x] Preserve post-integration failures and the already-advanced commit for review
+- [x] Record the integration commit/result or `needs_review` error
+- [x] Preserve failed integration state for diagnosis and release the controlled lock
 
-## Integration Worktree
+## Lock reliability and status
 
-- [ ] Create dedicated integration worktree
-- [ ] Create integration branch when missing
-- [ ] Never reset existing integration branch
-- [ ] Refuse dirty integration worktree
-- [ ] Never modify source worktree
+- [x] Show lock waiting and owner details
+- [x] Detect a same-host dead owner
+- [x] Inspect merge/dirty state before limited stale-lock recovery
+- [x] Never blindly remove ambiguous or unfinished locks
+- [x] Implement status output for sessions, commits, times, paths, locks, and latest errors
 
-## Merge
+## Legacy audit
 
-- [ ] Merge exact ready commit SHA
-- [ ] Detect clean merge
-- [ ] Detect conflicted files
-- [ ] Do not merge mutable branch refs
+- [x] Implement read-only `audit-legacy`
+- [x] Detect likely source, runtime, skill, global instruction/config, LaunchAgent, launchctl, hook, branch, and worktree artifacts
+- [x] Print `FOUND` / `NOT FOUND` / `UNKNOWN` and safe disable guidance
+- [x] Never edit or delete legacy components
 
-## Conflict Resolution
+## Skill and global guidance
 
-- [ ] Build contextual conflict prompt
-- [ ] Include session start/ready timestamps
-- [ ] Include task/completion summaries
-- [ ] Include same-repo integrations after session start
-- [ ] Include explicit dependencies
-- [ ] Include repo `AGENTS.md`
-- [ ] Include repo conflict instructions
-- [ ] State explicitly that timestamps do not determine precedence
-- [ ] Invoke Codex non-interactively
-- [ ] Verify no unmerged paths remain
+- [x] Preserve and clarify `codex-handoff-workflow`
+- [x] Add an idempotent user-skill installation script
+- [x] Require begin before edits and configured source validation before completion
+- [x] Require a focused source commit and one-shot integrate
+- [x] Never invoke `codex-integrator`
+- [x] Supply global guidance with registration, read-only, branch, and self-repository guards
 
-## Validation / Commit
+## Disposable verification
 
-- [ ] Run source validation through skill workflow
-- [ ] Run integration validation inside integration worktree
-- [ ] Stop on first failed command
-- [ ] Commit only after all integration checks pass
-- [ ] Record integration commit and timestamp
-- [ ] Mark failed conflicts/checks `needs_review`
+- [x] Begin metadata and exact clean merge
+- [x] Concurrent finish serialization and refreshed integration state
+- [x] Fake-Codex conflict resolution with timing/later-integration context
+- [x] Earlier start time does not automatically win
+- [x] Explicit dependency blocking and retry
+- [x] Failed validation prevents a commit
+- [x] Post-integration ordering and failure preservation
+- [x] Unresolved conflict becomes `needs_review`
+- [x] Source worktrees remain untouched
+- [x] Dirty interrupted integration makes stale-lock recovery conservative
+- [x] Legacy audit does not mutate legacy fixtures
 
-## Lock Reliability
+## Documentation
 
-- [ ] Atomic lock acquisition
-- [ ] Lock owner metadata
-- [ ] Bounded waiting
-- [ ] Clear output while waiting
-- [ ] Detect obviously dead owner
-- [ ] Inspect integration worktree before stale-lock recovery
-- [ ] Release lock in controlled cleanup path
-
-## Status
-
-- [ ] Implement `status`
-- [ ] Show active sessions
-- [ ] Show succeeded / needs_review
-- [ ] Show current lock owner
-- [ ] Show integration worktree
-- [ ] Show latest error
-
-## Legacy Audit
-
-- [ ] Implement read-only `audit-legacy`
-- [ ] Detect old source directory
-- [ ] Detect old runtime state directory
-- [ ] Detect old skill
-- [ ] Detect global AGENTS references
-- [ ] Detect likely LaunchAgent
-- [ ] Detect running launchctl job
-- [ ] Detect Git-hook references
-- [ ] Detect integration branch collision
-- [ ] Print recommended disable steps
-- [ ] Never auto-delete old components
-
-## Skill
-
-- [ ] Preserve supplied skill design
-- [ ] Install skill under `~/.agents/skills/codex-handoff-workflow`
-- [ ] Skill calls `begin` before edits
-- [ ] Skill validates and commits before integration
-- [ ] Skill calls `integrate` at completion
-- [ ] Skill never invokes `codex-integrator`
-
-## Global Guidance
-
-- [ ] Provide exact snippet for `~/.codex/AGENTS.md`
-- [ ] Ensure it asks whether to register unconfigured repos
-- [ ] Ensure it does not trigger for read-only tasks
-- [ ] Ensure it invokes the new skill, not the legacy skill
-
-## Disposable Tests
-
-- [ ] Clean merge
-- [ ] Concurrent finishes / locking
-- [ ] Conflict resolution
-- [ ] Integration validation failure
-- [ ] Session A starts before B but integrates after B
-- [ ] Dependency behavior
-- [ ] Interrupted/stale lock scenario
-- [ ] Legacy audit does not mutate old system
-- [ ] Source worktrees remain untouched
-
-## Final Documentation
-
-- [ ] Update README with exact install commands
-- [ ] Document how to disable old daemon after new tool passes testing
-- [ ] Document rollback to old system
-- [ ] List known limitations
+- [x] Exact install, CLI, configuration, and test commands
+- [x] Disposable manual trial
+- [x] Old daemon audit/disable and rollback guidance
+- [x] Known limitations

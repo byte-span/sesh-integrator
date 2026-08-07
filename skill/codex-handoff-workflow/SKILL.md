@@ -45,7 +45,8 @@ Before modifying files:
 Before saying the task is complete:
 
 1. Inspect the task diff and `git status`.
-2. Run the repository's configured source validation commands.
+2. Read the matching repository entry in `~/.codex-handoff/config.json` and run each
+   `sourceValidationCommands` argument array directly, in order, from the source worktree.
 3. If validation fails, stop. Do not integrate.
 4. If task changes are uncommitted:
    - confirm they belong to this task

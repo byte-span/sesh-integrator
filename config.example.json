@@ -4,6 +4,8 @@
   "repositories": [
     {
       "path": "/Users/you/Developer/my-project",
+      "gitCommonDir": "/Users/you/Developer/my-project/.git",
+      "defaultBranch": "main",
       "integrationBranch": "codex-handoff/integration",
       "sourceValidationCommands": [
         ["pnpm", "typecheck"],
@@ -13,6 +15,7 @@
         ["pnpm", "typecheck"],
         ["pnpm", "test"]
       ],
+      "postIntegrationCommands": [["pnpm", "build"]],
       "conflictInstructions": "Preserve compatible intent from both changes. Follow repository AGENTS.md and current architecture."
     }
   ]

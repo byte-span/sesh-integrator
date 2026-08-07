@@ -1,6 +1,6 @@
 # codex-handoff global workflow
 
-For code-changing work inside a Git repository:
+For code-changing work inside a Git repository (except for `codex-handoff` itself):
 
 1. Use `$codex-handoff-workflow` before making edits.
 2. If the repository is not registered with `codex-handoff`, ask whether to register it.

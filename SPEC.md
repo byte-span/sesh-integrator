@@ -113,6 +113,7 @@ Example `~/.codex-handoff/config.json`:
         ["pnpm", "typecheck"],
         ["pnpm", "test"]
       ],
+      "postIntegrationCommands": [["pnpm", "build"]],
       "conflictInstructions": "Preserve both task intents when compatible and follow repository AGENTS.md."
     }
   ]
@@ -154,6 +155,8 @@ Add a repository entry using:
 - empty conflict instructions
 
 If already registered, show current config instead of duplicating it.
+
+Registration initializes an empty post-integration command list.
 
 ## 8. `begin`
 
@@ -300,9 +303,15 @@ If merge is clean:
 1. run integration validation
 2. if successful, create merge commit
 3. record integration commit and timestamp
-4. mark session succeeded
-5. release lock
-6. exit 0
+4. run post-integration commands in order after the integration branch advances
+5. mark session succeeded
+6. release lock
+7. exit 0
+
+If a post-integration command fails, preserve the already-advanced integration
+commit and command output, mark the session `needs_review`, release the lock, and
+exit non-zero. Do not run post-integration commands when the ready commit was
+already present and the integration branch did not advance.
 
 ### 10.7 Conflict
 
@@ -432,3 +441,5 @@ The MVP is ready when disposable repo tests prove:
 11. Integration validation failure is not committed.
 12. Source worktrees are untouched.
 13. Old daemon components are only audited, never silently removed.
+14. Post-integration commands run only after the integration branch advances.
+15. A post-integration failure preserves the advanced commit and command result.

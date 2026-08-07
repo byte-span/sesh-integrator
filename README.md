@@ -1,159 +1,219 @@
 # codex-handoff
 
-A personal one-shot integration workflow for parallel Codex worktrees.
-
-It is intended as a simpler alternative to an always-running watcher/daemon.
-
-## Core Flow
+`codex-handoff` is a personal, one-shot Git integration CLI for Codex sessions working in parallel worktrees. It has no daemon, watcher, polling service, LaunchAgent, or background queue.
 
 ```text
-Codex starts coding task
-→ codex-handoff begin records session/base commit
-
-Codex finishes task
-→ validates
-→ creates focused source commit
+codex-handoff begin
+→ Codex changes, validates, and commits its source branch
 → codex-handoff integrate
-
-codex-handoff
-→ waits for per-repo lock if necessary
-→ merges exact commit
-→ asks Codex to resolve conflicts
-→ runs integration tests
-→ commits result
-→ exits
+→ acquire the repository lock
+→ merge the exact ready commit in a dedicated integration worktree
+→ resolve conflicts with Codex if needed
+→ validate, commit, record the result, release the lock, and exit
 ```
 
-## No Background Service
-
-There is no:
-
-- daemon
-- watcher
-- polling
-- LaunchAgent
-- long-running queue process
-
-Simultaneous finishes are serialized with a short-lived per-repository lock.
-
-## New vs Old
-
-Keep these separate:
+The new runtime and branch are deliberately separate from the legacy daemon:
 
 ```text
-OLD
-~/Developer/tools/codex-integrator
-~/.codex-integrator
-
-NEW
-~/Developer/tools/codex-handoff
-~/.codex-handoff
+new: ~/.codex-handoff/       codex-handoff/integration
+old: ~/.codex-integrator/    codex/integration
 ```
 
-New default integration branch:
+## Requirements and installation
 
-```text
-codex-handoff/integration
-```
+- Node.js 20 or newer
+- Git
+- pnpm
+- the `codex` executable when automatic conflict resolution is needed
 
-See `LEGACY_MIGRATION.md` before enabling the new workflow on real projects.
-
-## Files in This Implementation Pack
-
-```text
-AGENTS.md
-SPEC.md
-TASKS.md
-LEGACY_MIGRATION.md
-INITIAL_PROMPT.md
-GLOBAL_AGENTS_SNIPPET.md
-config.example.json
-skill/
-└── codex-handoff-workflow/
-    ├── SKILL.md
-    └── agents/
-        └── openai.yaml
-```
-
-## Build Location
-
-Create:
+From this repository:
 
 ```bash
-mkdir -p ~/Developer/tools/codex-handoff
-cd ~/Developer/tools/codex-handoff
-git init
+corepack enable
+pnpm install
+pnpm build
+./scripts/install-cli.sh
+codex-handoff init
+./scripts/install-skill.sh
 ```
 
-Copy this documentation pack into that repository.
+The CLI installer creates an idempotent symlink in `~/.local/bin`, which must be on `PATH`. Set `CODEX_HANDOFF_BIN_DIR` to choose another user-writable bin directory.
 
-Then start Codex there and paste the contents of:
+`scripts/install-skill.sh` idempotently installs the supplied skill at `~/.agents/skills/codex-handoff-workflow/`. It accepts an alternate destination for testing:
 
-```text
-INITIAL_PROMPT.md
+```bash
+./scripts/install-skill.sh /tmp/codex-handoff-skill
 ```
 
-## Expected CLI After Implementation
+Finally, copy [GLOBAL_AGENTS_SNIPPET.md](./GLOBAL_AGENTS_SNIPPET.md) into `~/.codex/AGENTS.md`. It excludes this tool's own repository, read-only tasks, default branches, and the integration branch.
+
+## Commands
+
+These are the complete commands implemented by the MVP:
 
 ```bash
 codex-handoff init
+codex-handoff register [repo-path]
+codex-handoff begin --summary "Implement feature" [--depends-on <session-id>]...
+codex-handoff integrate --summary "Implemented feature and tests"
+codex-handoff status
 codex-handoff audit-legacy
+```
 
+There are no `run`, `daemon`, `watch`, or service-management commands.
+
+### `init`
+
+Creates, without overwriting an existing configuration:
+
+```text
+~/.codex-handoff/
+├── config.json
+├── state.json
+├── sessions/
+├── locks/
+├── logs/
+└── worktrees/
+```
+
+Set `CODEX_HANDOFF_HOME` to use a different runtime root, including in tests.
+
+### `register`
+
+Run once for each repository:
+
+```bash
 cd ~/Developer/my-project
 codex-handoff register
-codex-handoff begin --summary "Implement feature"
-codex-handoff integrate --summary "Implemented feature and tests"
+```
+
+Registration records the real Git common directory, detected default branch, default integration branch, empty validation and post-integration command lists, and empty conflict instructions. Re-registering prints the existing entry rather than adding a duplicate.
+
+Edit `~/.codex-handoff/config.json` to add validation and conflict settings. Commands are argument arrays and are never passed through a shell:
+
+```json
+{
+  "lockWaitSeconds": 900,
+  "codexCommand": "codex",
+  "repositories": [
+    {
+      "path": "/Users/you/Developer/my-project",
+      "gitCommonDir": "/Users/you/Developer/my-project/.git",
+      "defaultBranch": "main",
+      "integrationBranch": "codex-handoff/integration",
+      "sourceValidationCommands": [
+        ["pnpm", "typecheck"],
+        ["pnpm", "test"]
+      ],
+      "integrationValidationCommands": [
+        ["pnpm", "typecheck"],
+        ["pnpm", "test"]
+      ],
+      "postIntegrationCommands": [["pnpm", "build"]],
+      "conflictInstructions": "Preserve compatible intent and follow repository AGENTS.md."
+    }
+  ]
+}
+```
+
+The workflow skill runs `sourceValidationCommands` before it creates the focused source commit. The CLI runs `integrationValidationCommands` in the dedicated integration worktree and commits only if every command succeeds. After that commit advances the integration branch, it runs `postIntegrationCommands` sequentially from the integration worktree. All commands are argument arrays and are executed directly without a shell.
+
+### `begin`
+
+Run from a clean feature worktree:
+
+```bash
+codex-handoff begin --summary "Implement comment editing"
+```
+
+Repeat `--depends-on` for explicit dependencies. `begin` rejects unregistered or dirty worktrees, detached HEAD, the default branch, the integration branch, unknown dependencies, and a duplicate active session.
+
+### `integrate`
+
+After source validation and a focused source commit:
+
+```bash
+codex-handoff integrate --summary "Implemented comment editing and tests"
+```
+
+The ready SHA and timestamp are persisted before dependency or lock checks. Dependencies must already have succeeded. Simultaneous processes wait on an atomic per-repository directory lock, then merge against the current integration branch. The mutable source branch name is never merged.
+
+Conflicts invoke `codex exec --full-auto -` from the integration worktree, with the contextual prompt on stdin. The prompt is also saved under `~/.codex-handoff/logs/`. It includes session timing, summaries, explicit dependencies, later successful integrations, conflicted files, repository instructions, and an explicit rule that start time does not determine precedence.
+
+Validation failure or unresolved conflict leaves the integration worktree intact, records `needs_review`, releases the one-shot lock, and exits nonzero. A failed post-integration command also records `needs_review`, but preserves the integration commit because the branch has already advanced; its command, exit code, stdout, and stderr remain in the session record for diagnosis. Post-integration commands are skipped when the ready commit was already present and the branch did not advance. The source worktree is never modified.
+
+### `status`
+
+```bash
 codex-handoff status
 ```
 
-Normally the global skill will run `begin` and `integrate` for you.
+Shows every session, active/ready/waiting/succeeded/`needs_review` state, timestamps, commits, worktree paths, latest error, and current lock owners.
 
-## Each Managed Project Needs
+If a process dies, a same-host dead-PID lock is removed automatically only when the integration worktree is verifiably clean and has no merge in progress. Otherwise the lock and worktree are preserved with manual recovery guidance. A missing owner record or remote-host owner is treated conservatively.
 
-Only:
+## Disposable-repository verification
 
-1. Git repository
-2. its own Codex branch/worktree
-3. one-time `codex-handoff register`
-4. validation commands configured in `~/.codex-handoff/config.json`
-5. optional project `AGENTS.md`
+The Vitest suite creates only disposable temporary Git repositories and uses fake Codex executables for deterministic conflicts:
 
-No daemon code or skill files need to be copied into each project.
-
-## Skill
-
-Install one user-level skill:
-
-```text
-~/.agents/skills/codex-handoff-workflow/
+```bash
+pnpm format:check
+pnpm typecheck
+pnpm test
+pnpm build
 ```
 
-Then add the supplied global guidance to:
+It proves begin metadata, exact clean merges, simultaneous serialization, refreshed integration state, contextual conflict resolution, non-precedence of start time, dependencies, validation failure, unresolved conflicts, untouched source worktrees, conservative stale-lock behavior, and read-only legacy audit.
 
-```text
-~/.codex/AGENTS.md
+A manual clean-merge trial can also be run:
+
+```bash
+trial_dir=$(mktemp -d)
+git init -b main "$trial_dir/repo"
+git -C "$trial_dir/repo" config user.name "Handoff Test"
+git -C "$trial_dir/repo" config user.email "handoff@example.com"
+touch "$trial_dir/repo/base.txt"
+git -C "$trial_dir/repo" add base.txt
+git -C "$trial_dir/repo" commit -m base
+codex-handoff register "$trial_dir/repo"
+git -C "$trial_dir/repo" worktree add -b codex/demo "$trial_dir/demo" main
+cd "$trial_dir/demo"
+codex-handoff begin --summary "Disposable demo"
+echo demo > demo.txt
+git add demo.txt
+git commit -m "Add demo"
+codex-handoff integrate --summary "Added disposable demo"
+git -C "$trial_dir/repo" log --oneline --graph codex-handoff/integration
 ```
 
-That makes Codex consistently check the handoff workflow at the start and end of code-changing tasks.
+## Auditing and disabling the old daemon
 
-## Legacy System
-
-Run:
+First run the read-only audit:
 
 ```bash
 codex-handoff audit-legacy
 ```
 
-before real use.
+It reports `FOUND`, `NOT FOUND`, or `UNKNOWN` for the old source/runtime, skill, global instructions, Codex config, likely LaunchAgent, loaded launchctl jobs, registered-repository hooks, and old integration branches/worktrees. It changes none of them.
 
-The new tool should tell you what old daemon components are active and what to disable.
+The legacy project's current documented macOS commands are:
 
-Do not run both integration systems against the same repository at the same time.
+```bash
+codex-integrator daemon status
+codex-integrator daemon stop
+codex-integrator daemon uninstall
+```
 
-## Known Limitation
+Run those only after the disposable test passes. Then review and disable the old `~/.agents/skills/codex-integrator-workflow`, remove only legacy `codex-integrator` guidance from `~/.codex/AGENTS.md`, and inspect each repository's `core.hooksPath` and hook files. Do not delete the old source, state, worktrees, or `codex/integration` branch during the initial trial.
 
-The skill workflow is instruction-driven. If a Codex session crashes before completion, no one-shot integration runs.
+For rollback, stop invoking the new skill, restore the previous global guidance, re-enable the old skill, and restart the old daemon using its own documented command. The separate state directories and integration branches make that reversible.
 
-The source work remains on its branch/worktree and can be integrated later manually.
+## Known limitations
 
-This is intentionally simpler than a continuously running daemon.
+- Skill invocation and source commit creation are instruction-driven. A crashed Codex session must be resumed manually.
+- The tool does not fetch, push, force-push, delete branches, or update the default branch.
+- One preserved `needs_review` merge blocks further integrations for that repository until a human safely resolves or cleans the dedicated integration worktree and lock state.
+- Dependency checks fail clearly rather than running a background waiter; retry after dependencies succeed.
+- Automatic conflict resolution requires a compatible local `codex exec` command. `codexCommand` is a single executable path, not a shell command.
+- Stale-lock recovery is intentionally narrow. Ambiguous, dirty, unfinished, missing-metadata, or other-host cases require manual inspection.
+- JSON state is designed for a personal local tool, not distributed or multi-host coordination.
