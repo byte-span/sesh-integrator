@@ -197,7 +197,7 @@ Run one read-only readiness check from the project you intend to use:
 codex-handoff doctor
 ```
 
-It checks Node.js, Git, the configured Codex executable, runtime/config files, the installed workflow skill, global guidance, current-project registration, source and integration validation commands, active locks, and conflicting legacy automation. It prints `READY`, `READY WITH ... WARNINGS`, or `NOT READY` with actionable details. A `NOT READY` result exits nonzero. Warnings cover checks that could not be confirmed safely, such as an unavailable `launchctl` query.
+It checks Node.js, Git, the configured Codex executable, runtime/config files, the installed workflow skill, synchronized global guidance without stale branch prohibitions, current-project registration, source and integration validation commands, active locks, and conflicting legacy automation. It prints `READY`, `READY WITH ... WARNINGS`, or `NOT READY` with actionable details. A `NOT READY` result exits nonzero. Warnings cover checks that could not be confirmed safely, such as an unavailable `launchctl` query.
 
 ## Disposable-repository verification
 

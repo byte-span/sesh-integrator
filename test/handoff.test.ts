@@ -648,7 +648,7 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     await mkdir(join(fixture.auditHome, ".codex"), { recursive: true });
     await writeFile(
       join(fixture.auditHome, ".codex", "AGENTS.md"),
-      "Use codex-handoff-workflow.\n",
+      await readFile(join(process.cwd(), "GLOBAL_AGENTS_SNIPPET.md"), "utf8"),
     );
     await mkdir(join(fixture.auditHome, "Library", "LaunchAgents"), {
       recursive: true,
@@ -665,6 +665,26 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     expect(result.stdout).toContain("READY");
     expect(await snapshot(fixture.auditHome)).toEqual(beforeHome);
     expect(await snapshot(fixture.runtime)).toEqual(beforeRuntime);
+  });
+
+  it("reports stale global detached/default-branch guidance", async () => {
+    const fixture = await createFixture();
+    await updateConfig(fixture, (config) => {
+      config.codexCommand = process.execPath;
+    });
+    await mkdir(join(fixture.auditHome, ".codex"), { recursive: true });
+    await writeFile(
+      join(fixture.auditHome, ".codex", "AGENTS.md"),
+      "Use codex-handoff-workflow. Do not begin the workflow on the repository default branch.\n",
+    );
+
+    const result = await runCli(fixture, fixture.repo, ["doctor"]);
+
+    expect(result.code).toBe(1);
+    expect(result.stdout).toContain("FAIL  Global guidance");
+    expect(result.stdout).toContain(
+      "contains a stale detached/default-branch prohibition",
+    );
   });
 
   it("auto-configures safe package scripts for an existing registration", async () => {

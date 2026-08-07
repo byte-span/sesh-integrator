@@ -403,7 +403,8 @@ Check:
 
 - Node.js, Git, and the configured Codex executable
 - runtime and configuration integrity
-- installed workflow skill and global guidance
+- installed workflow skill and global guidance synchronized with the bundled
+  policy and free of stale detached/default-branch prohibitions
 - current repository registration
 - configured source and integration validation commands
 - active integration locks

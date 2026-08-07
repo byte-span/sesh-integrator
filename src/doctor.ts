@@ -99,15 +99,32 @@ export async function doctorCommand(cwd = process.cwd()): Promise<void> {
   }
 
   const agentsPath = join(home, ".codex", "AGENTS.md");
+  const bundledGuidancePath = fileURLToPath(
+    new URL("../GLOBAL_AGENTS_SNIPPET.md", import.meta.url),
+  );
   try {
-    const guidance = await readFile(agentsPath, "utf8");
+    const [guidance, bundledGuidance] = await Promise.all([
+      readFile(agentsPath, "utf8"),
+      readFile(bundledGuidancePath, "utf8"),
+    ]);
+    const normalizedGuidance = normalizeText(guidance);
+    const normalizedBundledGuidance = normalizeText(bundledGuidance);
+    const conflictingBranchRule =
+      /do not begin[^.\n]{0,160}(?:default branch|detached)/i.test(
+        normalizedGuidance,
+      );
     checks.push(
-      /codex-handoff-workflow/.test(guidance)
-        ? pass("Global guidance", agentsPath)
-        : fail(
+      conflictingBranchRule
+        ? fail(
             "Global guidance",
-            `${agentsPath} does not reference codex-handoff-workflow`,
-          ),
+            `${agentsPath} contains a stale detached/default-branch prohibition; synchronize it with ${bundledGuidancePath}`,
+          )
+        : normalizedGuidance.includes(normalizedBundledGuidance)
+          ? pass("Global guidance", agentsPath)
+          : fail(
+              "Global guidance",
+              `${agentsPath} differs from the bundled policy; synchronize it with ${bundledGuidancePath}`,
+            ),
     );
   } catch (error) {
     checks.push(fail("Global guidance", errorMessage(error)));
@@ -337,4 +354,8 @@ function fail(label: string, detail: string): Check {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function normalizeText(value: string): string {
+  return value.replaceAll("\r\n", "\n").trim();
 }
