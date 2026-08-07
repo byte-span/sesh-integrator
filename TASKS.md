@@ -23,7 +23,8 @@ Complete personal MVP implementation checklist.
 ## Session start
 
 - [x] Implement `begin`
-- [x] Reject dirty worktrees, detached HEAD, default/integration branches, and duplicate active sessions
+- [x] Reject dirty/integration worktrees and duplicate active sessions, with an explicit strict opt-out for detached/default branches
+- [x] Let the workflow safely auto-create a unique task branch from clean detached/default-branch worktrees
 - [x] Record worktree, branch, start commit, integration HEAD, timestamp, summary, and dependencies
 - [x] Reject unknown explicit dependencies
 

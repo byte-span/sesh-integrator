@@ -39,6 +39,76 @@ afterEach(async () => {
 });
 
 describe.sequential("codex-handoff disposable repository workflow", () => {
+  it("automatically creates a task branch from a clean detached worktree", async () => {
+    const fixture = await createFixture();
+    const detachedPath = join(fixture.root, "detached");
+    git(fixture.repo, "worktree", "add", "--detach", detachedPath, "main");
+    const worktree = await realpath(detachedPath);
+    const startCommit = git(worktree, "rev-parse", "HEAD");
+
+    const result = await runCli(fixture, worktree, [
+      "begin",
+      "--summary",
+      "detached task",
+    ]);
+
+    expect(result.code, result.stderr).toBe(0);
+    const branch = git(worktree, "branch", "--show-current");
+    expect(branch).toMatch(/^codex\/session-[a-z0-9-]+$/);
+    expect(result.stdout).toContain(`Created task branch ${branch}`);
+    const active = (await sessions(fixture))[0]!;
+    expect(active.branch).toBe(branch);
+    expect(active.startCommit).toBe(startCommit);
+  });
+
+  it("automatically leaves the default branch for a clean task", async () => {
+    const fixture = await createFixture();
+    const startCommit = git(fixture.repo, "rev-parse", "HEAD");
+
+    await runCliOk(fixture, fixture.repo, [
+      "begin",
+      "--summary",
+      "default branch task",
+    ]);
+
+    const branch = git(fixture.repo, "branch", "--show-current");
+    expect(branch).toMatch(/^codex\/session-[a-z0-9-]+$/);
+    const active = (await sessions(fixture))[0]!;
+    expect(active.branch).toBe(branch);
+    expect(active.startCommit).toBe(startCommit);
+  });
+
+  it("does not create an automatic branch when the worktree is dirty", async () => {
+    const fixture = await createFixture();
+    await writeFile(join(fixture.repo, "dirty.txt"), "dirty\n");
+
+    const result = await runCli(fixture, fixture.repo, [
+      "begin",
+      "--summary",
+      "dirty task",
+    ]);
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("Worktree must be clean before begin");
+    expect(git(fixture.repo, "branch", "--show-current")).toBe("main");
+    expect(await sessions(fixture)).toEqual([]);
+  });
+
+  it("supports opting out of automatic branch creation", async () => {
+    const fixture = await createFixture();
+
+    const result = await runCli(fixture, fixture.repo, [
+      "begin",
+      "--summary",
+      "strict task",
+      "--no-auto-branch",
+    ]);
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("Cannot begin on default branch main");
+    expect(git(fixture.repo, "branch", "--show-current")).toBe("main");
+  });
+
   it("records begin metadata, cleanly merges the exact commit, and leaves the source untouched", async () => {
     const fixture = await createFixture();
     const worktree = await addWorktree(fixture, "feature-clean");

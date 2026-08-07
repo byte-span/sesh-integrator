@@ -26,7 +26,11 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
       break;
     case "begin": {
       const options = parseOptions(args, true);
-      await beginCommand(options.summary, options.dependsOn);
+      await beginCommand(
+        options.summary,
+        options.dependsOn,
+        options.autoBranch,
+      );
       break;
     }
     case "integrate": {
@@ -60,9 +64,10 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
 function parseOptions(
   args: string[],
   allowDependencies: boolean,
-): { summary: string; dependsOn: string[] } {
+): { summary: string; dependsOn: string[]; autoBranch: boolean } {
   let summary = "";
   const dependsOn: string[] = [];
+  let autoBranch = true;
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
     const value = args[index + 1];
@@ -76,11 +81,15 @@ function parseOptions(
     ) {
       dependsOn.push(value);
       index += 1;
+    } else if (allowDependencies && argument === "--auto-branch") {
+      autoBranch = true;
+    } else if (allowDependencies && argument === "--no-auto-branch") {
+      autoBranch = false;
     } else {
       throw new Error(`Unknown or incomplete option: ${argument}`);
     }
   }
-  return { summary, dependsOn };
+  return { summary, dependsOn, autoBranch };
 }
 
 function rejectArguments(args: string[]): void {
@@ -107,7 +116,7 @@ function parseRegisterOptions(args: string[]): {
   return { path, autoConfig };
 }
 
-const helpText = `codex-handoff - one-shot Git integration\n\nUsage:\n  codex-handoff init\n  codex-handoff register [repo-path] [--auto-config]\n  codex-handoff begin --summary \"...\" [--depends-on <session-id>]...\n  codex-handoff integrate --summary \"...\"\n  codex-handoff status\n  codex-handoff audit-legacy\n  codex-handoff doctor\n`;
+const helpText = `codex-handoff - one-shot Git integration\n\nUsage:\n  codex-handoff init\n  codex-handoff register [repo-path] [--auto-config]\n  codex-handoff begin --summary \"...\" [--no-auto-branch] [--depends-on <session-id>]...\n  codex-handoff integrate --summary \"...\"\n  codex-handoff status\n  codex-handoff audit-legacy\n  codex-handoff doctor\n`;
 
 if (isMainModule()) {
   main().catch((error: unknown) => {

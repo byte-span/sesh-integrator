@@ -123,11 +123,13 @@ A repository may override it in config.
 - task summary
 - optional dependencies
 
+Automatically create a unique task branch from a clean detached HEAD or the
+registered default branch. Allow explicit strict rejection with
+`--no-auto-branch`.
+
 Reject:
 
 - dirty worktree
-- detached HEAD
-- default branch
 - integration branch
 - unregistered repo
 - duplicate active session for the same worktree

@@ -119,6 +119,7 @@ async function autoConfigureRepository(
 export async function beginCommand(
   summary: string,
   dependsOn: string[],
+  autoBranch = true,
 ): Promise<Session> {
   if (!summary.trim()) throw new Error('begin requires --summary "..."');
   const context = await inspectGit(process.cwd());
@@ -126,9 +127,6 @@ export async function beginCommand(
   const repository = findRepository(config, context.gitCommonDir);
   if (!(await isClean(context.worktreePath)))
     throw new Error("Worktree must be clean before begin");
-  if (!context.branch) throw new Error("Cannot begin on a detached HEAD");
-  if (context.branch === repository.defaultBranch)
-    throw new Error(`Cannot begin on default branch ${context.branch}`);
   if (context.branch === repository.integrationBranch) {
     throw new Error(`Cannot begin on integration branch ${context.branch}`);
   }
@@ -145,17 +143,28 @@ export async function beginCommand(
       throw new Error(`Unknown dependency session: ${dependency}`);
     }
   }
+  const sessionId = makeSessionId();
+  let branch = context.branch;
+  if (!branch || branch === repository.defaultBranch) {
+    if (!autoBranch) {
+      if (!branch) throw new Error("Cannot begin on a detached HEAD");
+      throw new Error(`Cannot begin on default branch ${branch}`);
+    }
+    branch = `codex/${sessionId.replaceAll("_", "-")}`;
+    await git(["switch", "-c", branch], context.worktreePath);
+    process.stdout.write(`Created task branch ${branch}\n`);
+  }
   const integrationCommitAtStart = await refCommit(
     repository.path,
     `refs/heads/${repository.integrationBranch}`,
   );
   const session: Session = {
-    id: makeSessionId(),
+    id: sessionId,
     status: "active",
     repositoryPath: repository.path,
     repositoryId: repoId(repository.gitCommonDir),
     worktreePath: context.worktreePath,
-    branch: context.branch,
+    branch,
     startCommit: context.head,
     integrationCommitAtStart,
     startedAt: new Date().toISOString(),

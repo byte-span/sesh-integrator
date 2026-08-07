@@ -45,7 +45,7 @@ The CLI installer creates an idempotent symlink in `~/.local/bin`, which must be
 ./scripts/install-skill.sh /tmp/codex-handoff-skill
 ```
 
-Finally, copy [GLOBAL_AGENTS_SNIPPET.md](./GLOBAL_AGENTS_SNIPPET.md) into `~/.codex/AGENTS.md`. It excludes this tool's own repository, read-only tasks, default branches, and the integration branch.
+Finally, copy [GLOBAL_AGENTS_SNIPPET.md](./GLOBAL_AGENTS_SNIPPET.md) into `~/.codex/AGENTS.md`. It excludes this tool's own repository, read-only tasks, and the integration branch while allowing the skill to leave detached/default-branch worktrees safely.
 
 ## Commands
 
@@ -54,7 +54,7 @@ These are the complete commands implemented by the MVP:
 ```bash
 codex-handoff init
 codex-handoff register [repo-path] [--auto-config]
-codex-handoff begin --summary "Implement feature" [--depends-on <session-id>]...
+codex-handoff begin --summary "Implement feature" [--no-auto-branch] [--depends-on <session-id>]...
 codex-handoff integrate --summary "Implemented feature and tests"
 codex-handoff status
 codex-handoff audit-legacy
@@ -155,13 +155,15 @@ The workflow skill runs `sourceValidationCommands` before it creates the focused
 
 ### `begin`
 
-Run from a clean feature worktree:
+The workflow skill starts from any clean source worktree:
 
 ```bash
 codex-handoff begin --summary "Implement comment editing"
 ```
 
-Repeat `--depends-on` for explicit dependencies. `begin` rejects unregistered or dirty worktrees, detached HEAD, the default branch, the integration branch, unknown dependencies, and a duplicate active session.
+`begin` creates a unique `codex/session-...` branch when the worktree is detached or on the registered default branch, so Codex-created worktrees require no manual branch setup. Existing non-default branches are unchanged. Automatic branching requires a clean worktree and never runs on the integration branch.
+
+Repeat `--depends-on` for explicit dependencies. Pass `--no-auto-branch` only when strict detached/default-branch rejection is desired. `begin` always rejects unregistered or dirty worktrees, the integration branch, unknown dependencies, and duplicate active sessions.
 
 ### `integrate`
 

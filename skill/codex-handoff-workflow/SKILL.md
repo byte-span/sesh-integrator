@@ -1,6 +1,6 @@
 ---
 name: codex-handoff-workflow
-description: Use for code-changing tasks in Git worktrees that should be integrated by the local codex-handoff tool. At task start, record the session/base commit; at successful completion, validate, create a focused commit when safe, and run one-shot integration. Do not use for read-only tasks, default branches, the codex-handoff integration branch, or the legacy codex-integrator daemon workflow.
+description: Use for code-changing tasks in Git worktrees that should be integrated by the local codex-handoff tool. At task start, safely create a task branch when needed and record the session/base commit; at successful completion, validate, create a focused commit when safe, and run one-shot integration. Do not use for read-only tasks, the codex-handoff integration branch, or the legacy codex-integrator daemon workflow.
 ---
 
 # Codex Handoff Workflow
@@ -21,6 +21,10 @@ Before modifying files:
    codex-handoff begin --summary "<concise task summary>"
    ```
 
+   `begin` creates a unique `codex/session-...` branch when the clean worktree
+   is detached or on the registered default branch. It leaves an existing
+   non-default branch unchanged.
+
 4. If the repository is not registered, ask the user whether to register it.
 5. If approved:
 
@@ -29,7 +33,7 @@ Before modifying files:
    codex-handoff begin --summary "<concise task summary>"
    ```
 
-6. If the worktree is dirty, detached, on the default branch, or on the handoff integration branch, stop and explain.
+6. If the worktree is dirty or on the handoff integration branch, stop and explain. Never create or switch a branch manually as a workaround for `begin`.
 7. If the user explicitly says this work depends on another handoff session, pass its ID with `--depends-on`.
 8. Do not infer dependencies from start time alone.
 

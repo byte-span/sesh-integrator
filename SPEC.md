@@ -208,8 +208,9 @@ Requirements:
 
 - repo registered
 - worktree clean
-- branch is not detached
-- branch is not repo default branch
+- a detached/default-branch worktree is switched to a unique
+  `codex/session-...` branch before the session is recorded
+- `--no-auto-branch` retains strict rejection when explicitly requested
 - branch is not integration branch
 - no active session already attached to this worktree
 
