@@ -53,7 +53,7 @@ These are the complete commands implemented by the MVP:
 
 ```bash
 codex-handoff init
-codex-handoff register [repo-path]
+codex-handoff register [repo-path] [--auto-config]
 codex-handoff begin --summary "Implement feature" [--depends-on <session-id>]...
 codex-handoff integrate --summary "Implemented feature and tests"
 codex-handoff status
@@ -89,6 +89,40 @@ codex-handoff register
 ```
 
 Registration records the real Git common directory, detected default branch, default integration branch, empty validation and post-integration command lists, and empty conflict instructions. Re-registering prints the existing entry rather than adding a duplicate.
+
+Pass `--auto-config` to populate empty command lists from safe root
+`package.json` scripts. It works both during initial registration and when a
+repository is already registered:
+
+```bash
+codex-handoff register --auto-config
+```
+
+For pnpm, Yarn, npm, and Bun projects, auto-configuration detects
+`format:check`, `typecheck`, `lint`, and `test` for source validation, then adds
+`build` for integration validation. It ignores scripts such as end-to-end
+tests, deployment, and release commands. Existing non-empty command lists are
+never replaced.
+
+Repositories can opt into explicit aggregate scripts. `handoff:source` and
+`handoff:integration` override the detected validation lists, while
+`handoff:post-integration` is the only package script automatically selected
+for post-integration work:
+
+```json
+{
+  "scripts": {
+    "handoff:source": "pnpm format:check && pnpm typecheck && pnpm test",
+    "handoff:integration": "pnpm handoff:source && pnpm build",
+    "handoff:post-integration": "node scripts/notify-integration.mjs"
+  }
+}
+```
+
+Auto-configuration never executes the detected scripts. It only writes their
+argument arrays to `~/.codex-handoff/config.json`. If no supported scripts are
+found, registration still succeeds and reports that the command lists remain
+unconfigured.
 
 Edit `~/.codex-handoff/config.json` to add validation and conflict settings. Commands are argument arrays and are never passed through a shell:
 
