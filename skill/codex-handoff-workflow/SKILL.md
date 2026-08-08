@@ -52,15 +52,15 @@ Before modifying files:
 Before saying the task is complete:
 
 1. Inspect the task diff and `git status`.
-2. Read the matching repository entry in `~/.codex-handoff/config.json` and run each
-   `sourceValidationCommands` argument array directly, in order, from the source worktree.
-3. If validation fails, stop. Do not integrate.
-4. If task changes are uncommitted:
+2. If task changes are uncommitted:
    - confirm they belong to this task
    - confirm the branch is safe
    - create one focused commit using repository conventions
-5. If unrelated/ambiguous changes are present, ask before staging or committing.
-6. Require a clean worktree.
+3. If unrelated/ambiguous changes are present, ask before staging or committing.
+4. Require a clean worktree.
+5. Run `codex-handoff validate`. It chooses configured validation commands from
+   the exact committed diff; do not manually substitute a cheaper tier.
+6. If validation fails, stop. Do not integrate.
 7. Run:
 
    ```bash

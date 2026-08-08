@@ -77,6 +77,7 @@ export async function readConfig(): Promise<Config> {
   }
   for (const repository of value.repositories) {
     repository.setupCommands ??= [];
+    repository.validationTiers ??= [];
     repository.postIntegrationCommands ??= [];
   }
   value.conflictResolutionMode ??= "current-session";

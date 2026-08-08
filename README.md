@@ -4,7 +4,8 @@
 
 ```text
 codex-handoff begin
-→ Codex changes, validates, and commits its source branch
+→ Codex changes and commits its source branch
+→ codex-handoff validate
 → codex-handoff integrate
 → acquire the repository lock
 → merge the exact ready commit in a dedicated integration worktree
@@ -56,6 +57,7 @@ These are the complete commands implemented by the MVP:
 codex-handoff init
 codex-handoff register [repo-path] [--auto-config] [--setup-command '<json-array>']...
 codex-handoff begin --summary "Implement feature" [--no-auto-branch] [--depends-on <session-id>]...
+codex-handoff validate
 codex-handoff integrate --summary "Implemented feature and tests"
 codex-handoff resume
 codex-handoff status
@@ -159,9 +161,19 @@ Edit `~/.codex-handoff/config.json` to add validation and conflict settings. Com
       ],
       "integrationValidationCommands": [
         ["pnpm", "typecheck"],
-        ["pnpm", "test"]
+        ["pnpm", "test"],
+        ["pnpm", "build"]
       ],
-      "postIntegrationCommands": [["pnpm", "build"]],
+      "validationTiers": [
+        {
+          "name": "docs",
+          "paths": ["**/*.md", "**/*.mdx", "LICENSE*", "NOTICE*"],
+          "sourceValidationCommands": [],
+          "integrationValidationCommands": [],
+          "bypassIntegrationWorktree": true
+        }
+      ],
+      "postIntegrationCommands": [],
       "conflictInstructions": "Preserve compatible intent and follow repository AGENTS.md."
     }
   ]
@@ -170,11 +182,27 @@ Edit `~/.codex-handoff/config.json` to add validation and conflict settings. Com
 
 Auto-configured setup is `advisory` during `begin`: failure prints a warning but
 does not block branch or session creation. Explicit `--setup-command` setup is
-`required` and still blocks `begin` on failure. Integration always requires
-successful setup before `integrationValidationCommands`. The workflow skill runs
-`sourceValidationCommands` before creating the focused source commit. After the
-integration branch advances, the CLI runs `postIntegrationCommands`. All
+`required` and still blocks `begin` on failure. Integration normally requires
+successful setup before its selected validation commands. The workflow skill
+commits the focused change, then runs `codex-handoff validate` against that exact
+commit. After the integration branch advances, the CLI runs
+`postIntegrationCommands`. All
 commands are argument arrays executed directly without a shell.
+
+Validation tiers are evaluated in configuration order. A tier matches only when
+every changed path matches at least one of its glob patterns; otherwise the
+legacy source/integration lists form the `full` tier. `--auto-config` adds a
+documentation-only tier. Re-run registration with `--auto-config` to add it to
+an existing repository with no tiers configured.
+
+An explicitly configured tier may set `bypassIntegrationWorktree` to `true`.
+The bypass is used only for the exact commit previously checked by
+`codex-handoff validate`, and only when the tier has no integration commands and
+the repository has no post-integration commands. Under the repository lock, the
+CLI uses Git plumbing and atomically advances the integration ref. Conflicts or
+unsupported Git fall back to the normal integration worktree. A clean,
+tool-owned integration worktree may be removed before this update; user
+worktrees are never removed.
 
 ### `begin`
 
@@ -193,9 +221,10 @@ Repeat `--depends-on` for explicit dependencies. Pass `--no-auto-branch` only wh
 
 ### `integrate`
 
-After source validation and a focused source commit:
+After a focused source commit and tiered source validation:
 
 ```bash
+codex-handoff validate
 codex-handoff integrate --summary "Implemented comment editing and tests"
 ```
 

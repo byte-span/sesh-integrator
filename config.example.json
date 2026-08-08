@@ -14,9 +14,19 @@
       ],
       "integrationValidationCommands": [
         ["pnpm", "typecheck"],
-        ["pnpm", "test"]
+        ["pnpm", "test"],
+        ["pnpm", "build"]
       ],
-      "postIntegrationCommands": [["pnpm", "build"]],
+      "validationTiers": [
+        {
+          "name": "docs",
+          "paths": ["**/*.md", "**/*.mdx", "LICENSE*", "NOTICE*"],
+          "sourceValidationCommands": [],
+          "integrationValidationCommands": [],
+          "bypassIntegrationWorktree": true
+        }
+      ],
+      "postIntegrationCommands": [],
       "conflictInstructions": "Preserve compatible intent from both changes. Follow repository AGENTS.md and current architecture."
     }
   ]

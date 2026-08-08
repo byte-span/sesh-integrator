@@ -237,6 +237,192 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     );
   });
 
+  it("selects a targeted validation tier and directly integrates validated documentation changes", async () => {
+    const fixture = await createFixture();
+    const marker = join(fixture.root, "docs-validation-ran");
+    await updateConfig(fixture, (config) => {
+      config.repositories[0].validationTiers = [
+        {
+          name: "docs",
+          paths: ["**/*.md"],
+          sourceValidationCommands: [
+            [
+              process.execPath,
+              "-e",
+              `require("fs").writeFileSync(${JSON.stringify(marker)}, "ok\\n")`,
+            ],
+          ],
+          integrationValidationCommands: [],
+          bypassIntegrationWorktree: true,
+        },
+      ];
+    });
+    const worktree = await addWorktree(fixture, "docs-fast-path");
+    await runCliOk(fixture, worktree, [
+      "begin",
+      "--summary",
+      "document behavior",
+    ]);
+    const readyCommit = commitFile(
+      worktree,
+      "README.md",
+      "documentation\n",
+      "document behavior",
+    );
+
+    const validation = await runCli(fixture, worktree, ["validate"]);
+    expect(validation.code, validation.stderr).toBe(0);
+    expect(validation.stdout).toContain("Validation tier: docs");
+    expect(await readFile(marker, "utf8")).toBe("ok\n");
+
+    const integration = await runCli(fixture, worktree, [
+      "integrate",
+      "--summary",
+      "documented behavior",
+    ]);
+    expect(integration.code, integration.stderr).toBe(0);
+    expect(integration.stdout).toContain("Integrated");
+    expect(integration.stdout).toContain("directly");
+    expect(git(fixture.repo, "rev-parse", "codex-handoff/integration")).toBe(
+      readyCommit,
+    );
+    expect(await readdir(join(fixture.runtime, "worktrees"))).toEqual([]);
+    const complete = (await sessions(fixture))[0]!;
+    expect(complete.validationTier).toBe("docs");
+    expect(complete.changedPaths).toEqual(["README.md"]);
+    expect(complete.status).toBe("succeeded");
+  });
+
+  it("uses full validation and the integration worktree for non-tiered changes", async () => {
+    const fixture = await createFixture();
+    const marker = join(fixture.root, "full-validation-ran");
+    await updateConfig(fixture, (config) => {
+      config.repositories[0].sourceValidationCommands = [
+        [
+          process.execPath,
+          "-e",
+          `require("fs").writeFileSync(${JSON.stringify(marker)}, "ok\\n")`,
+        ],
+      ];
+      config.repositories[0].validationTiers = [
+        {
+          name: "docs",
+          paths: ["**/*.md"],
+          sourceValidationCommands: [],
+          integrationValidationCommands: [],
+          bypassIntegrationWorktree: true,
+        },
+      ];
+    });
+    const worktree = await addWorktree(fixture, "full-validation");
+    await runCliOk(fixture, worktree, ["begin", "--summary", "change source"]);
+    commitFile(worktree, "source.ts", "export {};\n", "change source");
+
+    const validation = await runCli(fixture, worktree, ["validate"]);
+    expect(validation.code, validation.stderr).toBe(0);
+    expect(validation.stdout).toContain("Validation tier: full");
+    expect(await readFile(marker, "utf8")).toBe("ok\n");
+    const integration = await runCli(fixture, worktree, [
+      "integrate",
+      "--summary",
+      "changed source",
+    ]);
+    expect(integration.code, integration.stderr).toBe(0);
+    expect(integration.stdout).not.toContain("directly");
+    expect(await readdir(join(fixture.runtime, "worktrees"))).toHaveLength(1);
+  });
+
+  it("does not classify a source-to-documentation rename as trivial", async () => {
+    const fixture = await createFixture();
+    await writeFile(join(fixture.repo, "source.ts"), "export {};\n");
+    git(fixture.repo, "add", "source.ts");
+    git(fixture.repo, "commit", "-m", "add source");
+    const marker = join(fixture.root, "rename-full-validation-ran");
+    await updateConfig(fixture, (config) => {
+      config.repositories[0].sourceValidationCommands = [
+        [
+          process.execPath,
+          "-e",
+          `require("fs").writeFileSync(${JSON.stringify(marker)}, "ok\\n")`,
+        ],
+      ];
+      config.repositories[0].validationTiers = [
+        {
+          name: "docs",
+          paths: ["**/*.md"],
+          sourceValidationCommands: [],
+          integrationValidationCommands: [],
+          bypassIntegrationWorktree: true,
+        },
+      ];
+    });
+    const worktree = await addWorktree(fixture, "rename-validation");
+    await runCliOk(fixture, worktree, ["begin", "--summary", "rename source"]);
+    git(worktree, "mv", "source.ts", "source.md");
+    git(worktree, "commit", "-m", "rename source to docs");
+
+    const validation = await runCli(fixture, worktree, ["validate"]);
+    expect(validation.code, validation.stderr).toBe(0);
+    expect(validation.stdout).toContain("Validation tier: full");
+    expect(await readFile(marker, "utf8")).toBe("ok\n");
+  });
+
+  it("removes only its clean integration worktree before a divergent direct integration", async () => {
+    const fixture = await createFixture();
+    const first = await addWorktree(fixture, "normal-first");
+    await runCliOk(fixture, first, ["begin", "--summary", "normal first"]);
+    const firstCommit = commitFile(first, "code.ts", "one\n", "normal first");
+    await runCliOk(fixture, first, [
+      "integrate",
+      "--summary",
+      "normal first complete",
+    ]);
+    expect(await readdir(join(fixture.runtime, "worktrees"))).toHaveLength(1);
+
+    await updateConfig(fixture, (config) => {
+      config.repositories[0].validationTiers = [
+        {
+          name: "docs",
+          paths: ["**/*.md"],
+          sourceValidationCommands: [],
+          integrationValidationCommands: [],
+          bypassIntegrationWorktree: true,
+        },
+      ];
+    });
+    const docs = await addWorktree(fixture, "docs-after-normal");
+    await runCliOk(fixture, docs, ["begin", "--summary", "docs second"]);
+    const docsCommit = commitFile(docs, "GUIDE.md", "guide\n", "docs second");
+    await runCliOk(fixture, docs, ["validate"]);
+    const result = await runCli(fixture, docs, [
+      "integrate",
+      "--summary",
+      "docs second complete",
+    ]);
+
+    expect(result.code, result.stderr).toBe(0);
+    expect(result.stdout).toContain("directly");
+    expect(await readdir(join(fixture.runtime, "worktrees"))).toEqual([]);
+    expect(
+      git(
+        fixture.repo,
+        "merge-base",
+        "--is-ancestor",
+        firstCommit,
+        "codex-handoff/integration",
+      ),
+    ).toBe("");
+    expect(
+      git(
+        fixture.repo,
+        "merge-base",
+        "--is-ancestor",
+        docsCommit,
+        "codex-handoff/integration",
+      ),
+    ).toBe("");
+  });
+
   it("runs setup in the integration worktree before validation", async () => {
     const fixture = await createFixture();
     await writeFile(join(fixture.repo, ".gitignore"), ".setup-ready\n");
@@ -898,6 +1084,22 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
       ["corepack", "pnpm", "run", "lint"],
       ["corepack", "pnpm", "run", "test"],
       ["corepack", "pnpm", "run", "build"],
+    ]);
+    expect(config.repositories[0].validationTiers).toEqual([
+      {
+        name: "docs",
+        paths: [
+          "**/*.md",
+          "**/*.mdx",
+          "LICENSE",
+          "LICENSE.*",
+          "NOTICE",
+          "NOTICE.*",
+        ],
+        sourceValidationCommands: [],
+        integrationValidationCommands: [],
+        bypassIntegrationWorktree: true,
+      },
     ]);
     expect(config.repositories[0].postIntegrationCommands).toEqual([
       ["corepack", "pnpm", "run", "handoff:post-integration"],

@@ -9,6 +9,7 @@ import {
   integrateCommand,
   registerCommand,
   resumeCommand,
+  validateCommand,
 } from "./handoff.js";
 import { statusCommand } from "./status.js";
 
@@ -43,6 +44,10 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
       await integrateCommand(options.summary);
       break;
     }
+    case "validate":
+      rejectArguments(args);
+      await validateCommand();
+      break;
     case "resume":
       rejectArguments(args);
       await resumeCommand();
@@ -156,7 +161,7 @@ function registerUsageError(): Error {
   );
 }
 
-const helpText = `codex-handoff - one-shot Git integration\n\nUsage:\n  codex-handoff init\n  codex-handoff register [repo-path] [--auto-config] [--setup-command '<json-array>']...\n  codex-handoff begin --summary \"...\" [--no-auto-branch] [--depends-on <session-id>]...\n  codex-handoff integrate --summary \"...\"\n  codex-handoff resume\n  codex-handoff status\n  codex-handoff audit-legacy\n  codex-handoff doctor\n`;
+const helpText = `codex-handoff - one-shot Git integration\n\nUsage:\n  codex-handoff init\n  codex-handoff register [repo-path] [--auto-config] [--setup-command '<json-array>']...\n  codex-handoff begin --summary \"...\" [--no-auto-branch] [--depends-on <session-id>]...\n  codex-handoff validate\n  codex-handoff integrate --summary \"...\"\n  codex-handoff resume\n  codex-handoff status\n  codex-handoff audit-legacy\n  codex-handoff doctor\n`;
 
 if (isMainModule()) {
   main().catch((error: unknown) => {

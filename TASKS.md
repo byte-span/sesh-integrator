@@ -7,7 +7,7 @@ Complete personal MVP implementation checklist.
 - [x] Initialize pnpm + TypeScript + ESM
 - [x] Enable strict TypeScript
 - [x] Add build, typecheck, test, and formatting scripts
-- [x] Add the eight-command CLI
+- [x] Add the CLI command set, including tier selection with `validate`
 - [x] Keep the module set small
 
 ## Runtime data and registration
@@ -45,6 +45,9 @@ Complete personal MVP implementation checklist.
 ## Conflict resolution, validation, and result
 
 - [x] Detect unmerged files and invoke Codex non-interactively
+- [x] Select source and integration validation tiers from the exact task diff
+- [x] Directly integrate explicitly classified trivial changes without a worktree when safe
+- [x] Fall back to normal worktree integration on conflicts or unmet bypass guards
 - [x] Persist a prompt containing timing, summaries, commits, conflicts, later integrations, dependencies, `AGENTS.md`, and conflict instructions
 - [x] State that timestamps are context and do not determine precedence
 - [x] Verify all conflicts are resolved and staged

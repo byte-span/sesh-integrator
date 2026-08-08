@@ -115,9 +115,19 @@ Example `~/.codex-handoff/config.json`:
       ],
       "integrationValidationCommands": [
         ["pnpm", "typecheck"],
-        ["pnpm", "test"]
+        ["pnpm", "test"],
+        ["pnpm", "build"]
       ],
-      "postIntegrationCommands": [["pnpm", "build"]],
+      "validationTiers": [
+        {
+          "name": "docs",
+          "paths": ["**/*.md", "**/*.mdx", "LICENSE*", "NOTICE*"],
+          "sourceValidationCommands": [],
+          "integrationValidationCommands": [],
+          "bypassIntegrationWorktree": true
+        }
+      ],
+      "postIntegrationCommands": [],
       "conflictInstructions": "Preserve both task intents when compatible and follow repository AGENTS.md."
     }
   ]
@@ -238,17 +248,32 @@ Before integration, the skill:
 
 1. Reads repository instructions.
 2. Inspects `git status` and diff.
-3. Runs `sourceValidationCommands`.
-4. Stops if validation fails.
-5. Creates a focused source-branch commit if task changes remain uncommitted.
+3. Creates a focused source-branch commit if task changes remain uncommitted.
+4. Runs `codex-handoff validate` to select a path-based tier for the exact commit.
+5. Stops if validation fails.
 6. Requires the worktree to be clean.
 7. Calls:
 
 ```bash
+codex-handoff validate
 codex-handoff integrate --summary "Implemented edit flow and tests"
 ```
 
 The CLI itself should not broadly stage arbitrary user files.
+
+### 9.1 Tiered validation and direct trivial integration
+
+Validation tiers are ordered and path-based. A tier matches only if every path
+changed since session start matches one of that tier's patterns. No match uses
+the repository's full validation commands.
+
+A tier may explicitly request `bypassIntegrationWorktree`. The bypass requires
+the exact ready commit to have passed `codex-handoff validate`, zero integration
+commands for the tier, and zero post-integration commands. It still acquires the
+repository lock, merges against the current integration HEAD using Git plumbing,
+and atomically advances only the dedicated integration branch. Conflicts or an
+unsafe tool-owned worktree fall back to normal integration. It never updates the
+default branch or removes a user worktree.
 
 ## 10. `integrate`
 

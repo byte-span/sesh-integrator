@@ -3,6 +3,7 @@ import { constants } from "node:fs";
 import { join } from "node:path";
 import { detectAutoConfig } from "./auto-config.js";
 import {
+  changedPaths,
   detectDefaultBranch,
   git,
   hasMergeInProgress,
@@ -32,6 +33,7 @@ import {
   writeSession,
 } from "./runtime.js";
 import type { Command, Config, RepositoryConfig, Session } from "./types.js";
+import { selectValidation, type SelectedValidation } from "./validation.js";
 
 export async function initCommand(): Promise<void> {
   const paths = await ensureRuntime();
@@ -71,6 +73,7 @@ export async function registerCommand(
       : {}),
     sourceValidationCommands: [],
     integrationValidationCommands: [],
+    validationTiers: [],
     postIntegrationCommands: [],
     conflictInstructions: "",
   };
@@ -133,6 +136,12 @@ async function autoConfigureRepository(
       }
       configured.push(label);
     }
+  }
+  if ((repository.validationTiers ?? []).length > 0) {
+    preserved.push("validation tiers");
+  } else if (detected.validationTiers.length > 0) {
+    repository.validationTiers = detected.validationTiers;
+    configured.push("validation tiers");
   }
 
   process.stdout.write(
@@ -276,6 +285,23 @@ export async function integrateCommand(summary: string): Promise<Session> {
     `Ready snapshot ${session.readyCommit} persisted for ${session.id}\n`,
   );
 
+  const committedPaths = await changedPaths(
+    source.worktreePath,
+    session.startCommit,
+    source.head,
+  );
+  const validation = selectValidation(
+    repository,
+    committedPaths,
+    session.sourceValidatedCommit === source.head,
+  );
+  session.validationTier = validation.name;
+  session.changedPaths = validation.changedPaths;
+  await writeSession(session);
+  process.stdout.write(
+    `Validation tier: ${validation.name} (${validation.changedPaths.length} changed path(s))\n`,
+  );
+
   await assertDependencies(session, await readSessions());
   const integrationWorktree = join(
     runtimePaths().worktrees,
@@ -295,6 +321,19 @@ export async function integrateCommand(summary: string): Promise<Session> {
     session.waitingForLock = false;
     await writeSession(session);
     await assertDependencies(session, await readSessions());
+    if (
+      await tryDirectIntegration(
+        repository,
+        session,
+        validation,
+        integrationWorktree,
+      )
+    ) {
+      process.stdout.write(
+        `Integrated ${session.id} directly at ${session.integratedCommit}\n`,
+      );
+      return session;
+    }
     await prepareIntegrationWorktree(repository, integrationWorktree);
     integrationStarted = true;
     await mergeAndValidate(config, repository, session, integrationWorktree);
@@ -311,6 +350,49 @@ export async function integrateCommand(summary: string): Promise<Session> {
   } finally {
     if (lock) await releaseRepoLock(lock);
   }
+}
+
+export async function validateCommand(): Promise<Session> {
+  const source = await inspectGit(process.cwd());
+  const config = await readConfig();
+  const repository = findRepository(config, source.gitCommonDir);
+  const sessions = await readSessions();
+  const session = sessions
+    .filter(
+      (item) =>
+        item.worktreePath === source.worktreePath && item.status === "active",
+    )
+    .at(-1);
+  if (!session) throw new Error("No active session exists for this worktree");
+  if (!(await isClean(source.worktreePath))) {
+    throw new Error("Source worktree must be clean before validation");
+  }
+  if (source.branch !== session.branch) {
+    throw new Error(
+      `Source branch changed since begin (expected ${session.branch}, found ${source.branch ?? "detached"})`,
+    );
+  }
+  const paths = await changedPaths(
+    source.worktreePath,
+    session.startCommit,
+    source.head,
+  );
+  if (paths.length === 0) throw new Error("Session has no committed changes");
+  const validation = selectValidation(repository, paths);
+  process.stdout.write(
+    `Validation tier: ${validation.name} (${paths.length} changed path(s))\n`,
+  );
+  await runValidation(validation.sourceCommands, source.worktreePath);
+  if (!(await isClean(source.worktreePath))) {
+    throw new Error("Source validation left the worktree dirty");
+  }
+  session.validationTier = validation.name;
+  session.changedPaths = paths;
+  session.sourceValidatedAt = new Date().toISOString();
+  session.sourceValidatedCommit = source.head;
+  await writeSession(session);
+  process.stdout.write(`Validated ${session.id} at ${source.head}\n`);
+  return session;
 }
 
 export async function resumeCommand(): Promise<Session> {
@@ -552,12 +634,19 @@ async function validateCommitAndFinish(
   session: Session,
   worktree: string,
 ): Promise<void> {
+  const validation = selectValidation(
+    repository,
+    session.changedPaths ??
+      (await changedPaths(worktree, session.startCommit, session.readyCommit)),
+    session.validationTier !== "full" &&
+      session.sourceValidatedCommit === session.readyCommit,
+  );
   await runRequiredCommands(
     repository.setupCommands,
     worktree,
     "setup command",
   );
-  await runValidation(repository.integrationValidationCommands, worktree);
+  await runValidation(validation.integrationCommands, worktree);
   await assertNoUnstagedChanges(worktree);
   const integrationBranchAdvanced = await hasMergeInProgress(worktree);
   if (integrationBranchAdvanced) {
@@ -598,6 +687,141 @@ async function validateCommitAndFinish(
   session.status = "succeeded";
   delete session.latestError;
   await writeSession(session);
+}
+
+async function tryDirectIntegration(
+  repository: RepositoryConfig,
+  session: Session,
+  validation: SelectedValidation,
+  integrationWorktree: string,
+): Promise<boolean> {
+  if (!validation.bypassIntegrationWorktree) return false;
+  if (session.sourceValidatedCommit !== session.readyCommit) {
+    process.stdout.write(
+      "Direct integration bypass skipped: ready commit was not validated by codex-handoff validate.\n",
+    );
+    return false;
+  }
+  if (
+    validation.integrationCommands.length > 0 ||
+    repository.postIntegrationCommands.length > 0
+  ) {
+    process.stdout.write(
+      "Direct integration bypass skipped: integration or post-integration commands require a worktree.\n",
+    );
+    return false;
+  }
+  if (!session.readyCommit) return false;
+  const branchRef = `refs/heads/${repository.integrationBranch}`;
+  const existingIntegrationHead = await refCommit(repository.path, branchRef);
+  const integrationHead =
+    existingIntegrationHead ??
+    (await refCommit(
+      repository.path,
+      `refs/heads/${repository.defaultBranch}`,
+    ));
+  if (!integrationHead) return false;
+
+  let integratedCommit: string;
+  const ancestor = await run(
+    "git",
+    ["merge-base", "--is-ancestor", integrationHead, session.readyCommit],
+    { cwd: repository.path },
+  );
+  if (ancestor.code === 0) {
+    integratedCommit = session.readyCommit;
+  } else {
+    const mergeTree = await run(
+      "git",
+      ["merge-tree", "--write-tree", integrationHead, session.readyCommit],
+      { cwd: repository.path },
+    );
+    if (mergeTree.code !== 0) {
+      process.stdout.write(
+        "Direct integration bypass found a conflict or unsupported Git; using the integration worktree.\n",
+      );
+      return false;
+    }
+    const tree = mergeTree.stdout.split("\n", 1)[0]?.trim();
+    if (!tree) return false;
+    integratedCommit = await git(
+      [
+        "commit-tree",
+        tree,
+        "-p",
+        integrationHead,
+        "-p",
+        session.readyCommit,
+        "-m",
+        `Integrate ${session.id}: ${session.taskSummary}`,
+      ],
+      repository.path,
+    );
+  }
+
+  if (
+    !(await removeOwnedIntegrationWorktree(repository, integrationWorktree))
+  ) {
+    process.stdout.write(
+      "Direct integration bypass skipped: integration worktree is not safely removable.\n",
+    );
+    return false;
+  }
+  if (await isBranchCheckedOut(repository, branchRef)) {
+    process.stdout.write(
+      "Direct integration bypass skipped: integration branch is checked out in another worktree.\n",
+    );
+    return false;
+  }
+  await git(
+    [
+      "update-ref",
+      branchRef,
+      integratedCommit,
+      existingIntegrationHead ?? "0000000000000000000000000000000000000000",
+    ],
+    repository.path,
+  );
+  session.integratedCommit = integratedCommit;
+  session.integratedAt = new Date().toISOString();
+  session.waitingForLock = false;
+  session.awaitingConflictResolution = false;
+  session.postIntegrationResults = [];
+  session.status = "succeeded";
+  delete session.latestError;
+  await writeSession(session);
+  return true;
+}
+
+async function isBranchCheckedOut(
+  repository: RepositoryConfig,
+  branchRef: string,
+): Promise<boolean> {
+  const output = await git(
+    ["worktree", "list", "--porcelain"],
+    repository.path,
+  );
+  return output.split("\n").some((line) => line === `branch ${branchRef}`);
+}
+
+async function removeOwnedIntegrationWorktree(
+  repository: RepositoryConfig,
+  path: string,
+): Promise<boolean> {
+  if (!(await pathExists(path))) return true;
+  const context = await inspectGit(path);
+  if (
+    context.gitCommonDir !== repository.gitCommonDir ||
+    context.branch !== repository.integrationBranch ||
+    (await hasMergeInProgress(path)) ||
+    !(await isClean(path))
+  ) {
+    return false;
+  }
+  const result = await run("git", ["worktree", "remove", path], {
+    cwd: repository.path,
+  });
+  return result.code === 0;
 }
 
 async function assertNoUnstagedChanges(worktree: string): Promise<void> {

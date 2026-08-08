@@ -1,5 +1,13 @@
 export type Command = [string, ...string[]];
 
+export interface ValidationTier {
+  name: string;
+  paths: string[];
+  sourceValidationCommands: Command[];
+  integrationValidationCommands: Command[];
+  bypassIntegrationWorktree?: boolean;
+}
+
 export interface RepositoryConfig {
   path: string;
   gitCommonDir: string;
@@ -9,6 +17,7 @@ export interface RepositoryConfig {
   setupCommandPolicy?: "advisory" | "required";
   sourceValidationCommands: Command[];
   integrationValidationCommands: Command[];
+  validationTiers?: ValidationTier[];
   postIntegrationCommands: Command[];
   conflictInstructions: string;
 }
@@ -37,6 +46,10 @@ export interface Session {
   readyCommit?: string;
   readyAt?: string;
   completionSummary?: string;
+  validationTier?: string;
+  changedPaths?: string[];
+  sourceValidatedAt?: string;
+  sourceValidatedCommit?: string;
   integratedCommit?: string;
   integratedAt?: string;
   latestError?: string;

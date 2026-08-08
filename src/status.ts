@@ -22,6 +22,9 @@ export async function statusCommand(): Promise<void> {
       `  ready: ${session.readyAt ?? "-"} ${session.readyCommit ?? ""}\n`,
     );
     process.stdout.write(
+      `  validation: ${session.validationTier ?? "-"} (${session.changedPaths?.length ?? 0} changed path(s))\n`,
+    );
+    process.stdout.write(
       `  integrated: ${session.integratedAt ?? "-"} ${
         session.integratedCommit ?? ""
       }\n`,

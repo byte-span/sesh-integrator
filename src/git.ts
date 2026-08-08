@@ -83,3 +83,28 @@ export async function hasMergeInProgress(cwd: string): Promise<boolean> {
   });
   return result.code === 0;
 }
+
+export async function changedPaths(
+  cwd: string,
+  from: string,
+  to?: string,
+): Promise<string[]> {
+  const args = [
+    "diff",
+    "--no-renames",
+    "--name-only",
+    "--diff-filter=ACDMRTUXB",
+    from,
+  ];
+  if (to) args.push(to);
+  const tracked = await git(args, cwd);
+  const paths = tracked ? tracked.split("\n").filter(Boolean) : [];
+  if (!to) {
+    const untracked = await git(
+      ["ls-files", "--others", "--exclude-standard"],
+      cwd,
+    );
+    if (untracked) paths.push(...untracked.split("\n").filter(Boolean));
+  }
+  return [...new Set(paths)].sort();
+}

@@ -54,6 +54,7 @@ export async function doctorCommand(cwd = process.cwd()): Promise<void> {
     config = JSON.parse(await readFile(paths.config, "utf8")) as Config;
     for (const repository of config.repositories ?? []) {
       repository.setupCommands ??= [];
+      repository.validationTiers ??= [];
       repository.postIntegrationCommands ??= [];
     }
     validateConfig(config);
@@ -226,6 +227,17 @@ async function repositoryChecks(config: Config, cwd: string): Promise<Check[]> {
             "no commands configured",
           ),
     );
+    checks.push(
+      (repository.validationTiers ?? []).length > 0
+        ? pass(
+            `Validation tiers (${repository.path})`,
+            `${repository.validationTiers!.length} tier(s)`,
+          )
+        : warn(
+            `Validation tiers (${repository.path})`,
+            "none configured; all changes use full validation",
+          ),
+    );
   }
   return checks;
 }
@@ -341,7 +353,16 @@ function validateConfig(config: Config): void {
         repository.setupCommandPolicy !== "advisory" &&
         repository.setupCommandPolicy !== "required") ||
       !Array.isArray(repository.sourceValidationCommands) ||
-      !Array.isArray(repository.integrationValidationCommands)
+      !Array.isArray(repository.integrationValidationCommands) ||
+      (repository.validationTiers !== undefined &&
+        (!Array.isArray(repository.validationTiers) ||
+          repository.validationTiers.some(
+            (tier) =>
+              typeof tier.name !== "string" ||
+              !Array.isArray(tier.paths) ||
+              !Array.isArray(tier.sourceValidationCommands) ||
+              !Array.isArray(tier.integrationValidationCommands),
+          )))
     ) {
       throw new Error("invalid repository entry in config.json");
     }

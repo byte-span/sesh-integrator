@@ -1,7 +1,7 @@
 import { access, readFile } from "node:fs/promises";
 import { constants } from "node:fs";
 import { join } from "node:path";
-import type { Command } from "./types.js";
+import type { Command, ValidationTier } from "./types.js";
 
 const SOURCE_SCRIPTS = ["format:check", "typecheck", "lint", "test"];
 const INTEGRATION_ONLY_SCRIPTS = ["build"];
@@ -14,6 +14,7 @@ export interface AutoConfig {
   setupCommands: Command[];
   sourceValidationCommands: Command[];
   integrationValidationCommands: Command[];
+  validationTiers: ValidationTier[];
   postIntegrationCommands: Command[];
 }
 
@@ -64,6 +65,22 @@ export async function detectAutoConfig(
           packageScriptCommand(packageManager, name),
         )
       : [],
+    validationTiers: [
+      {
+        name: "docs",
+        paths: [
+          "**/*.md",
+          "**/*.mdx",
+          "LICENSE",
+          "LICENSE.*",
+          "NOTICE",
+          "NOTICE.*",
+        ],
+        sourceValidationCommands: [],
+        integrationValidationCommands: [],
+        bypassIntegrationWorktree: true,
+      },
+    ],
     postIntegrationCommands: packageManager
       ? postIntegrationScripts.map((name) =>
           packageScriptCommand(packageManager, name),
