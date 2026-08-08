@@ -6,6 +6,7 @@ export interface RepositoryConfig {
   defaultBranch: string;
   integrationBranch: string;
   setupCommands: Command[];
+  setupCommandPolicy?: "advisory" | "required";
   sourceValidationCommands: Command[];
   integrationValidationCommands: Command[];
   postIntegrationCommands: Command[];

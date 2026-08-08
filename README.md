@@ -148,6 +148,7 @@ Edit `~/.codex-handoff/config.json` to add validation and conflict settings. Com
       "defaultBranch": "main",
       "integrationBranch": "codex-handoff/integration",
       "setupCommands": [["corepack", "pnpm", "install", "--frozen-lockfile"]],
+      "setupCommandPolicy": "advisory",
       "sourceValidationCommands": [
         ["pnpm", "typecheck"],
         ["pnpm", "test"]
@@ -163,11 +164,13 @@ Edit `~/.codex-handoff/config.json` to add validation and conflict settings. Com
 }
 ```
 
-`begin` runs `setupCommands` before creating a branch or session. Integration
-runs them after merging and before `integrationValidationCommands`. The workflow
-skill runs `sourceValidationCommands` before creating the focused source commit.
-After the integration branch advances, the CLI runs `postIntegrationCommands`.
-All commands are argument arrays executed directly without a shell.
+Auto-configured setup is `advisory` during `begin`: failure prints a warning but
+does not block branch or session creation. Explicit `--setup-command` setup is
+`required` and still blocks `begin` on failure. Integration always requires
+successful setup before `integrationValidationCommands`. The workflow skill runs
+`sourceValidationCommands` before creating the focused source commit. After the
+integration branch advances, the CLI runs `postIntegrationCommands`. All
+commands are argument arrays executed directly without a shell.
 
 ### `begin`
 
@@ -179,8 +182,8 @@ codex-handoff begin --summary "Implement comment editing"
 
 `begin` first runs centrally configured setup commands, then creates a unique
 `codex/session-...` branch when the worktree is detached or on the registered
-default branch. A failed setup creates neither a branch nor a session. Existing
-non-default branches are unchanged.
+default branch. Failed auto-configured setup warns and continues; failed
+explicit setup stops. Existing non-default branches are unchanged.
 
 Repeat `--depends-on` for explicit dependencies. Pass `--no-auto-branch` only when strict detached/default-branch rejection is desired. `begin` always rejects unregistered or dirty worktrees, the integration branch, unknown dependencies, and duplicate active sessions.
 

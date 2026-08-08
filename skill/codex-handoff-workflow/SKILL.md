@@ -34,7 +34,8 @@ Before modifying files:
    ```
 
 6. `begin` runs centrally configured setup commands before creating a task
-   branch or session. If setup fails, stop and report it.
+   branch or session. Auto-configured setup failures warn and continue; explicit
+   setup failures stop. Do not stop solely for the advisory warning.
 7. If the worktree is dirty or on the handoff integration branch, stop and explain. Never create or switch a branch manually as a workaround for `begin`.
 8. If the user explicitly says this work depends on another handoff session, pass its ID with `--depends-on`.
 9. Do not infer dependencies from start time alone.

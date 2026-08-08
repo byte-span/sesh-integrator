@@ -106,6 +106,7 @@ Example `~/.codex-handoff/config.json`:
       "path": "/Users/you/Developer/my-app",
       "integrationBranch": "codex-handoff/integration",
       "setupCommands": [["corepack", "pnpm", "install", "--frozen-lockfile"]],
+      "setupCommandPolicy": "advisory",
       "sourceValidationCommands": [
         ["pnpm", "typecheck"],
         ["pnpm", "test"]
@@ -212,7 +213,8 @@ Record:
 Requirements:
 
 - repo registered
-- configured setup commands succeed before branch or session creation
+- auto-configured setup failures warn but do not block branch or session creation
+- explicitly configured setup commands must succeed before branch or session creation
 - worktree clean
 - a detached/default-branch worktree is switched to a unique
   `codex/session-...` branch before the session is recorded
@@ -485,3 +487,4 @@ The MVP is ready when disposable repo tests prove:
 15. A post-integration failure preserves the advanced commit and command result.
 16. `doctor` reports both ready and actionable not-ready states without mutation.
 17. Setup runs before session creation and before integration validation.
+18. Auto-configured setup failure does not block `begin`; explicit setup failure does.

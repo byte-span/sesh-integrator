@@ -28,7 +28,8 @@ interface CliResult {
 }
 
 const temporaryRoots: string[] = [];
-const cli = join(process.cwd(), "dist", "cli.js");
+const cli =
+  process.env.CODEX_HANDOFF_TEST_CLI ?? join(process.cwd(), "dist", "cli.js");
 
 afterEach(async () => {
   await Promise.all(
@@ -136,6 +137,41 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     expect(result.stderr).toContain("Setup command failed (7)");
     expect(git(fixture.repo, "branch", "--show-current")).toBe("main");
     expect(await sessions(fixture)).toEqual([]);
+  });
+
+  it("continues begin when auto-configured setup fails", async () => {
+    const fixture = await createFixture();
+    await updateConfig(fixture, (config) => {
+      config.repositories[0].setupCommands = [
+        [process.execPath, "-e", "process.exit(7)"],
+      ];
+      config.repositories[0].setupCommandPolicy = "advisory";
+    });
+
+    const result = await runCli(fixture, fixture.repo, [
+      "begin",
+      "--summary",
+      "advisory setup",
+    ]);
+
+    expect(result.code, result.stderr).toBe(0);
+    expect(result.stderr).toContain(
+      "Warning: auto-configured setup failed during begin; continuing without it.",
+    );
+    expect(git(fixture.repo, "branch", "--show-current")).toMatch(
+      /^codex\/session-[a-z0-9-]+$/,
+    );
+    expect(await sessions(fixture)).toHaveLength(1);
+
+    commitFile(fixture.repo, "advisory.txt", "change\n", "advisory source");
+    const integration = await runCli(fixture, fixture.repo, [
+      "integrate",
+      "--summary",
+      "advisory setup complete",
+    ]);
+    expect(integration.code).toBe(1);
+    expect(integration.stderr).toContain("Setup command failed (7)");
+    expect((await sessions(fixture))[0].status).toBe("needs_review");
   });
 
   it("supports opting out of automatic branch creation", async () => {
@@ -812,6 +848,7 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     expect(config.repositories[0].setupCommands).toEqual([
       ["corepack", "pnpm", "install", "--frozen-lockfile"],
     ]);
+    expect(config.repositories[0].setupCommandPolicy).toBe("advisory");
     expect(config.repositories[0].sourceValidationCommands).toEqual([
       ["corepack", "pnpm", "run", "format:check"],
       ["corepack", "pnpm", "run", "typecheck"],
@@ -849,6 +886,7 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     expect(config.repositories[0].setupCommands).toEqual([
       ["uv", "sync", "--frozen"],
     ]);
+    expect(config.repositories[0].setupCommandPolicy).toBe("advisory");
   });
 
   it("stores an explicit setup command for an unknown ecosystem", async () => {
@@ -867,6 +905,7 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     expect(config.repositories[0].setupCommands).toEqual([
       ["make", "bootstrap"],
     ]);
+    expect(config.repositories[0].setupCommandPolicy).toBe("required");
   });
 
   it("preserves configured commands and supports explicit handoff scripts", async () => {

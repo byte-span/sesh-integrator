@@ -322,6 +322,9 @@ function validateConfig(config: Config): void {
       typeof repository.path !== "string" ||
       typeof repository.gitCommonDir !== "string" ||
       !Array.isArray(repository.setupCommands) ||
+      (repository.setupCommandPolicy !== undefined &&
+        repository.setupCommandPolicy !== "advisory" &&
+        repository.setupCommandPolicy !== "required") ||
       !Array.isArray(repository.sourceValidationCommands) ||
       !Array.isArray(repository.integrationValidationCommands)
     ) {

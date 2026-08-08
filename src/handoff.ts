@@ -65,6 +65,9 @@ export async function registerCommand(
     defaultBranch: await detectDefaultBranch(context.worktreePath),
     integrationBranch: DEFAULT_INTEGRATION_BRANCH,
     setupCommands,
+    ...(setupCommands.length > 0
+      ? { setupCommandPolicy: "required" as const }
+      : {}),
     sourceValidationCommands: [],
     integrationValidationCommands: [],
     postIntegrationCommands: [],
@@ -89,6 +92,7 @@ function configureExplicitSetup(
     );
   }
   repository.setupCommands = setupCommands;
+  repository.setupCommandPolicy = "required";
 }
 
 async function autoConfigureRepository(
@@ -111,11 +115,21 @@ async function autoConfigureRepository(
     ["post-integration", "postIntegrationCommands"],
   ] as const) {
     if (repository[key].length > 0) {
+      if (
+        key === "setupCommands" &&
+        repository.setupCommandPolicy === undefined &&
+        commandsEqual(repository.setupCommands, detected.setupCommands)
+      ) {
+        repository.setupCommandPolicy = "advisory";
+      }
       preserved.push(label);
       continue;
     }
     if (detected[key].length > 0) {
       repository[key] = detected[key];
+      if (key === "setupCommands") {
+        repository.setupCommandPolicy = "advisory";
+      }
       configured.push(label);
     }
   }
@@ -165,11 +179,18 @@ export async function beginCommand(
       throw new Error(`Unknown dependency session: ${dependency}`);
     }
   }
-  await runRequiredCommands(
-    repository.setupCommands,
-    context.worktreePath,
-    "setup command",
-  );
+  try {
+    await runRequiredCommands(
+      repository.setupCommands,
+      context.worktreePath,
+      "setup command",
+    );
+  } catch (error) {
+    if (repository.setupCommandPolicy !== "advisory") throw error;
+    process.stderr.write(
+      `Warning: auto-configured setup failed during begin; continuing without it. ${errorMessage(error)}\n`,
+    );
+  }
   if (!(await isClean(context.worktreePath))) {
     throw new Error("Setup command left the worktree dirty");
   }
@@ -588,4 +609,8 @@ async function pathExists(path: string): Promise<boolean> {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function commandsEqual(left: Command[], right: Command[]): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
 }
