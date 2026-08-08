@@ -534,3 +534,6 @@ The MVP is ready when disposable repo tests prove:
 17. Setup runs before session creation and before integration validation.
 18. Auto-configured setup failure does not block `begin`; explicit setup failure does.
 19. A preserved conflict can be resolved by the current session and completed with `resume`.
+20. A tracked baseline-inaccessible path remains safely excluded when sandboxed
+    Git reports only a scoped permission warning plus a raw deletion and omits
+    the path from porcelain status.

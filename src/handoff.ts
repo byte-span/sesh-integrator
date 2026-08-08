@@ -918,13 +918,17 @@ function isAllowedIntegrationInaccessible(
   const baseline = session.gitBaseline?.paths.find(
     (item) => item.path === path.path && !item.accessible,
   );
+  const observablyUnstaged =
+    path.status?.[0] === " " ||
+    path.status?.[0] === "?" ||
+    (path.status === null && path.worktreeRaw?.endsWith(" D") === true);
   return (
     !!baseline &&
     path.tracked &&
     !path.accessible &&
     path.indexRaw === null &&
     !session.changedPaths?.includes(path.path) &&
-    (path.status?.[0] === " " || path.status?.[0] === "?")
+    observablyUnstaged
   );
 }
 

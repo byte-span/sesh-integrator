@@ -166,6 +166,69 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     ).toBe("tracked secret");
   });
 
+  it("integrates when sandboxed Git omits an inaccessible tracked path from porcelain status", async () => {
+    const fixture = await createFixture();
+    await writeFile(join(fixture.repo, ".env.local"), "tracked secret\n");
+    git(fixture.repo, "add", ".env.local");
+    git(fixture.repo, "commit", "-m", "track environment file");
+    const fakeGit = await createPermissionGit(
+      fixture,
+      ".env.local",
+      true,
+      "sandbox-status-omission",
+    );
+
+    const begin = await runCli(
+      fixture,
+      fixture.repo,
+      ["begin", "--summary", "application change"],
+      fakeGit.env,
+    );
+    expect(begin.code, begin.stderr).toBe(0);
+    const active = (await sessions(fixture))[0];
+    const inaccessiblePath = active.gitBaseline.paths.find(
+      (path: { path: string }) => path.path === ".env.local",
+    );
+    expect(active.gitBaseline.commands.status.code).toBe(0);
+    expect(active.gitBaseline.commands.status.stdout).toBe("");
+    expect(inaccessiblePath.status).toBeNull();
+    expect(inaccessiblePath.worktreeRaw).toMatch(/ D$/);
+
+    commitFile(
+      fixture.repo,
+      "app.ts",
+      "export const ready = true;\n",
+      "application task",
+    );
+    const validation = await runCli(
+      fixture,
+      fixture.repo,
+      ["validate"],
+      fakeGit.env,
+    );
+    expect(validation.code, validation.stderr).toBe(0);
+    expect(validation.stdout).toContain("Validation tier: full");
+
+    const integration = await runCli(
+      fixture,
+      fixture.repo,
+      ["integrate", "--summary", "Application change complete"],
+      fakeGit.env,
+    );
+    expect(integration.code, integration.stderr).toBe(0);
+    expect(integration.stderr).toContain(
+      "remains inaccessible, tracked, unstaged, and outside the task diff",
+    );
+    expect(git(fixture.repo, "show", "codex-handoff/integration:app.ts")).toBe(
+      "export const ready = true;",
+    );
+    expect(
+      git(fixture.repo, "show", "codex-handoff/integration:.env.local"),
+    ).toBe("tracked secret");
+    const completed = (await sessions(fixture))[0];
+    expect(completed.status).toBe("succeeded");
+  });
+
   it("blocks an initially inaccessible path when it becomes staged", async () => {
     const fixture = await createFixture();
     await writeFile(join(fixture.repo, ".env.local"), "one\n");
@@ -1520,6 +1583,7 @@ async function createPermissionGit(
   fixture: Fixture,
   path: string,
   inaccessible: boolean,
+  mode: "porcelain-deletion" | "sandbox-status-omission" = "porcelain-deletion",
 ): Promise<{ env: NodeJS.ProcessEnv; state: string }> {
   const bin = join(fixture.root, "fake-git-bin");
   const state = join(fixture.root, "fake-git-state");
@@ -1542,12 +1606,17 @@ const isStatus = args.includes("status") && args.includes("--porcelain=v1");
 const isWorktreeRaw = args[0] === "diff" && args.includes("--raw") && !args.includes("--cached");
 if (inaccessible && (isStatus || isWorktreeRaw)) {
   const blob = spawnSync("/usr/bin/git", ["rev-parse", "HEAD:" + target], { cwd: process.cwd(), encoding: "utf8" }).stdout.trim();
-  const injected = isStatus
-    ? Buffer.from(" D " + target + "\\0")
-    : Buffer.from(":100644 000000 " + blob + " 0000000000000000000000000000000000000000 D\\t" + target + "\\0");
-  stdout = Buffer.concat([stdout, injected]);
-  stderr = Buffer.concat([stderr, Buffer.from(target + ": Operation not permitted\\n")]);
-  code = 1;
+  const sandboxStatusOmission = process.env.FAKE_GIT_MODE === "sandbox-status-omission";
+  if (!sandboxStatusOmission || isWorktreeRaw) {
+    const injected = isStatus
+      ? Buffer.from(" D " + target + "\\0")
+      : Buffer.from(":100644 000000 " + blob + " 0000000000000000000000000000000000000000 D\\t" + target + "\\0");
+    stdout = Buffer.concat([stdout, injected]);
+  }
+  if (!sandboxStatusOmission || isStatus) {
+    stderr = Buffer.concat([stderr, Buffer.from(target + ": Operation not permitted\\n")]);
+  }
+  if (!sandboxStatusOmission) code = 1;
 }
 process.stdout.write(stdout);
 process.stderr.write(stderr);
@@ -1561,6 +1630,7 @@ process.exit(code);
       PATH: `${bin}:${process.env.PATH ?? ""}`,
       FAKE_GIT_STATE: state,
       FAKE_GIT_PATH: path,
+      FAKE_GIT_MODE: mode,
     },
   };
 }

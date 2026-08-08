@@ -66,7 +66,10 @@ Before saying the task is complete:
    path's disk contents were verified.
 5. Run `codex-handoff validate`. It chooses configured validation commands from
    the exact committed diff; do not manually substitute a cheaper tier.
-6. If validation fails, stop. Do not integrate.
+6. If validation fails, stop. Do not integrate. If validation succeeds while
+   warning that a baseline-inaccessible tracked path is preserved and excluded,
+   continue to `integrate`; do not independently reject that path or inspect the
+   integration worktree before the CLI does.
 7. Run:
 
    ```bash
@@ -80,12 +83,15 @@ Before saying the task is complete:
    - do not commit in the integration worktree
    - run `codex-handoff resume` from the original source worktree
    - continue autonomously unless the conflict is genuinely ambiguous or validation fails
-9. Report:
-   - session ID
-   - source commit
-   - integration result
-   - integration commit if successful
-   - `needs_review` details if unsuccessful
+9. For any other integration failure, report the CLI's recorded error; do not
+   describe the session as `needs_review` unless the CLI recorded that status.
+10. Report:
+
+- session ID
+- source commit
+- integration result
+- integration commit if successful
+- `needs_review` details if unsuccessful
 
 ## Concurrent integration
 
