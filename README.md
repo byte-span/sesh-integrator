@@ -206,18 +206,37 @@ worktrees are never removed.
 
 ### `begin`
 
-The workflow skill starts from any clean source worktree:
+The workflow skill starts from a source worktree whose observable state can be
+safely baselined:
 
 ```bash
 codex-handoff begin --summary "Implement comment editing"
 ```
 
-`begin` first runs centrally configured setup commands, then creates a unique
+`begin` first records an observable Git baseline, then runs centrally configured setup commands and creates a unique
 `codex/session-...` branch when the worktree is detached or on the registered
 default branch. Failed auto-configured setup warns and continues; failed
 explicit setup stops. Existing non-default branches are unchanged.
 
-Repeat `--depends-on` for explicit dependencies. Pass `--no-auto-branch` only when strict detached/default-branch rejection is desired. `begin` always rejects unregistered or dirty worktrees, the integration branch, unknown dependencies, and duplicate active sessions.
+The baseline stores each status, raw worktree diff, staged raw diff, and index
+probe with separate stdout, stderr, and exit status, plus per-path observable
+metadata. Pre-existing unstaged changes may remain when they are observably
+unchanged and outside the eventual task commit. A tracked path that is already
+permission-denied may likewise remain: the CLI warns, preserves it, and makes no
+claim about its disk contents. Staged baseline changes are rejected.
+
+Validation, integration, and resume compare the source worktree with that
+baseline. A baseline-inaccessible path is allowed only while it remains tracked,
+unstaged, outside the task diff, and observably unchanged. New errors, staged
+paths, genuine deletions or modifications, and task commits that absorb a
+baseline-dirty path still block with a path-specific reason. Setup-created Git
+changes are detected because setup runs after baseline capture.
+
+Repeat `--depends-on` for explicit dependencies. Pass `--no-auto-branch` only when strict detached/default-branch rejection is desired. `begin` always rejects unregistered worktrees, staged baseline changes, indeterminate new errors, the integration branch, unknown dependencies, and duplicate active sessions.
+
+Sessions created by versions that did not record an observable Git baseline
+fail validation/integration with a migration message asking you to begin a new
+session; they are never silently interpreted using weaker cleanliness rules.
 
 ### `integrate`
 

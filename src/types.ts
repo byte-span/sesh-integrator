@@ -58,6 +58,37 @@ export interface Session {
   awaitingConflictResolution?: boolean;
   waitingForLock?: boolean;
   postIntegrationResults?: CommandExecutionResult[];
+  gitBaseline?: GitObservation;
+}
+
+export interface GitCommandObservation extends CommandResult {
+  args: string[];
+}
+
+export interface GitPathObservation {
+  path: string;
+  tracked: boolean;
+  accessible: boolean;
+  status: string | null;
+  worktreeRaw: string | null;
+  indexRaw: string | null;
+  indexEntry: string | null;
+  contentHash: string | null;
+  errors: string[];
+}
+
+export interface GitObservation {
+  version: 1;
+  capturedAt: string;
+  head: string;
+  commands: {
+    status: GitCommandObservation;
+    worktreeDiff: GitCommandObservation;
+    stagedDiff: GitCommandObservation;
+    index: GitCommandObservation;
+  };
+  paths: GitPathObservation[];
+  unscopedErrors: string[];
 }
 
 export interface LockMetadata {

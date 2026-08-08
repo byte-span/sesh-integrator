@@ -21,7 +21,7 @@ Before modifying files:
    codex-handoff begin --summary "<concise task summary>"
    ```
 
-   `begin` creates a unique `codex/session-...` branch when the clean worktree
+   `begin` records the observable pre-setup Git baseline and creates a unique `codex/session-...` branch when the worktree
    is detached or on the registered default branch. It leaves an existing
    non-default branch unchanged.
 
@@ -36,7 +36,10 @@ Before modifying files:
 6. `begin` runs centrally configured setup commands before creating a task
    branch or session. Auto-configured setup failures warn and continue; explicit
    setup failures stop. Do not stop solely for the advisory warning.
-7. If the worktree is dirty or on the handoff integration branch, stop and explain. Never create or switch a branch manually as a workaround for `begin`.
+7. If `begin` reports staged baseline state, a changed setup result, an
+   indeterminate Git error, or the handoff integration branch, stop and explain.
+   Pre-existing unstaged paths may proceed only under the CLI's recorded-baseline
+   diagnostics. Never create or switch a branch manually as a workaround.
 8. If the user explicitly says this work depends on another handoff session, pass its ID with `--depends-on`.
 9. Do not infer dependencies from start time alone.
 
@@ -57,7 +60,10 @@ Before saying the task is complete:
    - confirm the branch is safe
    - create one focused commit using repository conventions
 3. If unrelated/ambiguous changes are present, ask before staging or committing.
-4. Require a clean worktree.
+4. Require no newly introduced or changed non-task working-tree state. An
+   observably unchanged baseline path may remain only when `validate` explicitly
+   reports that it is preserved and excluded; do not claim an inaccessible
+   path's disk contents were verified.
 5. Run `codex-handoff validate`. It chooses configured validation commands from
    the exact committed diff; do not manually substitute a cheaper tier.
 6. If validation fails, stop. Do not integrate.

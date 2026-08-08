@@ -235,7 +235,10 @@ Requirements:
 - repo registered
 - auto-configured setup failures warn but do not block branch or session creation
 - explicitly configured setup commands must succeed before branch or session creation
-- worktree clean
+- observable Git baseline captured before setup, including separate status,
+  raw worktree diff, staged diff, index output, stderr, and exit status
+- no staged baseline changes; pre-existing unstaged changes may remain only when
+  later observably unchanged and outside the task diff
 - a detached/default-branch worktree is switched to a unique
   `codex/session-...` branch before the session is recorded
 - `--no-auto-branch` retains strict rejection when explicitly requested
@@ -249,9 +252,11 @@ Before integration, the skill:
 1. Reads repository instructions.
 2. Inspects `git status` and diff.
 3. Creates a focused source-branch commit if task changes remain uncommitted.
-4. Runs `codex-handoff validate` to select a path-based tier for the exact commit.
+4. Runs `codex-handoff validate` to compare the source against its recorded
+   baseline and select a path-based tier for the exact task commit range.
 5. Stops if validation fails.
-6. Requires the worktree to be clean.
+6. Requires no newly introduced working-tree changes; observably unchanged,
+   unstaged baseline paths outside the task diff are preserved and excluded.
 7. Calls:
 
 ```bash

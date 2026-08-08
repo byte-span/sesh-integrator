@@ -80,7 +80,7 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     expect(active.startCommit).toBe(startCommit);
   });
 
-  it("does not create an automatic branch when the worktree is dirty", async () => {
+  it("records and preserves a pre-existing accessible dirty file", async () => {
     const fixture = await createFixture();
     await writeFile(join(fixture.repo, "dirty.txt"), "dirty\n");
 
@@ -90,10 +90,220 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
       "dirty task",
     ]);
 
+    expect(result.code, result.stderr).toBe(0);
+    expect(result.stderr).toContain("pre-existing unstaged change recorded");
+    expect(git(fixture.repo, "branch", "--show-current")).toMatch(
+      /^codex\/session-/,
+    );
+    await writeFile(join(fixture.repo, "README.md"), "task\n");
+    git(fixture.repo, "add", "README.md");
+    git(fixture.repo, "commit", "-m", "README task", "--", "README.md");
+    const validation = await runCli(fixture, fixture.repo, ["validate"]);
+    expect(validation.code, validation.stderr).toBe(0);
+    expect(validation.stderr).toContain("preserving and excluding it");
+    const integration = await runCli(fixture, fixture.repo, [
+      "integrate",
+      "--summary",
+      "README complete",
+    ]);
+    expect(integration.code, integration.stderr).toBe(0);
+    expect(await readFile(join(fixture.repo, "dirty.txt"), "utf8")).toBe(
+      "dirty\n",
+    );
+    expect(() =>
+      git(fixture.repo, "show", "codex-handoff/integration:dirty.txt"),
+    ).toThrow();
+  });
+
+  it("allows a consistently inaccessible tracked file outside a README-only task", async () => {
+    const fixture = await createFixture();
+    await writeFile(join(fixture.repo, ".env.local"), "tracked secret\n");
+    git(fixture.repo, "add", ".env.local");
+    git(fixture.repo, "commit", "-m", "track environment file");
+    const fakeGit = await createPermissionGit(fixture, ".env.local", true);
+
+    const begin = await runCli(
+      fixture,
+      fixture.repo,
+      ["begin", "--summary", "README only"],
+      fakeGit.env,
+    );
+    expect(begin.code, begin.stderr).toBe(0);
+    expect(begin.stderr).toContain("tracked path is inaccessible and unstaged");
+    const active = (await sessions(fixture))[0];
+    expect(active.gitBaseline.commands.status.code).toBe(1);
+    expect(active.gitBaseline.commands.status.stderr).toContain(
+      "Operation not permitted",
+    );
+    expect(active.gitBaseline.commands.worktreeDiff.stdout).toContain(
+      ".env.local",
+    );
+
+    commitFile(fixture.repo, "README.md", "README task\n", "README task");
+    const validation = await runCli(
+      fixture,
+      fixture.repo,
+      ["validate"],
+      fakeGit.env,
+    );
+    expect(validation.code, validation.stderr).toBe(0);
+    expect(validation.stderr).toContain(
+      "observably unchanged; preserving and excluding it",
+    );
+    expect(validation.stderr).toContain("disk contents were not verified");
+    const integration = await runCli(
+      fixture,
+      fixture.repo,
+      ["integrate", "--summary", "README complete"],
+      fakeGit.env,
+    );
+    expect(integration.code, integration.stderr).toBe(0);
+    expect(
+      git(fixture.repo, "show", "codex-handoff/integration:README.md"),
+    ).toBe("README task");
+    expect(
+      git(fixture.repo, "show", "codex-handoff/integration:.env.local"),
+    ).toBe("tracked secret");
+  });
+
+  it("blocks an initially inaccessible path when it becomes staged", async () => {
+    const fixture = await createFixture();
+    await writeFile(join(fixture.repo, ".env.local"), "one\n");
+    git(fixture.repo, "add", ".env.local");
+    git(fixture.repo, "commit", "-m", "track environment file");
+    const fakeGit = await createPermissionGit(fixture, ".env.local", true);
+    await runCliOkWithEnv(
+      fixture,
+      fixture.repo,
+      ["begin", "--summary", "README"],
+      fakeGit.env,
+    );
+    await writeFile(join(fixture.repo, ".env.local"), "two\n");
+    git(fixture.repo, "add", ".env.local");
+    await writeFile(join(fixture.repo, "README.md"), "task\n");
+    git(fixture.repo, "add", "README.md");
+    git(fixture.repo, "commit", "-m", "README task", "--", "README.md");
+
+    const result = await runCli(
+      fixture,
+      fixture.repo,
+      ["validate"],
+      fakeGit.env,
+    );
     expect(result.code).toBe(1);
-    expect(result.stderr).toContain("Worktree must be clean before begin");
-    expect(git(fixture.repo, "branch", "--show-current")).toBe("main");
+    expect(result.stderr).toContain("non-task path is staged");
+  });
+
+  it("blocks a task commit that explicitly targets an initially inaccessible path", async () => {
+    const fixture = await createFixture();
+    await writeFile(join(fixture.repo, ".env.local"), "one\n");
+    git(fixture.repo, "add", ".env.local");
+    git(fixture.repo, "commit", "-m", "track environment file");
+    const fakeGit = await createPermissionGit(fixture, ".env.local", true);
+    await runCliOkWithEnv(
+      fixture,
+      fixture.repo,
+      ["begin", "--summary", "environment task"],
+      fakeGit.env,
+    );
+    await writeFile(join(fixture.repo, ".env.local"), "two\n");
+    git(fixture.repo, "add", ".env.local");
+    git(fixture.repo, "commit", "-m", "change environment file");
+
+    const result = await runCli(
+      fixture,
+      fixture.repo,
+      ["validate"],
+      fakeGit.env,
+    );
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain(
+      "task commit targets a path that was inaccessible at begin",
+    );
+  });
+
+  it("blocks a newly appearing inaccessible path after begin", async () => {
+    const fixture = await createFixture();
+    await writeFile(join(fixture.repo, ".env.local"), "one\n");
+    git(fixture.repo, "add", ".env.local");
+    git(fixture.repo, "commit", "-m", "track environment file");
+    const fakeGit = await createPermissionGit(fixture, ".env.local", false);
+    await runCliOkWithEnv(
+      fixture,
+      fixture.repo,
+      ["begin", "--summary", "README"],
+      fakeGit.env,
+    );
+    await writeFile(fakeGit.state, "inaccessible\n");
+    commitFile(fixture.repo, "README.md", "task\n", "README task");
+
+    const result = await runCli(
+      fixture,
+      fixture.repo,
+      ["validate"],
+      fakeGit.env,
+    );
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain(
+      "new unrelated inaccessible or permission-error path",
+    );
+  });
+
+  it("blocks a genuine tracked-file deletion introduced after begin", async () => {
+    const fixture = await createFixture();
+    await writeFile(join(fixture.repo, "kept.txt"), "keep\n");
+    git(fixture.repo, "add", "kept.txt");
+    git(fixture.repo, "commit", "-m", "add kept file");
+    await runCliOk(fixture, fixture.repo, ["begin", "--summary", "README"]);
+    await rm(join(fixture.repo, "kept.txt"));
+    commitFile(fixture.repo, "README.md", "task\n", "README task");
+
+    const result = await runCli(fixture, fixture.repo, ["validate"]);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("new unrelated tracked-file deletion");
+  });
+
+  it("blocks setup commands that create changes after the captured baseline", async () => {
+    const fixture = await createFixture();
+    await updateConfig(fixture, (config) => {
+      config.repositories[0].setupCommands = [
+        [
+          process.execPath,
+          "-e",
+          'require("fs").writeFileSync("setup-created.txt", "created\\n")',
+        ],
+      ];
+    });
+
+    const result = await runCli(fixture, fixture.repo, [
+      "begin",
+      "--summary",
+      "task",
+    ]);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("Observable Git state blocked setup");
+    expect(result.stderr).toContain("new unrelated modification");
     expect(await sessions(fixture)).toEqual([]);
+    expect(git(fixture.repo, "branch", "--show-current")).toBe("main");
+  });
+
+  it("fails legacy active sessions with a clear baseline migration message", async () => {
+    const fixture = await createFixture();
+    await runCliOk(fixture, fixture.repo, ["begin", "--summary", "legacy"]);
+    const sessionDirectory = join(fixture.runtime, "sessions");
+    const sessionPath = join(
+      sessionDirectory,
+      (await readdir(sessionDirectory))[0]!,
+    );
+    const legacy = JSON.parse(await readFile(sessionPath, "utf8"));
+    delete legacy.gitBaseline;
+    await writeFile(sessionPath, `${JSON.stringify(legacy, null, 2)}\n`);
+    commitFile(fixture.repo, "README.md", "task\n", "README task");
+
+    const result = await runCli(fixture, fixture.repo, ["validate"]);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("predates observable Git baselines");
+    expect(result.stderr).toContain("Start a new codex-handoff session");
   });
 
   it("runs configured setup before beginning a session", async () => {
@@ -1271,6 +1481,7 @@ async function runCli(
   fixture: Fixture,
   cwd: string,
   args: string[],
+  extraEnv: NodeJS.ProcessEnv = {},
 ): Promise<CliResult> {
   return await new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [cli, ...args], {
@@ -1281,6 +1492,7 @@ async function runCli(
         CODEX_HANDOFF_AUDIT_HOME: fixture.auditHome,
         CODEX_HANDOFF_DOCTOR_HOME: fixture.auditHome,
         CODEX_HOME: fixture.sourceCodexHome,
+        ...extraEnv,
       },
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -1291,6 +1503,66 @@ async function runCli(
     child.once("error", reject);
     child.once("close", (code) => resolve({ code: code ?? 1, stdout, stderr }));
   });
+}
+
+async function runCliOkWithEnv(
+  fixture: Fixture,
+  cwd: string,
+  args: string[],
+  extraEnv: NodeJS.ProcessEnv,
+): Promise<CliResult> {
+  const result = await runCli(fixture, cwd, args, extraEnv);
+  expect(result.code, result.stderr).toBe(0);
+  return result;
+}
+
+async function createPermissionGit(
+  fixture: Fixture,
+  path: string,
+  inaccessible: boolean,
+): Promise<{ env: NodeJS.ProcessEnv; state: string }> {
+  const bin = join(fixture.root, "fake-git-bin");
+  const state = join(fixture.root, "fake-git-state");
+  await mkdir(bin, { recursive: true });
+  await writeFile(state, inaccessible ? "inaccessible\n" : "normal\n");
+  const wrapper = join(bin, "git");
+  await writeFile(
+    wrapper,
+    `#!/usr/bin/env node
+const { readFileSync } = require("node:fs");
+const { spawnSync } = require("node:child_process");
+const args = process.argv.slice(2);
+const result = spawnSync("/usr/bin/git", args, { cwd: process.cwd(), encoding: null });
+let stdout = result.stdout || Buffer.alloc(0);
+let stderr = result.stderr || Buffer.alloc(0);
+let code = result.status == null ? 1 : result.status;
+const inaccessible = readFileSync(process.env.FAKE_GIT_STATE, "utf8").trim() === "inaccessible";
+const target = process.env.FAKE_GIT_PATH;
+const isStatus = args.includes("status") && args.includes("--porcelain=v1");
+const isWorktreeRaw = args[0] === "diff" && args.includes("--raw") && !args.includes("--cached");
+if (inaccessible && (isStatus || isWorktreeRaw)) {
+  const blob = spawnSync("/usr/bin/git", ["rev-parse", "HEAD:" + target], { cwd: process.cwd(), encoding: "utf8" }).stdout.trim();
+  const injected = isStatus
+    ? Buffer.from(" D " + target + "\\0")
+    : Buffer.from(":100644 000000 " + blob + " 0000000000000000000000000000000000000000 D\\t" + target + "\\0");
+  stdout = Buffer.concat([stdout, injected]);
+  stderr = Buffer.concat([stderr, Buffer.from(target + ": Operation not permitted\\n")]);
+  code = 1;
+}
+process.stdout.write(stdout);
+process.stderr.write(stderr);
+process.exit(code);
+`,
+  );
+  await chmod(wrapper, 0o755);
+  return {
+    state,
+    env: {
+      PATH: `${bin}:${process.env.PATH ?? ""}`,
+      FAKE_GIT_STATE: state,
+      FAKE_GIT_PATH: path,
+    },
+  };
 }
 
 async function runCliOk(

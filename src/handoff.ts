@@ -9,6 +9,7 @@ import {
   hasMergeInProgress,
   inspectGit,
   isClean,
+  observeGitState,
   refCommit,
   unmergedFiles,
 } from "./git.js";
@@ -32,8 +33,19 @@ import {
   writeLog,
   writeSession,
 } from "./runtime.js";
-import type { Command, Config, RepositoryConfig, Session } from "./types.js";
+import type {
+  Command,
+  Config,
+  GitPathObservation,
+  RepositoryConfig,
+  Session,
+} from "./types.js";
 import { selectValidation, type SelectedValidation } from "./validation.js";
+import {
+  assessBeginBaseline,
+  assessCompletionState,
+  type HandoffStateDecision,
+} from "./source-state.js";
 
 export async function initCommand(): Promise<void> {
   const paths = await ensureRuntime();
@@ -171,8 +183,8 @@ export async function beginCommand(
   const context = await inspectGit(process.cwd());
   const config = await readConfig();
   const repository = findRepository(config, context.gitCommonDir);
-  if (!(await isClean(context.worktreePath)))
-    throw new Error("Worktree must be clean before begin");
+  const baseline = await observeGitState(context.worktreePath);
+  reportStateDecision("begin", assessBeginBaseline(baseline));
   if (context.branch === repository.integrationBranch) {
     throw new Error(`Cannot begin on integration branch ${context.branch}`);
   }
@@ -201,9 +213,19 @@ export async function beginCommand(
       `Warning: auto-configured setup failed during begin; continuing without it. ${errorMessage(error)}\n`,
     );
   }
-  if (!(await isClean(context.worktreePath))) {
-    throw new Error("Setup command left the worktree dirty");
+  const afterSetup = await observeGitState(context.worktreePath);
+  const afterSetupContext = await inspectGit(context.worktreePath);
+  if (afterSetup.head !== baseline.head) {
+    throw new Error(
+      "Setup command changed HEAD; no handoff session was created",
+    );
   }
+  if (afterSetupContext.branch !== context.branch) {
+    throw new Error(
+      "Setup command changed the current branch; no handoff session was created",
+    );
+  }
+  reportStateDecision("setup", assessCompletionState(baseline, afterSetup, []));
   const sessionId = makeSessionId();
   let branch = context.branch;
   if (!branch || branch === repository.defaultBranch) {
@@ -231,6 +253,7 @@ export async function beginCommand(
     startedAt: new Date().toISOString(),
     taskSummary: summary.trim(),
     dependsOn: [...new Set(dependsOn)],
+    gitBaseline: baseline,
   };
   await writeSession(session);
   process.stdout.write(`Started ${session.id}\n`);
@@ -252,8 +275,6 @@ export async function integrateCommand(summary: string): Promise<Session> {
   const session = candidates.at(-1);
   if (!session)
     throw new Error("No active or ready session exists for this worktree");
-  if (!(await isClean(source.worktreePath)))
-    throw new Error("Source worktree must be clean before integration");
   if (!source.branch || source.branch !== session.branch) {
     throw new Error(
       `Source branch changed since begin (expected ${session.branch}, found ${
@@ -261,6 +282,18 @@ export async function integrateCommand(summary: string): Promise<Session> {
       })`,
     );
   }
+
+  const committedPaths = await changedPaths(
+    source.worktreePath,
+    session.startCommit,
+    source.head,
+  );
+  await assertSourceHandoffState(
+    session,
+    source.worktreePath,
+    committedPaths,
+    "integration",
+  );
 
   if (session.status === "active") {
     session.status = "ready";
@@ -285,11 +318,6 @@ export async function integrateCommand(summary: string): Promise<Session> {
     `Ready snapshot ${session.readyCommit} persisted for ${session.id}\n`,
   );
 
-  const committedPaths = await changedPaths(
-    source.worktreePath,
-    session.startCommit,
-    source.head,
-  );
   const validation = selectValidation(
     repository,
     committedPaths,
@@ -334,7 +362,7 @@ export async function integrateCommand(summary: string): Promise<Session> {
       );
       return session;
     }
-    await prepareIntegrationWorktree(repository, integrationWorktree);
+    await prepareIntegrationWorktree(repository, session, integrationWorktree);
     integrationStarted = true;
     await mergeAndValidate(config, repository, session, integrationWorktree);
     process.stdout.write(
@@ -364,9 +392,6 @@ export async function validateCommand(): Promise<Session> {
     )
     .at(-1);
   if (!session) throw new Error("No active session exists for this worktree");
-  if (!(await isClean(source.worktreePath))) {
-    throw new Error("Source worktree must be clean before validation");
-  }
   if (source.branch !== session.branch) {
     throw new Error(
       `Source branch changed since begin (expected ${session.branch}, found ${source.branch ?? "detached"})`,
@@ -377,15 +402,24 @@ export async function validateCommand(): Promise<Session> {
     session.startCommit,
     source.head,
   );
+  await assertSourceHandoffState(
+    session,
+    source.worktreePath,
+    paths,
+    "validation",
+  );
   if (paths.length === 0) throw new Error("Session has no committed changes");
   const validation = selectValidation(repository, paths);
   process.stdout.write(
     `Validation tier: ${validation.name} (${paths.length} changed path(s))\n`,
   );
   await runValidation(validation.sourceCommands, source.worktreePath);
-  if (!(await isClean(source.worktreePath))) {
-    throw new Error("Source validation left the worktree dirty");
-  }
+  await assertSourceHandoffState(
+    session,
+    source.worktreePath,
+    paths,
+    "source validation",
+  );
   session.validationTier = validation.name;
   session.changedPaths = paths;
   session.sourceValidatedAt = new Date().toISOString();
@@ -411,16 +445,22 @@ export async function resumeCommand(): Promise<Session> {
   if (!session) {
     throw new Error("No resumable conflict exists for this worktree");
   }
-  if (!(await isClean(source.worktreePath))) {
-    throw new Error(
-      "Source worktree must remain clean while resuming integration",
-    );
-  }
   if (source.branch !== session.branch || source.head !== session.readyCommit) {
     throw new Error(
       `Source snapshot changed; expected ${session.branch} at ${session.readyCommit}`,
     );
   }
+  await assertSourceHandoffState(
+    session,
+    source.worktreePath,
+    session.changedPaths ??
+      (await changedPaths(
+        source.worktreePath,
+        session.startCommit,
+        source.head,
+      )),
+    "resume",
+  );
 
   const integrationWorktree = join(
     runtimePaths().worktrees,
@@ -458,6 +498,7 @@ export async function resumeCommand(): Promise<Session> {
 
 async function prepareIntegrationWorktree(
   repository: RepositoryConfig,
+  session: Session,
   path: string,
 ): Promise<void> {
   if (
@@ -483,11 +524,12 @@ async function prepareIntegrationWorktree(
         }, expected ${repository.integrationBranch}`,
       );
     }
-    if ((await hasMergeInProgress(path)) || !(await isClean(path))) {
+    if (await hasMergeInProgress(path)) {
       throw new Error(
         `Integration worktree is not clean; inspect and recover it manually: ${path}`,
       );
     }
+    await assertIntegrationWorktreeReady(session, path);
     return;
   }
   const branchRef = `refs/heads/${repository.integrationBranch}`;
@@ -516,6 +558,7 @@ async function prepareIntegrationWorktree(
       repository.path,
     );
   }
+  await assertIntegrationWorktreeReady(session, path);
 }
 
 async function mergeAndValidate(
@@ -647,7 +690,7 @@ async function validateCommitAndFinish(
     "setup command",
   );
   await runValidation(validation.integrationCommands, worktree);
-  await assertNoUnstagedChanges(worktree);
+  await assertNoUnstagedChanges(session, worktree);
   const integrationBranchAdvanced = await hasMergeInProgress(worktree);
   if (integrationBranchAdvanced) {
     await git(
@@ -824,24 +867,65 @@ async function removeOwnedIntegrationWorktree(
   return result.code === 0;
 }
 
-async function assertNoUnstagedChanges(worktree: string): Promise<void> {
-  const output = await git(
-    ["status", "--porcelain=v1", "--untracked-files=normal"],
-    worktree,
+async function assertNoUnstagedChanges(
+  session: Session,
+  worktree: string,
+): Promise<void> {
+  const observation = await observeGitState(worktree);
+  const unsafe = observation.paths.filter(
+    (path) =>
+      (path.status === "??" || (!!path.status && path.status[1] !== " ")) &&
+      !isAllowedIntegrationInaccessible(session, path),
   );
-  const unsafe = output
-    .split("\n")
-    .filter(Boolean)
-    .filter(
-      (line) => line.startsWith("??") || (line.length > 1 && line[1] !== " "),
-    );
-  if (unsafe.length > 0) {
+  if (observation.unscopedErrors.length > 0) {
     throw new Error(
-      `Validation or conflict resolution left unstaged/untracked changes: ${unsafe.join(
-        ", ",
-      )}`,
+      `Integration Git observation was indeterminate: ${observation.unscopedErrors.join("; ")}`,
     );
   }
+  if (unsafe.length > 0) {
+    throw new Error(
+      `Validation or conflict resolution left unstaged/untracked changes: ${unsafe
+        .map((path) => path.path)
+        .join(", ")}`,
+    );
+  }
+}
+
+async function assertIntegrationWorktreeReady(
+  session: Session,
+  worktree: string,
+): Promise<void> {
+  const observation = await observeGitState(worktree);
+  const unsafe = observation.paths.filter(
+    (path) => !isAllowedIntegrationInaccessible(session, path),
+  );
+  if (observation.unscopedErrors.length > 0 || unsafe.length > 0) {
+    throw new Error(
+      `Integration worktree is not clean; unsafe observable paths: ${unsafe.map((path) => path.path).join(", ") || observation.unscopedErrors.join("; ")}`,
+    );
+  }
+  for (const path of observation.paths) {
+    process.stderr.write(
+      `Warning (integration worktree): ${path.path} remains inaccessible, tracked, unstaged, and outside the task diff; preserving the integration branch version (disk contents were not verified)\n`,
+    );
+  }
+}
+
+function isAllowedIntegrationInaccessible(
+  session: Session,
+  path: GitPathObservation,
+): boolean {
+  const baseline = session.gitBaseline?.paths.find(
+    (item) => item.path === path.path && !item.accessible,
+  );
+  return (
+    !!baseline &&
+    path.tracked &&
+    !path.accessible &&
+    path.indexRaw === null &&
+    !session.changedPaths?.includes(path.path) &&
+    (path.status?.[0] === " " || path.status?.[0] === "?")
+  );
 }
 
 async function assertDependencies(
@@ -962,4 +1046,36 @@ function errorMessage(error: unknown): string {
 
 function commandsEqual(left: Command[], right: Command[]): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
+}
+
+async function assertSourceHandoffState(
+  session: Session,
+  worktree: string,
+  taskPaths: string[],
+  phase: string,
+): Promise<void> {
+  if (!session.gitBaseline) {
+    throw new Error(
+      `Session ${session.id} predates observable Git baselines and cannot be safely ${phase === "integration" ? "integrated" : "validated"}. Start a new codex-handoff session.`,
+    );
+  }
+  const current = await observeGitState(worktree);
+  reportStateDecision(
+    phase,
+    assessCompletionState(session.gitBaseline, current, taskPaths),
+  );
+}
+
+function reportStateDecision(
+  phase: string,
+  decision: HandoffStateDecision,
+): void {
+  for (const warning of decision.warnings) {
+    process.stderr.write(`Warning (${phase}): ${warning}\n`);
+  }
+  if (decision.blockers.length > 0) {
+    throw new Error(
+      `Observable Git state blocked ${phase}:\n- ${decision.blockers.join("\n- ")}`,
+    );
+  }
 }
