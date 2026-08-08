@@ -7,7 +7,7 @@ Complete personal MVP implementation checklist.
 - [x] Initialize pnpm + TypeScript + ESM
 - [x] Enable strict TypeScript
 - [x] Add build, typecheck, test, and formatting scripts
-- [x] Add the seven-command CLI
+- [x] Add the eight-command CLI
 - [x] Keep the module set small
 
 ## Runtime data and registration
@@ -55,6 +55,8 @@ Complete personal MVP implementation checklist.
 - [x] Record the integration commit/result or `needs_review` error
 - [x] Preserve failed integration state for diagnosis and release the controlled lock
 - [x] Run Codex conflict resolution with isolated writable state and workspace sandboxing
+- [x] Default to current-session conflict resolution with a verified `resume` command
+- [x] Retain nested Codex resolution as an explicit compatibility mode
 
 ## Lock reliability and status
 

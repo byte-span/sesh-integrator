@@ -33,6 +33,7 @@ export function runtimePaths(): RuntimePaths {
 export const defaultConfig = (): Config => ({
   lockWaitSeconds: 900,
   codexCommand: "codex",
+  conflictResolutionMode: "current-session",
   repositories: [],
 });
 
@@ -78,6 +79,7 @@ export async function readConfig(): Promise<Config> {
     repository.setupCommands ??= [];
     repository.postIntegrationCommands ??= [];
   }
+  value.conflictResolutionMode ??= "current-session";
   return value;
 }
 

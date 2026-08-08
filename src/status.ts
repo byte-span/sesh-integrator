@@ -31,6 +31,15 @@ export async function statusCommand(): Promise<void> {
     );
     if (session.latestError)
       process.stdout.write(`  latest error: ${session.latestError}\n`);
+    if (session.awaitingConflictResolution) {
+      process.stdout.write(
+        `  resumable conflict: yes (run codex-handoff resume after resolving and staging)\n`,
+      );
+      if (session.conflictPromptPath)
+        process.stdout.write(
+          `  conflict prompt: ${session.conflictPromptPath}\n`,
+        );
+    }
   }
   process.stdout.write("\nLocks:\n");
   let lockNames: string[] = [];

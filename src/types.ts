@@ -16,6 +16,7 @@ export interface RepositoryConfig {
 export interface Config {
   lockWaitSeconds: number;
   codexCommand: string;
+  conflictResolutionMode?: "current-session" | "nested-codex";
   repositories: RepositoryConfig[];
 }
 
@@ -40,6 +41,8 @@ export interface Session {
   integratedAt?: string;
   latestError?: string;
   conflictPromptPath?: string;
+  conflictIntegrationHead?: string;
+  awaitingConflictResolution?: boolean;
   waitingForLock?: boolean;
   postIntegrationResults?: CommandExecutionResult[];
 }

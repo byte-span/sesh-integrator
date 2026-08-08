@@ -49,15 +49,6 @@ export async function doctorCommand(cwd = process.cwd()): Promise<void> {
           `missing ${missingPaths.join(", ")}; run codex-handoff init`,
         ),
   );
-  try {
-    await access(paths.codexHome, constants.W_OK);
-    checks.push(pass("Resolver state", `${paths.codexHome} is writable`));
-  } catch {
-    checks.push(
-      fail("Resolver state", `${paths.codexHome} must be writable by Codex`),
-    );
-  }
-
   let config: Config | undefined;
   try {
     config = JSON.parse(await readFile(paths.config, "utf8")) as Config;
@@ -71,7 +62,15 @@ export async function doctorCommand(cwd = process.cwd()): Promise<void> {
     checks.push(fail("Configuration", errorMessage(error)));
   }
 
-  if (config) {
+  if (config?.conflictResolutionMode === "nested-codex") {
+    try {
+      await access(paths.codexHome, constants.W_OK);
+      checks.push(pass("Resolver state", `${paths.codexHome} is writable`));
+    } catch {
+      checks.push(
+        fail("Resolver state", `${paths.codexHome} must be writable by Codex`),
+      );
+    }
     checks.push(
       await executableCheck("Codex CLI", config.codexCommand, ["--version"]),
     );
@@ -325,6 +324,13 @@ function validateConfig(config: Config): void {
     !Array.isArray(config.repositories)
   ) {
     throw new Error("invalid config.json structure");
+  }
+  if (
+    config.conflictResolutionMode !== undefined &&
+    config.conflictResolutionMode !== "current-session" &&
+    config.conflictResolutionMode !== "nested-codex"
+  ) {
+    throw new Error("invalid conflictResolutionMode");
   }
   for (const repository of config.repositories) {
     if (

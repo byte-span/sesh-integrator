@@ -8,7 +8,8 @@ codex-handoff begin
 → codex-handoff integrate
 → acquire the repository lock
 → merge the exact ready commit in a dedicated integration worktree
-→ resolve conflicts with Codex if needed
+→ let the current Codex session resolve conflicts if needed
+→ codex-handoff resume
 → validate, commit, record the result, release the lock, and exit
 ```
 
@@ -24,7 +25,7 @@ old: ~/.codex-integrator/    codex/integration
 - Node.js 20 or newer
 - Git
 - pnpm
-- the `codex` executable when automatic conflict resolution is needed
+- the `codex` executable only when legacy nested conflict resolution is enabled
 
 From this repository:
 
@@ -56,6 +57,7 @@ codex-handoff init
 codex-handoff register [repo-path] [--auto-config] [--setup-command '<json-array>']...
 codex-handoff begin --summary "Implement feature" [--no-auto-branch] [--depends-on <session-id>]...
 codex-handoff integrate --summary "Implemented feature and tests"
+codex-handoff resume
 codex-handoff status
 codex-handoff audit-legacy
 codex-handoff doctor
@@ -142,6 +144,7 @@ Edit `~/.codex-handoff/config.json` to add validation and conflict settings. Com
 {
   "lockWaitSeconds": 900,
   "codexCommand": "codex",
+  "conflictResolutionMode": "current-session",
   "repositories": [
     {
       "path": "/Users/you/Developer/my-project",
@@ -198,16 +201,29 @@ codex-handoff integrate --summary "Implemented comment editing and tests"
 
 The ready SHA and timestamp are persisted before dependency or lock checks. Dependencies must already have succeeded. Simultaneous processes wait on an atomic per-repository directory lock, then merge against the current integration branch. The mutable source branch name is never merged.
 
-Conflicts invoke `codex exec --sandbox workspace-write -` from the integration
-worktree, with the contextual prompt on stdin. The resolver receives an isolated,
-writable `CODEX_HOME` at `~/.codex-handoff/codex-home/`; before invocation, the
-tool copies newer `auth.json` and `config.toml` files from the caller's Codex
-home with owner-only permissions. This keeps resolver databases out of the
-caller's normal Codex state directory while preserving authentication and CLI
-configuration. The prompt is also saved under
-`~/.codex-handoff/logs/`. It includes session timing, summaries, explicit
-dependencies, later successful integrations, conflicted files, repository
-instructions, and an explicit rule that start time does not determine precedence.
+On conflict, `integrate` preserves the merge and saves a contextual prompt under
+`~/.codex-handoff/logs/`. The workflow skill directs the current Codex session to
+resolve and stage the preserved worktree, then runs `codex-handoff resume` from
+the source worktree. `resume` reacquires the repository lock, verifies the exact
+source commit, integration HEAD, merge target, branch, and resolved index, then
+validates and commits. This default path makes no nested model request.
+
+Set `conflictResolutionMode` to `nested-codex` only to retain the previous
+`codex exec` resolver. That opt-in mode uses the isolated writable `CODEX_HOME`
+at `~/.codex-handoff/codex-home/` and therefore requires network access.
+
+### `resume`
+
+After the workflow has resolved and staged a preserved merge, it runs this from
+the original source worktree:
+
+```bash
+codex-handoff resume
+```
+
+Do not run it from the integration worktree. It resumes only the matching
+`needs_review` session and refuses changed source snapshots, mismatched merge
+commits, unresolved files, or a moved integration branch.
 
 Validation failure or unresolved conflict leaves the integration worktree intact, records `needs_review`, releases the one-shot lock, and exits nonzero. A failed post-integration command also records `needs_review`, but preserves the integration commit because the branch has already advanced; its command, exit code, stdout, and stderr remain in the session record for diagnosis. Post-integration commands are skipped when the ready commit was already present and the branch did not advance. The source worktree is never modified.
 
@@ -291,8 +307,9 @@ For rollback, stop invoking the new skill, restore the previous global guidance,
 
 - Skill invocation and source commit creation are instruction-driven. A crashed Codex session must be resumed manually.
 - The tool does not fetch, push, force-push, delete branches, or update the default branch.
-- One preserved `needs_review` merge blocks further integrations for that repository until a human safely resolves or cleans the dedicated integration worktree and lock state.
+- One preserved `needs_review` merge blocks further integrations until the workflow resolves it and runs `resume`.
 - Dependency checks fail clearly rather than running a background waiter; retry after dependencies succeed.
-- Automatic conflict resolution requires a compatible local `codex exec` command. `codexCommand` is a single executable path, not a shell command.
+- The current-session resolution path is instruction-driven; genuinely ambiguous conflicts or failed validation still require user review.
+- Optional nested conflict resolution requires a compatible networked `codex exec`; `codexCommand` is a single executable path, not a shell command.
 - Stale-lock recovery is intentionally narrow. Ambiguous, dirty, unfinished, missing-metadata, or other-host cases require manual inspection.
 - JSON state is designed for a personal local tool, not distributed or multi-host coordination.

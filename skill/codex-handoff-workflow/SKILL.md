@@ -67,7 +67,14 @@ Before saying the task is complete:
    codex-handoff integrate --summary "<concise completion summary>"
    ```
 
-8. Report:
+8. If `integrate` reports a resumable merge conflict:
+   - read the saved conflict prompt
+   - inspect and resolve the preserved integration worktree reported by the CLI
+   - preserve compatible intent, remove all conflict markers, and stage the resolved files
+   - do not commit in the integration worktree
+   - run `codex-handoff resume` from the original source worktree
+   - continue autonomously unless the conflict is genuinely ambiguous or validation fails
+9. Report:
    - session ID
    - source commit
    - integration result
@@ -87,7 +94,8 @@ If `integrate` fails:
 - do not claim integration succeeded
 - do not run destructive Git cleanup
 - preserve the reported integration worktree
-- report the status and recommended next action
+- automatically follow the resumable-conflict procedure above when offered
+- otherwise report the status and recommended next action
 
 ## Boundaries
 

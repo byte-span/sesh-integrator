@@ -1,6 +1,7 @@
 {
   "lockWaitSeconds": 900,
   "codexCommand": "codex",
+  "conflictResolutionMode": "current-session",
   "repositories": [
     {
       "path": "/Users/you/Developer/my-project",

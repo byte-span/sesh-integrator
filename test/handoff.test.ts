@@ -368,6 +368,7 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     await chmod(fakeCodex, 0o755);
     await updateConfig(fixture, (config) => {
       config.codexCommand = fakeCodex;
+      config.conflictResolutionMode = "nested-codex";
       config.repositories[0].conflictInstructions = "Keep compatible behavior.";
     });
 
@@ -621,7 +622,7 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     expect(git(worktree, "status", "--porcelain=v1")).toBe("");
   });
 
-  it("marks unresolved conflicts needs_review and preserves the integration worktree", async () => {
+  it("lets the current session resolve a preserved conflict and resume", async () => {
     const fixture = await createFixture("base\n");
     const first = await addWorktree(fixture, "conflict-first");
     const second = await addWorktree(fixture, "conflict-unresolved");
@@ -630,26 +631,21 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     commitFile(first, "shared.txt", "first\n", "first");
     commitFile(second, "shared.txt", "second\n", "second");
     await runCliOk(fixture, first, ["integrate", "--summary", "first done"]);
-    const fakeCodex = join(fixture.root, "fake-unresolved.cjs");
-    await writeFile(
-      fakeCodex,
-      "#!/usr/bin/env node\nprocess.stdin.resume();\n",
-    );
-    await chmod(fakeCodex, 0o755);
-    await updateConfig(fixture, (config) => {
-      config.codexCommand = fakeCodex;
-    });
     const result = await runCli(fixture, second, [
       "integrate",
       "--summary",
       "second unresolved",
     ]);
     expect(result.code).toBe(1);
-    expect(result.stderr).toContain("Unresolved conflicts remain");
+    expect(result.stderr).toContain(
+      "Merge conflict requires resolution by the current Codex session",
+    );
+    expect(result.stderr).toContain("codex-handoff resume");
     const failed = (await sessions(fixture)).find(
       (session) => session.worktreePath === second,
     )!;
     expect(failed.status).toBe("needs_review");
+    expect(failed.awaitingConflictResolution).toBe(true);
     expect(failed.conflictPromptPath).toBeTruthy();
     const integrationPath = join(
       fixture.runtime,
@@ -660,6 +656,25 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
       "shared.txt",
     );
     expect(git(second, "status", "--porcelain=v1")).toBe("");
+
+    const prematureResume = await runCli(fixture, second, ["resume"]);
+    expect(prematureResume.code).toBe(1);
+    expect(prematureResume.stderr).toContain(
+      "Resolve and stage all conflicts before resume",
+    );
+
+    await writeFile(join(integrationPath, "shared.txt"), "first\nsecond\n");
+    git(integrationPath, "add", "shared.txt");
+    const resumed = await runCli(fixture, second, ["resume"]);
+    expect(resumed.code, resumed.stderr).toBe(0);
+    const completed = (await sessions(fixture)).find(
+      (session) => session.worktreePath === second,
+    )!;
+    expect(completed.status).toBe("succeeded");
+    expect(completed.awaitingConflictResolution).toBe(false);
+    expect(await readFile(join(integrationPath, "shared.txt"), "utf8")).toBe(
+      "first\nsecond\n",
+    );
   });
 
   it("refuses to remove a dead-owner lock over a dirty integration worktree", async () => {

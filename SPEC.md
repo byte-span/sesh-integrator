@@ -41,7 +41,8 @@ SESSION 1                         SESSION 2
                     │                   │
                  clean              conflict
                     │                   │
-                    │             codex exec
+                    │       current Codex session
+                    │       + handoff resume
                     │                   │
                     └─────────┬─────────┘
                               │
@@ -101,6 +102,7 @@ Example `~/.codex-handoff/config.json`:
 {
   "lockWaitSeconds": 900,
   "codexCommand": "codex",
+  "conflictResolutionMode": "current-session",
   "repositories": [
     {
       "path": "/Users/you/Developer/my-app",
@@ -141,10 +143,12 @@ Create:
 
 Do not overwrite an existing config.
 
-The conflict resolver runs with `CODEX_HOME` set to the isolated, writable
-`codex-home/` directory and uses `codex exec --sandbox workspace-write -`.
-Copy newer `auth.json` and `config.toml` files from the caller's Codex home with
-owner-only permissions before invoking the resolver.
+Current-session conflict resolution is the default and requires no nested model
+call. The optional `nested-codex` compatibility mode runs with `CODEX_HOME` set
+to the isolated, writable `codex-home/` directory and uses
+`codex exec --sandbox workspace-write -`. Copy newer `auth.json` and
+`config.toml` files from the caller's Codex home with owner-only permissions
+before invoking that resolver.
 
 ## 7. `register`
 
@@ -360,11 +364,16 @@ Build a conflict prompt containing:
 - all same-repo sessions integrated after this session's `startedAt`
 - explicit dependencies
 
-Invoke Codex in the integration worktree.
+Persist the prompt and merge metadata, release the lock, and instruct the
+current Codex session to resolve and stage the integration worktree. The skill
+then invokes `codex-handoff resume` from the source worktree. `resume` reacquires
+the lock and verifies the source snapshot, integration branch and HEAD,
+`MERGE_HEAD`, and absence of unmerged paths before continuing.
 
-Use a non-interactive command supported by the installed Codex version, with the integration worktree as cwd.
+Optional `nested-codex` mode invokes a non-interactive Codex command in the
+integration worktree instead.
 
-After Codex returns:
+After resolution:
 
 1. verify there are zero unmerged paths
 2. run integration validation
@@ -494,3 +503,4 @@ The MVP is ready when disposable repo tests prove:
 16. `doctor` reports both ready and actionable not-ready states without mutation.
 17. Setup runs before session creation and before integration validation.
 18. Auto-configured setup failure does not block `begin`; explicit setup failure does.
+19. A preserved conflict can be resolved by the current session and completed with `resume`.

@@ -154,12 +154,13 @@ codex-handoff integrate --summary "<completion summary>"
 6. Wait if another `codex-handoff` process is integrating the same repo.
 7. Create/reuse a dedicated integration worktree.
 8. Merge the exact `readyCommit`.
-9. Resolve conflicts with `codex exec` if needed.
-10. Run configured integration validation.
-11. Commit successful integration.
-12. Record result.
-13. Release the lock.
-14. Exit.
+9. On conflict, preserve the merge for the current Codex session.
+10. Resume after the current session resolves and stages the conflict.
+11. Run configured integration validation.
+12. Commit successful integration.
+13. Record result.
+14. Release the lock.
+15. Exit.
 
 No polling.
 

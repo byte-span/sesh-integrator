@@ -313,6 +313,67 @@ export async function integrateCommand(summary: string): Promise<Session> {
   }
 }
 
+export async function resumeCommand(): Promise<Session> {
+  const source = await inspectGit(process.cwd());
+  const config = await readConfig();
+  const repository = findRepository(config, source.gitCommonDir);
+  const sessions = await readSessions();
+  const session = sessions
+    .filter(
+      (item) =>
+        item.worktreePath === source.worktreePath &&
+        item.status === "needs_review" &&
+        item.awaitingConflictResolution === true,
+    )
+    .at(-1);
+  if (!session) {
+    throw new Error("No resumable conflict exists for this worktree");
+  }
+  if (!(await isClean(source.worktreePath))) {
+    throw new Error(
+      "Source worktree must remain clean while resuming integration",
+    );
+  }
+  if (source.branch !== session.branch || source.head !== session.readyCommit) {
+    throw new Error(
+      `Source snapshot changed; expected ${session.branch} at ${session.readyCommit}`,
+    );
+  }
+
+  const integrationWorktree = join(
+    runtimePaths().worktrees,
+    session.repositoryId,
+  );
+  session.waitingForLock = true;
+  await writeSession(session);
+  let lock: LockHandle | undefined;
+  try {
+    lock = await acquireRepoLock(
+      session.repositoryId,
+      session.id,
+      config.lockWaitSeconds,
+      integrationWorktree,
+    );
+    session.waitingForLock = false;
+    await writeSession(session);
+    await assertDependencies(session, await readSessions());
+    await assertResumableConflict(repository, session, integrationWorktree);
+    await validateCommitAndFinish(repository, session, integrationWorktree);
+    process.stdout.write(
+      `Integrated ${session.id} at ${session.integratedCommit}\n`,
+    );
+    return session;
+  } catch (error) {
+    session.waitingForLock = false;
+    session.status = "needs_review";
+    session.latestError = errorMessage(error);
+    await writeSession(session);
+    throw error;
+  } finally {
+    if (lock) await releaseRepoLock(lock);
+  }
+}
+
 async function prepareIntegrationWorktree(
   repository: RepositoryConfig,
   path: string,
@@ -410,27 +471,87 @@ async function mergeAndValidate(
       prompt,
     );
     session.conflictPromptPath = promptPath;
+    session.conflictIntegrationHead = integrationHead;
+    session.awaitingConflictResolution = true;
     await writeSession(session);
-    const codexHome = await prepareCodexResolverHome();
-    const resolution = await run(
-      config.codexCommand,
-      ["exec", "--sandbox", "workspace-write", "-"],
-      {
-        cwd: worktree,
-        input: prompt,
-        echo: true,
-        env: { ...process.env, CODEX_HOME: codexHome },
-      },
-    );
-    if (resolution.code !== 0)
-      throw new Error(
-        `Codex conflict resolver exited with code ${resolution.code}`,
+    if (config.conflictResolutionMode === "nested-codex") {
+      const codexHome = await prepareCodexResolverHome();
+      const resolution = await run(
+        config.codexCommand,
+        ["exec", "--sandbox", "workspace-write", "-"],
+        {
+          cwd: worktree,
+          input: prompt,
+          echo: true,
+          env: { ...process.env, CODEX_HOME: codexHome },
+        },
       );
+      if (resolution.code !== 0)
+        throw new Error(
+          `Codex conflict resolver exited with code ${resolution.code}`,
+        );
+    } else {
+      throw new Error(
+        `Merge conflict requires resolution by the current Codex session. ` +
+          `Resolve and stage files in ${worktree} using ${promptPath}, then run codex-handoff resume from ${session.worktreePath}`,
+      );
+    }
     const remaining = await unmergedFiles(worktree);
     if (remaining.length > 0)
       throw new Error(`Unresolved conflicts remain: ${remaining.join(", ")}`);
   }
 
+  await validateCommitAndFinish(repository, session, worktree);
+}
+
+async function assertResumableConflict(
+  repository: RepositoryConfig,
+  session: Session,
+  worktree: string,
+): Promise<void> {
+  const context = await inspectGit(worktree);
+  if (context.gitCommonDir !== repository.gitCommonDir) {
+    throw new Error(
+      `Integration worktree belongs to a different repository: ${worktree}`,
+    );
+  }
+  if (context.branch !== repository.integrationBranch) {
+    throw new Error(
+      `Integration worktree is on ${context.branch ?? "detached HEAD"}, expected ${repository.integrationBranch}`,
+    );
+  }
+  if (
+    !session.conflictIntegrationHead ||
+    context.head !== session.conflictIntegrationHead
+  ) {
+    throw new Error(
+      `Integration HEAD changed since the conflict was preserved; expected ${session.conflictIntegrationHead ?? "recorded conflict HEAD"}`,
+    );
+  }
+  if (!(await hasMergeInProgress(worktree))) {
+    throw new Error(
+      "The preserved integration worktree has no merge in progress",
+    );
+  }
+  const mergeHead = await git(["rev-parse", "MERGE_HEAD"], worktree);
+  if (mergeHead !== session.readyCommit) {
+    throw new Error(
+      `Preserved merge targets ${mergeHead}, expected ready commit ${session.readyCommit}`,
+    );
+  }
+  const remaining = await unmergedFiles(worktree);
+  if (remaining.length > 0) {
+    throw new Error(
+      `Resolve and stage all conflicts before resume: ${remaining.join(", ")}`,
+    );
+  }
+}
+
+async function validateCommitAndFinish(
+  repository: RepositoryConfig,
+  session: Session,
+  worktree: string,
+): Promise<void> {
   await runRequiredCommands(
     repository.setupCommands,
     worktree,
@@ -452,6 +573,7 @@ async function mergeAndValidate(
   session.integratedCommit = await git(["rev-parse", "HEAD"], worktree);
   session.integratedAt = new Date().toISOString();
   session.waitingForLock = false;
+  session.awaitingConflictResolution = false;
   await writeSession(session);
 
   if (integrationBranchAdvanced) {
