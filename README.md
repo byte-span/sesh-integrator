@@ -71,6 +71,7 @@ Creates, without overwriting an existing configuration:
 ~/.codex-handoff/
 ├── config.json
 ├── state.json
+├── codex-home/
 ├── sessions/
 ├── locks/
 ├── logs/
@@ -197,7 +198,16 @@ codex-handoff integrate --summary "Implemented comment editing and tests"
 
 The ready SHA and timestamp are persisted before dependency or lock checks. Dependencies must already have succeeded. Simultaneous processes wait on an atomic per-repository directory lock, then merge against the current integration branch. The mutable source branch name is never merged.
 
-Conflicts invoke `codex exec --full-auto -` from the integration worktree, with the contextual prompt on stdin. The prompt is also saved under `~/.codex-handoff/logs/`. It includes session timing, summaries, explicit dependencies, later successful integrations, conflicted files, repository instructions, and an explicit rule that start time does not determine precedence.
+Conflicts invoke `codex exec --sandbox workspace-write -` from the integration
+worktree, with the contextual prompt on stdin. The resolver receives an isolated,
+writable `CODEX_HOME` at `~/.codex-handoff/codex-home/`; before invocation, the
+tool copies newer `auth.json` and `config.toml` files from the caller's Codex
+home with owner-only permissions. This keeps resolver databases out of the
+caller's normal Codex state directory while preserving authentication and CLI
+configuration. The prompt is also saved under
+`~/.codex-handoff/logs/`. It includes session timing, summaries, explicit
+dependencies, later successful integrations, conflicted files, repository
+instructions, and an explicit rule that start time does not determine precedence.
 
 Validation failure or unresolved conflict leaves the integration worktree intact, records `needs_review`, releases the one-shot lock, and exits nonzero. A failed post-integration command also records `needs_review`, but preserves the integration commit because the branch has already advanced; its command, exit code, stdout, and stderr remain in the session record for diagnosis. Post-integration commands are skipped when the ready commit was already present and the branch did not advance. The source worktree is never modified.
 

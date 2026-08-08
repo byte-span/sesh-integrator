@@ -22,6 +22,7 @@ import {
   DEFAULT_INTEGRATION_BRANCH,
   ensureRuntime,
   makeSessionId,
+  prepareCodexResolverHome,
   readConfig,
   readSessions,
   repoId,
@@ -410,13 +411,15 @@ async function mergeAndValidate(
     );
     session.conflictPromptPath = promptPath;
     await writeSession(session);
+    const codexHome = await prepareCodexResolverHome();
     const resolution = await run(
       config.codexCommand,
-      ["exec", "--full-auto", "-"],
+      ["exec", "--sandbox", "workspace-write", "-"],
       {
         cwd: worktree,
         input: prompt,
         echo: true,
+        env: { ...process.env, CODEX_HOME: codexHome },
       },
     );
     if (resolution.code !== 0)

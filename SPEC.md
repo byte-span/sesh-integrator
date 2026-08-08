@@ -132,6 +132,7 @@ Create:
 ~/.codex-handoff/
 ├── config.json
 ├── state.json
+├── codex-home/
 ├── sessions/
 ├── locks/
 ├── logs/
@@ -139,6 +140,11 @@ Create:
 ```
 
 Do not overwrite an existing config.
+
+The conflict resolver runs with `CODEX_HOME` set to the isolated, writable
+`codex-home/` directory and uses `codex exec --sandbox workspace-write -`.
+Copy newer `auth.json` and `config.toml` files from the caller's Codex home with
+owner-only permissions before invoking the resolver.
 
 ## 7. `register`
 

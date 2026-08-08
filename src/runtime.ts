@@ -1,5 +1,14 @@
 import { randomBytes } from "node:crypto";
-import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  copyFile,
+  mkdir,
+  readFile,
+  readdir,
+  rename,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { Config, RuntimePaths, Session } from "./types.js";
@@ -13,6 +22,7 @@ export function runtimePaths(): RuntimePaths {
     root,
     config: join(root, "config.json"),
     state: join(root, "state.json"),
+    codexHome: join(root, "codex-home"),
     sessions: join(root, "sessions"),
     locks: join(root, "locks"),
     logs: join(root, "logs"),
@@ -29,14 +39,30 @@ export const defaultConfig = (): Config => ({
 export async function ensureRuntime(): Promise<RuntimePaths> {
   const paths = runtimePaths();
   await Promise.all([
+    mkdir(paths.codexHome, { recursive: true, mode: 0o700 }),
     mkdir(paths.sessions, { recursive: true }),
     mkdir(paths.locks, { recursive: true }),
     mkdir(paths.logs, { recursive: true }),
     mkdir(paths.worktrees, { recursive: true }),
   ]);
+  await chmod(paths.codexHome, 0o700);
   await writeJsonIfMissing(paths.config, defaultConfig());
   await writeJsonIfMissing(paths.state, { version: 1 });
   return paths;
+}
+
+export async function prepareCodexResolverHome(): Promise<string> {
+  const paths = await ensureRuntime();
+  const sourceHome = process.env.CODEX_HOME ?? join(homedir(), ".codex");
+  for (const name of ["auth.json", "config.toml"]) {
+    const source = join(sourceHome, name);
+    const target = join(paths.codexHome, name);
+    if (source !== target && (await isNewer(source, target))) {
+      await copyFile(source, target);
+      await chmod(target, 0o600);
+    }
+  }
+  return paths.codexHome;
 }
 
 export async function readConfig(): Promise<Config> {
@@ -132,4 +158,19 @@ export async function writeJsonAtomic(
 
 export function isNodeError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error;
+}
+
+async function isNewer(source: string, target: string): Promise<boolean> {
+  try {
+    const sourceStat = await stat(source);
+    try {
+      return sourceStat.mtimeMs > (await stat(target)).mtimeMs;
+    } catch (error) {
+      if (isNodeError(error) && error.code === "ENOENT") return true;
+      throw error;
+    }
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") return false;
+    throw error;
+  }
 }

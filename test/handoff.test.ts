@@ -19,6 +19,7 @@ interface Fixture {
   repo: string;
   runtime: string;
   auditHome: string;
+  sourceCodexHome: string;
 }
 
 interface CliResult {
@@ -354,12 +355,15 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     ]);
 
     const promptCapture = join(fixture.root, "prompt.txt");
+    const invocationCapture = join(fixture.root, "resolver-invocation.json");
     const fakeCodex = join(fixture.root, "fake-codex.cjs");
     await writeFile(
       fakeCodex,
       `#!/usr/bin/env node\nconst fs=require('node:fs');const cp=require('node:child_process');let input='';process.stdin.on('data',c=>input+=c);process.stdin.on('end',()=>{fs.writeFileSync(${JSON.stringify(
         promptCapture,
-      )},input);fs.writeFileSync('shared.txt','later result\\nearlier compatible addition\\n');cp.execFileSync('git',['add','shared.txt']);});\n`,
+      )},input);fs.writeFileSync(${JSON.stringify(
+        invocationCapture,
+      )},JSON.stringify({args:process.argv.slice(2),codexHome:process.env.CODEX_HOME}));fs.writeFileSync('shared.txt','later result\\nearlier compatible addition\\n');cp.execFileSync('git',['add','shared.txt']);});\n`,
     );
     await chmod(fakeCodex, 0o755);
     await updateConfig(fixture, (config) => {
@@ -373,6 +377,24 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
       "earlier completed after later",
     ]);
     const prompt = await readFile(promptCapture, "utf8");
+    const invocation = JSON.parse(await readFile(invocationCapture, "utf8"));
+    expect(invocation.args).toEqual([
+      "exec",
+      "--sandbox",
+      "workspace-write",
+      "-",
+    ]);
+    expect(invocation.codexHome).toBe(join(fixture.runtime, "codex-home"));
+    expect(
+      await readFile(join(invocation.codexHome, "auth.json"), "utf8"),
+    ).toBe('{"test":true}\n');
+    expect(
+      await readFile(join(invocation.codexHome, "config.toml"), "utf8"),
+    ).toBe('model = "test-model"\n');
+    expect((await stat(invocation.codexHome)).mode & 0o777).toBe(0o700);
+    expect(
+      (await stat(join(invocation.codexHome, "auth.json"))).mode & 0o777,
+    ).toBe(0o600);
     expect(prompt).toContain("Started at:");
     expect(prompt).toContain("Ready at:");
     expect(prompt).toContain("later integrated first");
@@ -973,7 +995,17 @@ async function createFixture(sharedContents?: string): Promise<Fixture> {
     repo: join(root, "repo"),
     runtime: join(root, "runtime"),
     auditHome: join(root, "home"),
+    sourceCodexHome: join(root, "source-codex-home"),
   };
+  await mkdir(fixture.sourceCodexHome, { recursive: true });
+  await writeFile(
+    join(fixture.sourceCodexHome, "auth.json"),
+    '{"test":true}\n',
+  );
+  await writeFile(
+    join(fixture.sourceCodexHome, "config.toml"),
+    'model = "test-model"\n',
+  );
   await mkdir(fixture.repo, { recursive: true });
   git(fixture.repo, "init", "-b", "main");
   git(fixture.repo, "config", "user.name", "Test User");
@@ -1031,6 +1063,7 @@ async function runCli(
         CODEX_HANDOFF_HOME: fixture.runtime,
         CODEX_HANDOFF_AUDIT_HOME: fixture.auditHome,
         CODEX_HANDOFF_DOCTOR_HOME: fixture.auditHome,
+        CODEX_HOME: fixture.sourceCodexHome,
       },
       stdio: ["ignore", "pipe", "pipe"],
     });

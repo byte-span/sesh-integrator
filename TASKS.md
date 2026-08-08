@@ -54,6 +54,7 @@ Complete personal MVP implementation checklist.
 - [x] Preserve post-integration failures and the already-advanced commit for review
 - [x] Record the integration commit/result or `needs_review` error
 - [x] Preserve failed integration state for diagnosis and release the controlled lock
+- [x] Run Codex conflict resolution with isolated writable state and workspace sandboxing
 
 ## Lock reliability and status
 

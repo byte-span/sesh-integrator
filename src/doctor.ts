@@ -31,6 +31,7 @@ export async function doctorCommand(cwd = process.cwd()): Promise<void> {
   const requiredPaths = [
     paths.config,
     paths.state,
+    paths.codexHome,
     paths.sessions,
     paths.locks,
     paths.logs,
@@ -48,6 +49,14 @@ export async function doctorCommand(cwd = process.cwd()): Promise<void> {
           `missing ${missingPaths.join(", ")}; run codex-handoff init`,
         ),
   );
+  try {
+    await access(paths.codexHome, constants.W_OK);
+    checks.push(pass("Resolver state", `${paths.codexHome} is writable`));
+  } catch {
+    checks.push(
+      fail("Resolver state", `${paths.codexHome} must be writable by Codex`),
+    );
+  }
 
   let config: Config | undefined;
   try {

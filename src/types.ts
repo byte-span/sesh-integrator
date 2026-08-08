@@ -56,6 +56,7 @@ export interface RuntimePaths {
   root: string;
   config: string;
   state: string;
+  codexHome: string;
   sessions: string;
   locks: string;
   logs: string;
