@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { realpath } from "node:fs/promises";
 import { afterEach, describe, expect, it } from "vitest";
+import { withGpgProgram } from "../src/handoff.js";
 
 interface Fixture {
   root: string;
@@ -735,6 +736,80 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     expect(result.stdout.indexOf("Running setup command:")).toBeLessThan(
       result.stdout.indexOf("Running validation:"),
     );
+  });
+
+  it("scopes the configured GPG program to integration commit commands", async () => {
+    const fixture = await createFixture();
+    const scopedProgram = join(fixture.root, "codex-gpg");
+    await updateConfig(fixture, (config) => {
+      config.repositories[0].gpgProgram = scopedProgram;
+    });
+    const worktree = await addWorktree(fixture, "scoped-gpg-program");
+    await runCliOk(fixture, worktree, [
+      "begin",
+      "--summary",
+      "scoped signing task",
+    ]);
+    commitFile(worktree, "signed.txt", "change\n", "source commit");
+
+    const result = await runCli(fixture, worktree, [
+      "integrate",
+      "--summary",
+      "scoped signing complete",
+    ]);
+
+    expect(result.code, result.stderr).toBe(0);
+    expect(withGpgProgram(scopedProgram, ["commit", "-m", "message"])).toEqual([
+      "-c",
+      `gpg.program=${scopedProgram}`,
+      "commit",
+      "-m",
+      "message",
+    ]);
+    const repositoryConfig = await readFile(
+      join(fixture.repo, ".git", "config"),
+      "utf8",
+    );
+    expect(repositoryConfig).not.toContain(scopedProgram);
+  });
+
+  it("creates a signed integration commit with the command-scoped GPG program", async () => {
+    const fixture = await createFixture();
+    const signingProgram = join(fixture.root, "fake-gpg");
+    await writeFile(
+      signingProgram,
+      `#!/usr/bin/env node
+process.stdin.resume();
+process.stdin.on("end", () => {
+  process.stderr.write("[GNUPG:] SIG_CREATED D 1 10 00 0 0000000000000000000000000000000000000000\\n");
+  process.stdout.write("-----BEGIN PGP SIGNATURE-----\\n\\nZmFrZQ==\\n=ZmFr\\n-----END PGP SIGNATURE-----\\n");
+});
+`,
+    );
+    await chmod(signingProgram, 0o755);
+    await updateConfig(fixture, (config) => {
+      config.repositories[0].gpgProgram = signingProgram;
+    });
+    const worktree = await addWorktree(fixture, "signed-integration");
+    await runCliOk(fixture, worktree, [
+      "begin",
+      "--summary",
+      "signed integration task",
+    ]);
+    commitFile(worktree, "signed.txt", "change\n", "source commit");
+    git(fixture.repo, "config", "commit.gpgSign", "true");
+    git(fixture.repo, "config", "user.signingkey", "TEST-SIGNING-KEY");
+
+    const result = await runCli(fixture, worktree, [
+      "integrate",
+      "--summary",
+      "signed integration complete",
+    ]);
+
+    expect(result.code, result.stderr).toBe(0);
+    expect(
+      git(fixture.repo, "cat-file", "commit", "codex-handoff/integration"),
+    ).toContain("gpgsig -----BEGIN PGP SIGNATURE-----");
   });
 
   it("serializes simultaneous integrations and the final branch contains both exact snapshots", async () => {

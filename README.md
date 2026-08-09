@@ -153,6 +153,7 @@ Edit `~/.codex-handoff/config.json` to add validation and conflict settings. Com
       "gitCommonDir": "/Users/you/Developer/my-project/.git",
       "defaultBranch": "main",
       "integrationBranch": "codex-handoff/integration",
+      "gpgProgram": "/Users/you/.local/bin/codex-gpg",
       "setupCommands": [["corepack", "pnpm", "install", "--frozen-lockfile"]],
       "setupCommandPolicy": "advisory",
       "sourceValidationCommands": [
@@ -179,6 +180,12 @@ Edit `~/.codex-handoff/config.json` to add validation and conflict settings. Com
   ]
 }
 ```
+
+`gpgProgram` is optional. When set, `codex-handoff` applies it only to Git
+commands that create integration commits. It does not modify repository or
+global Git configuration, so ordinary commits can keep using the user's normal
+GPG installation. Direct-integration merge commits are signed when the
+effective `commit.gpgSign` setting is enabled.
 
 Auto-configured setup is `advisory` during `begin`: failure prints a warning but
 does not block branch or session creation. Explicit `--setup-command` setup is

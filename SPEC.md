@@ -107,6 +107,7 @@ Example `~/.codex-handoff/config.json`:
     {
       "path": "/Users/you/Developer/my-app",
       "integrationBranch": "codex-handoff/integration",
+      "gpgProgram": "/Users/you/.local/bin/codex-gpg",
       "setupCommands": [["corepack", "pnpm", "install", "--frozen-lockfile"]],
       "setupCommandPolicy": "advisory",
       "sourceValidationCommands": [

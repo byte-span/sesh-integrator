@@ -694,7 +694,11 @@ async function validateCommitAndFinish(
   const integrationBranchAdvanced = await hasMergeInProgress(worktree);
   if (integrationBranchAdvanced) {
     await git(
-      ["commit", "-m", `Integrate ${session.id}: ${session.taskSummary}`],
+      withGpgProgram(repository.gpgProgram, [
+        "commit",
+        "-m",
+        `Integrate ${session.id}: ${session.taskSummary}`,
+      ]),
       worktree,
     );
   } else {
@@ -787,17 +791,19 @@ async function tryDirectIntegration(
     }
     const tree = mergeTree.stdout.split("\n", 1)[0]?.trim();
     if (!tree) return false;
+    const signCommit = await commitSigningEnabled(repository.path);
     integratedCommit = await git(
-      [
+      withGpgProgram(repository.gpgProgram, [
         "commit-tree",
         tree,
         "-p",
         integrationHead,
         "-p",
         session.readyCommit,
+        ...(signCommit ? ["-S"] : []),
         "-m",
         `Integrate ${session.id}: ${session.taskSummary}`,
-      ],
+      ]),
       repository.path,
     );
   }
@@ -834,6 +840,22 @@ async function tryDirectIntegration(
   delete session.latestError;
   await writeSession(session);
   return true;
+}
+
+export function withGpgProgram(
+  gpgProgram: string | undefined,
+  args: string[],
+): string[] {
+  return gpgProgram ? ["-c", `gpg.program=${gpgProgram}`, ...args] : args;
+}
+
+async function commitSigningEnabled(cwd: string): Promise<boolean> {
+  const result = await run(
+    "git",
+    ["config", "--bool", "--get", "commit.gpgSign"],
+    { cwd },
+  );
+  return result.code === 0 && result.stdout.trim() === "true";
 }
 
 async function isBranchCheckedOut(

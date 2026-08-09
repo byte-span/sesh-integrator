@@ -58,6 +58,9 @@ Before saying the task is complete:
 2. If task changes are uncommitted:
    - confirm they belong to this task
    - confirm the branch is safe
+   - if the registered repository config sets `gpgProgram`, create the commit
+     with `git -c gpg.program="<configured path>" commit ...`; never persist
+     that override in repository or global Git configuration
    - create one focused commit using repository conventions
 3. If unrelated/ambiguous changes are present, ask before staging or committing.
 4. Require no newly introduced or changed non-task working-tree state. An

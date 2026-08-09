@@ -13,6 +13,7 @@ export interface RepositoryConfig {
   gitCommonDir: string;
   defaultBranch: string;
   integrationBranch: string;
+  gpgProgram?: string;
   setupCommands: Command[];
   setupCommandPolicy?: "advisory" | "required";
   sourceValidationCommands: Command[];
