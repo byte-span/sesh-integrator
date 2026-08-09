@@ -439,15 +439,34 @@ export async function resumeCommand(): Promise<Session> {
       (item) =>
         item.worktreePath === source.worktreePath &&
         item.status === "needs_review" &&
-        item.awaitingConflictResolution === true,
+        item.readyCommit !== undefined,
     )
     .at(-1);
   if (!session) {
-    throw new Error("No resumable conflict exists for this worktree");
+    throw new Error("No resumable integration exists for this worktree");
   }
-  if (source.branch !== session.branch || source.head !== session.readyCommit) {
+  if (source.branch !== session.branch) {
     throw new Error(
       `Source snapshot changed; expected ${session.branch} at ${session.readyCommit}`,
+    );
+  }
+  const readyIsAncestor =
+    source.head === session.readyCommit ||
+    (
+      await run(
+        "git",
+        ["merge-base", "--is-ancestor", session.readyCommit!, source.head],
+        { cwd: source.worktreePath },
+      )
+    ).code === 0;
+  if (!readyIsAncestor) {
+    throw new Error(
+      `Source snapshot diverged; expected ${session.branch} to contain ${session.readyCommit}`,
+    );
+  }
+  if (source.head !== session.readyCommit) {
+    process.stderr.write(
+      `Warning (resume): source branch advanced after ${session.readyCommit}; retrying only the preserved ready commit\n`,
     );
   }
   await assertSourceHandoffState(
@@ -479,7 +498,15 @@ export async function resumeCommand(): Promise<Session> {
     session.waitingForLock = false;
     await writeSession(session);
     await assertDependencies(session, await readSessions());
-    await assertResumableConflict(repository, session, integrationWorktree);
+    if (session.awaitingConflictResolution) {
+      await assertResumableConflict(repository, session, integrationWorktree);
+    } else {
+      await assertResumableCommitFailure(
+        repository,
+        session,
+        integrationWorktree,
+      );
+    }
     await validateCommitAndFinish(repository, session, integrationWorktree);
     process.stdout.write(
       `Integrated ${session.id} at ${session.integratedCommit}\n`,
@@ -668,6 +695,56 @@ async function assertResumableConflict(
   if (remaining.length > 0) {
     throw new Error(
       `Resolve and stage all conflicts before resume: ${remaining.join(", ")}`,
+    );
+  }
+}
+
+async function assertResumableCommitFailure(
+  repository: RepositoryConfig,
+  session: Session,
+  worktree: string,
+): Promise<void> {
+  const context = await inspectGit(worktree);
+  if (context.gitCommonDir !== repository.gitCommonDir) {
+    throw new Error(
+      `Integration worktree belongs to a different repository: ${worktree}`,
+    );
+  }
+  if (context.branch !== repository.integrationBranch) {
+    throw new Error(
+      `Integration worktree is on ${context.branch ?? "detached HEAD"}, expected ${repository.integrationBranch}`,
+    );
+  }
+  if (!(await hasMergeInProgress(worktree))) {
+    throw new Error(
+      "The preserved integration worktree has no merge in progress",
+    );
+  }
+  const mergeHead = await git(["rev-parse", "MERGE_HEAD"], worktree);
+  if (mergeHead !== session.readyCommit) {
+    throw new Error(
+      `Preserved merge targets ${mergeHead}, expected ready commit ${session.readyCommit}`,
+    );
+  }
+  const remaining = await unmergedFiles(worktree);
+  if (remaining.length > 0) {
+    throw new Error(
+      `Preserved non-conflict retry unexpectedly has unresolved files: ${remaining.join(", ")}`,
+    );
+  }
+  const expected = await run(
+    "git",
+    ["merge-tree", "--write-tree", context.head, session.readyCommit],
+    { cwd: worktree },
+  );
+  const expectedTree = expected.stdout.split("\n", 1)[0]?.trim();
+  if (expected.code !== 0 || !expectedTree) {
+    throw new Error("Could not reconstruct the preserved clean merge tree");
+  }
+  const stagedTree = await git(["write-tree"], worktree);
+  if (stagedTree !== expectedTree) {
+    throw new Error(
+      "Preserved integration index changed after the non-conflict failure; refusing automatic retry",
     );
   }
 }

@@ -230,6 +230,46 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     expect(completed.status).toBe("succeeded");
   });
 
+  it("accepts a baseline-inaccessible path later omitted by Git when its index entry is unchanged", async () => {
+    const fixture = await createFixture();
+    await writeFile(join(fixture.repo, ".env.local"), "tracked secret\n");
+    git(fixture.repo, "add", ".env.local");
+    git(fixture.repo, "commit", "-m", "track environment file");
+    const fakeGit = await createPermissionGit(
+      fixture,
+      ".env.local",
+      true,
+      "sandbox-status-omission",
+    );
+    const begin = await runCli(
+      fixture,
+      fixture.repo,
+      ["begin", "--summary", "application change"],
+      fakeGit.env,
+    );
+    expect(begin.code, begin.stderr).toBe(0);
+    await writeFile(fakeGit.state, "normal\n");
+    commitFile(
+      fixture.repo,
+      "app.ts",
+      "export const ready = true;\n",
+      "application task",
+    );
+
+    const validation = await runCli(
+      fixture,
+      fixture.repo,
+      ["validate"],
+      fakeGit.env,
+    );
+
+    expect(validation.code, validation.stderr).toBe(0);
+    expect(validation.stderr).toContain(
+      "omitted by current worktree observation",
+    );
+    expect(validation.stderr).toContain("disk contents were not verified");
+  });
+
   it("blocks an initially inaccessible path when it becomes staged", async () => {
     const fixture = await createFixture();
     await writeFile(join(fixture.repo, ".env.local"), "one\n");
@@ -775,18 +815,7 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
 
   it("creates a signed integration commit with the command-scoped GPG program", async () => {
     const fixture = await createFixture();
-    const signingProgram = join(fixture.root, "fake-gpg");
-    await writeFile(
-      signingProgram,
-      `#!/usr/bin/env node
-process.stdin.resume();
-process.stdin.on("end", () => {
-  process.stderr.write("[GNUPG:] SIG_CREATED D 1 10 00 0 0000000000000000000000000000000000000000\\n");
-  process.stdout.write("-----BEGIN PGP SIGNATURE-----\\n\\nZmFrZQ==\\n=ZmFr\\n-----END PGP SIGNATURE-----\\n");
-});
-`,
-    );
-    await chmod(signingProgram, 0o755);
+    const signingProgram = await createFakeSigningProgram(fixture);
     await updateConfig(fixture, (config) => {
       config.repositories[0].gpgProgram = signingProgram;
     });
@@ -810,6 +839,104 @@ process.stdin.on("end", () => {
     expect(
       git(fixture.repo, "cat-file", "commit", "codex-handoff/integration"),
     ).toContain("gpgsig -----BEGIN PGP SIGNATURE-----");
+  });
+
+  it("resumes an unchanged clean merge after a signing failure", async () => {
+    const fixture = await createFixture();
+    const worktree = await addWorktree(fixture, "retry-signing");
+    await runCliOk(fixture, worktree, [
+      "begin",
+      "--summary",
+      "retry signing task",
+    ]);
+    commitFile(worktree, "retry.txt", "change\n", "source commit");
+    git(fixture.repo, "config", "commit.gpgSign", "true");
+    git(fixture.repo, "config", "user.signingkey", "TEST-SIGNING-KEY");
+    await updateConfig(fixture, (config) => {
+      config.repositories[0].gpgProgram = "/usr/bin/false";
+    });
+
+    const failed = await runCli(fixture, worktree, [
+      "integrate",
+      "--summary",
+      "retry signing complete",
+    ]);
+    expect(failed.code).toBe(1);
+    const preserved = (await sessions(fixture))[0]!;
+    expect(preserved.status).toBe("needs_review");
+    expect(preserved.awaitingConflictResolution).not.toBe(true);
+
+    const signingProgram = await createFakeSigningProgram(fixture);
+    await updateConfig(fixture, (config) => {
+      config.repositories[0].gpgProgram = signingProgram;
+    });
+    const resumed = await runCli(fixture, worktree, ["resume"]);
+
+    expect(resumed.code, resumed.stderr).toBe(0);
+    const completed = (await sessions(fixture))[0]!;
+    expect(completed.status).toBe("succeeded");
+    expect(
+      git(fixture.repo, "cat-file", "commit", completed.integratedCommit!),
+    ).toContain("gpgsig -----BEGIN PGP SIGNATURE-----");
+  });
+
+  it("resumes a preserved signing failure after the source branch advances", async () => {
+    const fixture = await createFixture();
+    const worktree = await addWorktree(fixture, "retry-after-advance");
+    await runCliOk(fixture, worktree, [
+      "begin",
+      "--summary",
+      "retry before later source work",
+    ]);
+    const readyCommit = commitFile(
+      worktree,
+      "ready.txt",
+      "ready\n",
+      "ready source commit",
+    );
+    git(fixture.repo, "config", "commit.gpgSign", "true");
+    git(fixture.repo, "config", "user.signingkey", "TEST-SIGNING-KEY");
+    await updateConfig(fixture, (config) => {
+      config.repositories[0].gpgProgram = "/usr/bin/false";
+    });
+
+    const failed = await runCli(fixture, worktree, [
+      "integrate",
+      "--summary",
+      "preserve ready commit",
+    ]);
+    expect(failed.code).toBe(1);
+    git(fixture.repo, "config", "commit.gpgSign", "false");
+    commitFile(worktree, "later.txt", "later\n", "later source commit");
+    git(fixture.repo, "config", "commit.gpgSign", "true");
+
+    const signingProgram = await createFakeSigningProgram(fixture);
+    await updateConfig(fixture, (config) => {
+      config.repositories[0].gpgProgram = signingProgram;
+    });
+    const resumed = await runCli(fixture, worktree, ["resume"]);
+
+    expect(resumed.code, resumed.stderr).toBe(0);
+    expect(resumed.stderr).toContain("source branch advanced");
+    const completed = (await sessions(fixture))[0]!;
+    expect(completed.status).toBe("succeeded");
+    expect(
+      git(
+        fixture.repo,
+        "merge-base",
+        "--is-ancestor",
+        readyCommit,
+        "codex-handoff/integration",
+      ),
+    ).toBe("");
+    expect(() =>
+      git(
+        fixture.repo,
+        "cat-file",
+        "-e",
+        "codex-handoff/integration:later.txt",
+      ),
+    ).toThrow();
   });
 
   it("serializes simultaneous integrations and the final branch contains both exact snapshots", async () => {
@@ -1708,6 +1835,22 @@ process.exit(code);
       FAKE_GIT_MODE: mode,
     },
   };
+}
+
+async function createFakeSigningProgram(fixture: Fixture): Promise<string> {
+  const signingProgram = join(fixture.root, "fake-gpg");
+  await writeFile(
+    signingProgram,
+    `#!/usr/bin/env node
+process.stdin.resume();
+process.stdin.on("end", () => {
+  process.stderr.write("[GNUPG:] SIG_CREATED D 1 10 00 0 0000000000000000000000000000000000000000\\n");
+  process.stdout.write("-----BEGIN PGP SIGNATURE-----\\n\\nZmFrZQ==\\n=ZmFr\\n-----END PGP SIGNATURE-----\\n");
+});
+`,
+  );
+  await chmod(signingProgram, 0o755);
+  return signingProgram;
 }
 
 async function runCliOk(

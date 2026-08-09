@@ -278,7 +278,9 @@ codex-handoff resume
 
 Do not run it from the integration worktree. It resumes only the matching
 `needs_review` session and refuses changed source snapshots, mismatched merge
-commits, unresolved files, or a moved integration branch.
+commits, unresolved files, or a moved integration branch. It also retries an
+unchanged clean merge after validation or commit creation failed, but only when
+the staged tree exactly matches Git's reconstructed merge tree.
 
 Validation failure or unresolved conflict leaves the integration worktree intact, records `needs_review`, releases the one-shot lock, and exits nonzero. A failed post-integration command also records `needs_review`, but preserves the integration commit because the branch has already advanced; its command, exit code, stdout, and stderr remain in the session record for diagnosis. Post-integration commands are skipped when the ready commit was already present and the branch did not advance. The source worktree is never modified.
 

@@ -86,9 +86,12 @@ Before saying the task is complete:
    - do not commit in the integration worktree
    - run `codex-handoff resume` from the original source worktree
    - continue autonomously unless the conflict is genuinely ambiguous or validation fails
-9. For any other integration failure, report the CLI's recorded error; do not
-   describe the session as `needs_review` unless the CLI recorded that status.
-10. Report:
+9. If a clean merge was preserved after validation or commit creation failed,
+   run `codex-handoff resume` from the original source worktree. The CLI must
+   verify that its exact staged merge tree is unchanged before retrying.
+10. For any other integration failure, report the CLI's recorded error; do not
+    describe the session as `needs_review` unless the CLI recorded that status.
+11. Report:
 
 - session ID
 - source commit

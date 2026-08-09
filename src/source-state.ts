@@ -75,6 +75,17 @@ export function assessCompletionState(
       continue;
     }
     if (initial && !observed) {
+      if (
+        !initial.accessible &&
+        initial.tracked &&
+        initial.indexEntry !== null &&
+        currentIndexEntry(current, path) === initial.indexEntry
+      ) {
+        warnings.push(
+          `${path}: inaccessible at begin and omitted by current worktree observation, but remains tracked at the same unstaged index entry and outside the task diff; preserving and excluding it (disk contents were not verified)`,
+        );
+        continue;
+      }
       blockers.push(
         `${path}: blocked because its pre-existing observable handoff state changed after begin`,
       );
@@ -102,6 +113,19 @@ export function assessCompletionState(
     }
   }
   return { warnings, blockers };
+}
+
+function currentIndexEntry(
+  observation: GitObservation,
+  path: string,
+): string | null {
+  for (const record of observation.commands.index.stdout.split("\0")) {
+    const separator = record.indexOf("\t");
+    if (separator > 0 && record.slice(separator + 1) === path) {
+      return record.slice(0, separator);
+    }
+  }
+  return null;
 }
 
 function observationErrors(observation: GitObservation): string[] {

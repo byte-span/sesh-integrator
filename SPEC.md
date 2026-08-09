@@ -377,6 +377,10 @@ commit and command output, mark the session `needs_review`, release the lock, an
 exit non-zero. Do not run post-integration commands when the ready commit was
 already present and the integration branch did not advance.
 
+If validation or integration commit creation fails after a clean merge, `resume`
+may retry only when the source snapshot and merge target still match and the
+staged tree equals Git's reconstructed clean merge tree.
+
 ### 10.7 Conflict
 
 Collect:
