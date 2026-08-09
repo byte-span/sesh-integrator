@@ -12,8 +12,8 @@ codex-handoff begin
 → let the current Codex session resolve conflicts if needed
 → codex-handoff resume
 → validate and commit on the internal staging branch
-→ run post-integration checks
 → safely promote the exact validated commit to the configured target branch
+→ run post-integration checks from that target branch's clean worktree
 → record success, release the lock, and exit
 ```
 
@@ -212,9 +212,11 @@ does not block branch or session creation. Explicit `--setup-command` setup is
 `required` and still blocks `begin` on failure. Integration normally requires
 successful setup before its selected validation commands. The workflow skill
 commits the focused change, then runs `codex-handoff validate` against that exact
-commit. After the staging branch advances, the CLI runs
-`postIntegrationCommands`; only after they pass does target promotion occur. All
-commands are argument arrays executed directly without a shell.
+commit. After the staging branch advances, the CLI promotes the validated
+commit and runs `postIntegrationCommands` from the clean worktree checking out
+the target branch. Configuring these commands therefore requires exactly one
+accessible, clean target checkout. All commands are argument arrays executed
+directly without a shell.
 
 Validation tiers are evaluated in configuration order. A tier matches only when
 every changed path matches at least one of its glob patterns; otherwise the
@@ -289,9 +291,9 @@ codex-handoff integrate --summary "Implemented comment editing and tests"
 The ready SHA and timestamp are persisted before dependency or lock checks. Dependencies must already have succeeded. Simultaneous processes wait on an atomic per-repository directory lock, then merge against the current staging branch. Under that lock the CLI records the target's exact expected commit. The mutable source branch name is never merged.
 
 The staging branch starts from, or safely fast-forwards to, the current target.
-After setup, validation, signing, and post-integration checks pass, the exact
-validated staging commit is promoted. An unheld target uses atomic `update-ref`
-with the expected old SHA. A target checked out in one clean worktree is
+After setup, validation, and signing pass, the exact validated staging commit is
+promoted. An unheld target uses atomic `update-ref` with the expected old SHA
+when no post-integration commands are configured. A target checked out in one clean worktree is
 fast-forwarded there and verified so its ref, index, and files remain aligned.
 A dirty, inaccessible, divergent, or unexpectedly moved target is never reset:
 the session becomes `promotion_pending` and the validated staging commit is
@@ -326,9 +328,9 @@ the staged tree exactly matches Git's reconstructed merge tree.
 For `promotion_pending`, `resume` retries only the recorded validated staging
 commit against the recorded expected target SHA. It does not rebuild from a
 source branch that may have advanced. Post-integration failures are likewise
-resumable and rerun their configured checks before promotion.
+resumable and rerun their configured checks from the promoted target worktree.
 
-Validation failure or unresolved conflict leaves the integration worktree intact, records `needs_review`, releases the one-shot lock, and exits nonzero. A failed post-integration command also records `needs_review`, but preserves the staging commit because that branch has already advanced; its command, exit code, stdout, and stderr remain in the session record for diagnosis. Post-integration commands are skipped when the ready commit was already present and the staging branch did not advance. The source worktree is never modified.
+Validation failure or unresolved conflict leaves the integration worktree intact, records `needs_review`, releases the one-shot lock, and exits nonzero. A failed post-integration command also records `needs_review`, but preserves the already-promoted target commit; its command, exit code, stdout, and stderr remain in the session record for diagnosis. If post-integration commands are configured and the target is not checked out in exactly one clean accessible worktree, promotion remains pending. Post-integration commands are skipped when the ready commit was already present and the staging branch did not advance. The source worktree is never modified.
 
 ### `status`
 

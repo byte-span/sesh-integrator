@@ -18,7 +18,8 @@ export async function promoteValidatedCommit(
   repository: RepositoryConfig,
   validatedCommit: string,
   expectedTargetCommit: string,
-): Promise<void> {
+  requireCheckedOutTarget = false,
+): Promise<string | undefined> {
   const branch = targetBranch(repository);
   const ref = `refs/heads/${branch}`;
   const current = await refCommit(repository.path, ref);
@@ -29,7 +30,14 @@ export async function promoteValidatedCommit(
     const holders = (await listWorktrees(repository.path)).filter(
       (worktree) => worktree.branch === ref,
     );
-    if (holders.length === 0) return;
+    if (holders.length === 0) {
+      if (requireCheckedOutTarget) {
+        throw new PromotionBlockedError(
+          `Target branch ${branch} must be checked out in one clean worktree to run post-integration commands. Check it out, then run codex-handoff resume from the source worktree.`,
+        );
+      }
+      return undefined;
+    }
     if (holders.length > 1) {
       throw new PromotionBlockedError(
         `Target ${branch} already points to ${validatedCommit}, but multiple checked-out worktrees require inspection: ${holders.map((item) => item.path).join(", ")}.`,
@@ -44,7 +52,7 @@ export async function promoteValidatedCommit(
         !(await hasMergeInProgress(holder.path)) &&
         (await isClean(holder.path))
       ) {
-        return;
+        return holder.path;
       }
     } catch {
       // The actionable error below covers inaccessible and inconsistent state.
@@ -78,6 +86,11 @@ export async function promoteValidatedCommit(
   }
   const holder = holders[0];
   if (!holder) {
+    if (requireCheckedOutTarget) {
+      throw new PromotionBlockedError(
+        `Target branch ${branch} must be checked out in one clean worktree to run post-integration commands. Check it out, then run codex-handoff resume from the source worktree.`,
+      );
+    }
     const update = await run(
       "git",
       ["update-ref", ref, validatedCommit, expectedTargetCommit],
@@ -88,7 +101,7 @@ export async function promoteValidatedCommit(
         `Atomic promotion of ${branch} failed: ${(update.stderr || update.stdout).trim()}`,
       );
     }
-    return;
+    return undefined;
   }
 
   let context;
@@ -142,6 +155,7 @@ export async function promoteValidatedCommit(
       `Target worktree ${holder.path} did not finish synchronized at ${validatedCommit}; inspect it before retrying.`,
     );
   }
+  return holder.path;
 }
 
 function errorMessage(error: unknown): string {

@@ -591,9 +591,10 @@ export async function resumeCommand(): Promise<Session> {
     session.waitingForLock = false;
     await writeSession(session);
     await assertDependencies(session, await readSessions());
-    if (session.recoveryPhase === "promotion") {
-      await completePromotion(repository, session);
-    } else if (session.recoveryPhase === "post_integration") {
+    if (
+      session.recoveryPhase === "promotion" ||
+      session.recoveryPhase === "post_integration"
+    ) {
       await runPostIntegrationAndPromote(
         repository,
         session,
@@ -882,8 +883,6 @@ async function validateCommitAndFinish(
   session.awaitingConflictResolution = false;
   await writeSession(session);
 
-  session.recoveryPhase = "post_integration";
-  await writeSession(session);
   await runPostIntegrationAndPromote(
     repository,
     session,
@@ -1005,9 +1004,7 @@ async function tryDirectIntegration(
   session.waitingForLock = false;
   session.awaitingConflictResolution = false;
   session.postIntegrationResults = [];
-  session.recoveryPhase = "promotion";
-  await writeSession(session);
-  await completePromotion(repository, session);
+  await runPostIntegrationAndPromote(repository, session, integrationWorktree);
   return true;
 }
 
@@ -1062,15 +1059,31 @@ async function alignIntegrationBranchWithTarget(
 async function runPostIntegrationAndPromote(
   repository: RepositoryConfig,
   session: Session,
-  worktree: string,
+  integrationWorktree: string,
   integrationBranchAdvanced = true,
 ): Promise<void> {
-  session.recoveryPhase = "post_integration";
+  session.recoveryPhase = "promotion";
   await writeSession(session);
+  const targetWorktree = await completePromotion(
+    repository,
+    session,
+    integrationBranchAdvanced && repository.postIntegrationCommands.length > 0,
+  );
   if (integrationBranchAdvanced) {
+    session.recoveryPhase = "post_integration";
+    await writeSession(session);
+    const commandWorktree =
+      targetBranch(repository) === repository.integrationBranch
+        ? integrationWorktree
+        : targetWorktree;
+    if (repository.postIntegrationCommands.length > 0 && !commandWorktree) {
+      throw new Error(
+        `Target branch ${targetBranch(repository)} has no checked-out worktree for post-integration commands`,
+      );
+    }
     session.postIntegrationResults = await runCommandList(
       repository.postIntegrationCommands,
-      worktree,
+      commandWorktree ?? integrationWorktree,
       "post-integration command",
     );
     await writeSession(session);
@@ -1079,49 +1092,35 @@ async function runPostIntegrationAndPromote(
     );
     if (failed) {
       throw new Error(
-        `Post-integration check failed before target promotion (${failed.exitCode}): ${failed.command.join(" ")}`,
+        `Post-integration check failed after target promotion (${failed.exitCode}): ${failed.command.join(" ")}`,
       );
     }
   } else {
     session.postIntegrationResults = [];
   }
-  session.recoveryPhase = "promotion";
+  session.status = "succeeded";
+  delete session.recoveryPhase;
+  delete session.latestError;
   await writeSession(session);
-  await completePromotion(repository, session);
 }
 
 async function completePromotion(
   repository: RepositoryConfig,
   session: Session,
-): Promise<void> {
+  requireCheckedOutTarget = false,
+): Promise<string | undefined> {
   if (!session.integratedCommit || !session.targetCommitBeforeIntegration) {
     throw new Error(
       "Session is missing validated integration promotion metadata",
     );
   }
-  if (targetBranch(repository) === repository.integrationBranch) {
-    const current = await refCommit(
-      repository.path,
-      `refs/heads/${repository.integrationBranch}`,
-    );
-    if (current !== session.integratedCommit) {
-      throw new Error(
-        `Combined staging/target branch ${repository.integrationBranch} moved after validation; expected ${session.integratedCommit}, found ${current ?? "missing"}.`,
-      );
-    }
-    session.promotedCommit = session.integratedCommit;
-    session.promotedAt = new Date().toISOString();
-    session.status = "succeeded";
-    delete session.recoveryPhase;
-    delete session.latestError;
-    await writeSession(session);
-    return;
-  }
+  let targetWorktree: string | undefined;
   try {
-    await promoteValidatedCommit(
+    targetWorktree = await promoteValidatedCommit(
       repository,
       session.integratedCommit,
       session.targetCommitBeforeIntegration,
+      requireCheckedOutTarget,
     );
   } catch (error) {
     if (error instanceof PromotionBlockedError) {
@@ -1133,11 +1132,10 @@ async function completePromotion(
     throw error;
   }
   session.promotedCommit = session.integratedCommit;
-  session.promotedAt = new Date().toISOString();
-  session.status = "succeeded";
-  delete session.recoveryPhase;
+  session.promotedAt ??= new Date().toISOString();
   delete session.latestError;
   await writeSession(session);
+  return targetWorktree;
 }
 
 export function withGpgProgram(

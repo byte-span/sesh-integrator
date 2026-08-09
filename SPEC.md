@@ -50,9 +50,9 @@ SESSION 1                         SESSION 2
                               │
                       staging commit
                               │
-                   post-integration checks
+                   atomic target promotion
                               │
-                 atomic target promotion + exit
+             post-integration checks on target + exit
 ```
 
 ## 3. Key Design Choice
@@ -394,14 +394,14 @@ If merge is clean:
 2. run integration validation
 3. if successful, create merge commit
 4. record the validated staging commit and timestamp
-5. run post-integration commands in order after the staging branch advances
-6. promote the exact validated staging commit to the configured target
-7. mark the session succeeded only after promotion
+5. promote the exact validated staging commit to the configured target
+6. run post-integration commands in order from its clean checked-out target worktree
+7. mark the session succeeded only after post-integration checks pass
 8. release the lock and exit 0
 
 Target promotion uses the target commit captured under the repository lock as
-an expected-old value. If the target is not checked out, use atomic
-`update-ref`. If it is checked out in one accessible, clean worktree at the
+an expected-old value. If the target is not checked out and no post-integration
+commands are configured, use atomic `update-ref`. If it is checked out in one accessible, clean worktree at the
 expected commit, use a verified fast-forward in that worktree so its ref,
 index, and files remain synchronized. Dirty, inaccessible, multiply checked
 out, or unexpectedly moved targets produce `promotion_pending`; they never
@@ -410,10 +410,14 @@ An explicit configuration where target and staging names are equal is supported
 as a legacy-style opt-in; the validated staging ref is already the target and
 must not be checked out by another worktree.
 
-If a post-integration command fails, preserve the already-advanced staging
-commit and command output, mark the session `needs_review`, release the lock,
-and exit non-zero. `resume` reruns the checks before promotion. Do not run them
-when the ready commit was already present and the staging branch did not advance.
+Configured post-integration commands require exactly one accessible, clean
+worktree checking out the target branch. If none exists, preserve the validated
+staging commit as `promotion_pending`; `resume` retries after the target is
+checked out. If a post-integration command fails, preserve the already-promoted
+target and command output, mark the session `needs_review`, release the lock,
+and exit non-zero. `resume` reruns the checks on the target worktree. Do not run
+them when the ready commit was already present and the staging branch did not
+advance.
 
 If validation or integration commit creation fails after a clean merge, `resume`
 may retry only when the source snapshot and merge target still match and the
@@ -585,8 +589,8 @@ The MVP is ready when disposable repo tests prove:
 11. Integration validation failure is not committed.
 12. Source worktrees are untouched.
 13. Old daemon components are only audited, never silently removed.
-14. Post-integration commands run only after the staging branch advances.
-15. A post-integration failure preserves the advanced commit and command result.
+14. Post-integration commands run from the checked-out target worktree only after promotion.
+15. A post-integration failure preserves the promoted commit and command result.
 16. `doctor` reports both ready and actionable not-ready states without mutation.
 17. Setup runs before session creation and before integration validation.
 18. Auto-configured setup failure does not block `begin`; explicit setup failure does.

@@ -55,8 +55,8 @@ Complete personal MVP implementation checklist.
 - [x] Verify all conflicts are resolved and staged
 - [x] Run integration validation commands in order and stop on first failure
 - [x] Commit only after successful validation
-- [x] Run post-integration commands only after the staging branch advances
-- [x] Preserve post-integration failures and the already-advanced commit for review
+- [x] Promote first, then run post-integration commands from the clean checked-out target worktree
+- [x] Preserve post-integration failures and the already-promoted commit for review
 - [x] Record the integration commit/result or `needs_review` error
 - [x] Promote the exact validated staging commit with expected-old verification
 - [x] Synchronize a clean checked-out target and preserve dirty/inaccessible targets as `promotion_pending`

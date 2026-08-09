@@ -84,10 +84,10 @@ At completion:
 10. include session timing + relevant later integrations in the prompt
 11. run integration validation
 12. commit only after validation success
-13. run post-integration checks
-14. atomically promote the exact validated staging commit to the configured target branch
-15. synchronize a clean checked-out target or preserve `promotion_pending`
-16. persist success only after promotion
+13. atomically promote the exact validated staging commit to the configured target branch
+14. synchronize a clean checked-out target or preserve `promotion_pending`
+15. run post-integration checks from that target worktree
+16. persist success only after those checks pass
 17. release lock and exit
 
 ## Critical Rules

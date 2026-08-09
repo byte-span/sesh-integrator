@@ -109,9 +109,10 @@ Before saying the task is complete:
 9. If a clean merge was preserved after validation or commit creation failed,
    run `codex-handoff resume` from the original source worktree. The CLI must
    verify that its exact staged merge tree is unchanged before retrying.
-10. If validation and all checks succeeded but target promotion reports
+10. If validation succeeded but target promotion reports
     `promotion_pending`, preserve the staging commit. Correct only the reported
-    condition (for example, save and clean user changes in the target worktree)
+    condition (for example, check out the target branch or save and clean user
+    changes in its worktree)
     and run `codex-handoff resume`. Do not reset, clean, or discard user state.
 11. For any other integration failure, report the CLI's recorded error; do not
     describe the session as `needs_review` unless the CLI recorded that status.

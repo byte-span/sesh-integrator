@@ -25,7 +25,7 @@ final target promotion.
 ## 3. Incorrect final-destination assumptions corrected
 
 - A staging commit no longer marks a session `succeeded`.
-- Post-integration checks now precede final target promotion.
+- Post-integration checks run from the clean target worktree after promotion.
 - CLI, status, doctor, workflow, README, specification, tasks, migration guide,
   examples, and project instructions distinguish staged/validated from
   promoted/succeeded.
@@ -35,7 +35,8 @@ final target promotion.
 ## 4. Safety rules refined for promotion
 
 - The target's expected commit is captured after acquiring the repository lock.
-- An unheld target uses atomic `git update-ref <ref> <new> <expected-old>`.
+- An unheld target uses atomic `git update-ref <ref> <new> <expected-old>` when
+  no post-integration commands are configured.
 - A held target is advanced only from its one accessible, clean worktree at the
   expected commit, using a verified fast-forward so ref, index, and files stay
   synchronized.
@@ -69,7 +70,8 @@ final target promotion.
   promotion retries have explicit recovery phases.
 - Lock ownership and stale staging-worktree recovery are unchanged; target
   promotion happens while the same repository lock is held.
-- Validation and post-integration failures cannot advance the target.
+- Validation failures cannot advance the target; post-integration failures
+  preserve the promoted target for diagnosis and retry.
 
 No repository name, path, branch, command, session ID, or commit is hard-coded.
 No migration path fetches, pushes, force-updates, resets, deletes, or merges

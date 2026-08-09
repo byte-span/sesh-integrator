@@ -747,6 +747,53 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     expect(git(fixture.repo, "branch", "--show-current")).toBe("");
   });
 
+  it("waits for a clean target checkout before running post-integration commands", async () => {
+    const fixture = await createFixture();
+    const worktree = await addWorktree(fixture, "unheld-post-target");
+    git(fixture.repo, "switch", "--detach");
+    await runCliOk(fixture, worktree, [
+      "begin",
+      "--summary",
+      "unheld post target",
+    ]);
+    commitFile(worktree, "unheld-post.txt", "safe\n", "unheld post commit");
+    const marker = join(fixture.root, "unheld-post-ran.txt");
+    await updateConfig(fixture, (config) => {
+      config.repositories[0].postIntegrationCommands = [
+        [
+          process.execPath,
+          "-e",
+          `require("node:fs").writeFileSync(${JSON.stringify(marker)},process.cwd())`,
+        ],
+      ];
+    });
+
+    const blocked = await runCli(fixture, worktree, [
+      "integrate",
+      "--summary",
+      "unheld post target complete",
+    ]);
+
+    expect(blocked.code).toBe(1);
+    expect(blocked.stderr).toContain(
+      "must be checked out in one clean worktree",
+    );
+    const pending = (await sessions(fixture))[0]!;
+    expect(pending.status).toBe("promotion_pending");
+    await expect(readFile(marker, "utf8")).rejects.toThrow();
+
+    const targetHolder = join(fixture.root, "target-holder");
+    git(fixture.repo, "worktree", "add", targetHolder, "main");
+    await runCliOk(fixture, worktree, ["resume"]);
+    const completed = (await sessions(fixture))[0]!;
+    expect(completed.status).toBe("succeeded");
+    expect(await readFile(marker, "utf8")).toBe(await realpath(targetHolder));
+    expect(git(targetHolder, "branch", "--show-current")).toBe("main");
+    expect(git(targetHolder, "rev-parse", "HEAD")).toBe(
+      completed.integratedCommit,
+    );
+  });
+
   it("never pushes target promotion", async () => {
     const fixture = await createFixture();
     const remote = join(fixture.root, "remote.git");
@@ -821,7 +868,7 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
       "movement source",
     );
     await updateConfig(fixture, (config) => {
-      config.repositories[0].postIntegrationCommands = [
+      config.repositories[0].integrationValidationCommands = [
         ["git", "update-ref", "refs/heads/main", readyCommit, originalMain],
       ];
     });
@@ -853,7 +900,7 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     ]);
     commitFile(worktree, "inaccessible.txt", "safe\n", "safe source");
     await updateConfig(fixture, (config) => {
-      config.repositories[0].postIntegrationCommands = [
+      config.repositories[0].integrationValidationCommands = [
         [
           process.execPath,
           "-e",
@@ -1602,7 +1649,7 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     expect(git(worktree, "status", "--porcelain=v1")).toBe("");
   });
 
-  it("runs post-integration commands only after the staging branch advances", async () => {
+  it("runs post-integration commands on the promoted target worktree", async () => {
     const fixture = await createFixture();
     const worktree = await addWorktree(fixture, "post-integration");
     await runCliOk(fixture, worktree, [
@@ -1618,9 +1665,9 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
         [
           process.execPath,
           "-e",
-          `const {execFileSync}=require("node:child_process");const fs=require("node:fs");const current=execFileSync("git",["rev-parse","HEAD"],{encoding:"utf8"}).trim();const branch=execFileSync("git",["rev-parse","codex-handoff/integration"],{encoding:"utf8"}).trim();if(current!==branch||branch===${JSON.stringify(
+          `const {execFileSync}=require("node:child_process");const fs=require("node:fs");const current=execFileSync("git",["rev-parse","HEAD"],{encoding:"utf8"}).trim();const staging=execFileSync("git",["rev-parse","codex-handoff/integration"],{encoding:"utf8"}).trim();const target=execFileSync("git",["rev-parse","main"],{encoding:"utf8"}).trim();const branch=execFileSync("git",["branch","--show-current"],{encoding:"utf8"}).trim();if(current!==staging||current!==target||branch!=="main"||current===${JSON.stringify(
             originalHead,
-          )})process.exit(9);fs.writeFileSync(${JSON.stringify(marker)},branch);`,
+          )})process.exit(9);fs.writeFileSync(${JSON.stringify(marker)},JSON.stringify({branch,current,cwd:process.cwd()}));`,
         ],
       ];
     });
@@ -1635,7 +1682,11 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     expect(complete.status).toBe("succeeded");
     expect(complete.postIntegrationResults).toHaveLength(1);
     expect(complete.postIntegrationResults[0].exitCode).toBe(0);
-    expect(await readFile(marker, "utf8")).toBe(complete.integratedCommit);
+    expect(JSON.parse(await readFile(marker, "utf8"))).toEqual({
+      branch: "main",
+      current: complete.integratedCommit,
+      cwd: await realpath(fixture.repo),
+    });
 
     const alreadyPresentPath = join(fixture.root, "already-present");
     git(
@@ -1694,7 +1745,7 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
 
     expect(result.code).toBe(1);
     expect(result.stderr).toContain(
-      "Post-integration check failed before target promotion",
+      "Post-integration check failed after target promotion",
     );
     const failed = (await sessions(fixture))[0]!;
     expect(failed.status).toBe("needs_review");
@@ -1702,9 +1753,10 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
       git(fixture.repo, "rev-parse", "codex-handoff/integration"),
     );
     expect(failed.integratedAt).toBeTruthy();
-    expect(git(fixture.repo, "rev-parse", "main")).not.toBe(
+    expect(git(fixture.repo, "rev-parse", "main")).toBe(
       failed.integratedCommit,
     );
+    expect(failed.promotedCommit).toBe(failed.integratedCommit);
     expect(failed.postIntegrationResults).toHaveLength(1);
     expect(failed.postIntegrationResults[0].exitCode).toBe(8);
     expect(

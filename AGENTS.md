@@ -29,8 +29,8 @@ Codex session starts
 → Codex resolves conflicts if necessary
 → run integration checks
 → commit successful integration
-→ run post-integration checks
 → atomically promote the validated commit to the configured target branch
+→ run post-integration checks from the target branch worktree
 → exit
 ```
 
@@ -162,12 +162,12 @@ codex-handoff integrate --summary "<completion summary>"
 10. Resume after the current session resolves and stages the conflict.
 11. Run configured integration validation.
 12. Commit the successful staging integration.
-13. Run configured post-integration checks.
-14. Atomically promote the exact validated commit to the target branch while
+13. Atomically promote the exact validated commit to the target branch while
     verifying the expected previous target commit.
-15. Synchronize a clean checked-out target worktree without losing user state,
+14. Synchronize a clean checked-out target worktree without losing user state,
     or record `promotion_pending` with recovery guidance.
-16. Record success only after promotion.
+15. Run configured post-integration checks from that target worktree.
+16. Record success only after those checks pass.
 17. Release the lock and exit.
 
 No polling.
