@@ -1,0 +1,13 @@
+#!/bin/sh
+set -eu
+
+canonical_home="${CODEX_GPG_CANONICAL_HOME:-$HOME/.gnupg}"
+agent_bin="${CODEX_GPG_AGENT_BIN:-/opt/homebrew/opt/gnupg/bin/gpg-agent}"
+
+[ -x "$agent_bin" ] || {
+  printf '%s\n' "codex-gpg-agent: missing canonical agent: $agent_bin" >&2
+  exit 69
+}
+
+umask 077
+exec "$agent_bin" --homedir "$canonical_home" --daemon --no-detach

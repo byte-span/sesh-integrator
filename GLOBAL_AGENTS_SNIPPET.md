@@ -22,6 +22,8 @@ For eligible Worktree-mode tasks:
 3. If approved, register it with `codex-handoff register --auto-config`, then begin the handoff session.
 4. Do not use this workflow for read-only questions or investigations that make no code changes.
 5. Let the skill create a task branch automatically from a clean detached/default-branch worktree; never begin on `codex-handoff/integration`.
-6. Before declaring coding work complete, use the same skill to validate, create a focused commit when safe, and run one-shot integration.
-7. If integration reports a resumable conflict, resolve and stage the preserved integration worktree, then run `codex-handoff resume` from the source worktree. Otherwise report `needs_review` instead of claiming success.
+6. Before declaring coding work complete, use the same skill to stage only task
+   paths, create the focused source commit through `codex-handoff commit`,
+   validate, and run one-shot integration.
+7. If integration reports a resumable conflict, resolve and stage the preserved integration worktree, then run `codex-handoff resume` from the source worktree. If it reports `promotion_pending`, preserve the validated staging commit, correct only the reported target-worktree condition, and run `resume`; never claim success until target promotion completes.
 8. Do not invoke the legacy `codex-integrator` workflow for repositories using `codex-handoff`.

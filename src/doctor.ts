@@ -4,7 +4,8 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { collectLegacyFindings } from "./audit.js";
-import { inspectGit } from "./git.js";
+import { inspectGit, refCommit } from "./git.js";
+import { targetBranch } from "./promotion.js";
 import { run } from "./process.js";
 import { runtimePaths } from "./runtime.js";
 import type { Config, RepositoryConfig } from "./types.js";
@@ -194,6 +195,7 @@ async function repositoryChecks(config: Config, cwd: string): Promise<Check[]> {
   const checks: Check[] = [];
   for (const repository of repositories) {
     checks.push(await repositoryCheck(repository));
+    checks.push(await branchDestinationCheck(repository));
     checks.push(
       repository.setupCommands.length > 0
         ? pass(
@@ -240,6 +242,64 @@ async function repositoryChecks(config: Config, cwd: string): Promise<Check[]> {
     );
   }
   return checks;
+}
+
+async function branchDestinationCheck(
+  repository: RepositoryConfig,
+): Promise<Check> {
+  const target = targetBranch(repository);
+  if (target === repository.integrationBranch) {
+    if (repository.targetBranch === undefined) {
+      return fail(
+        `Branch destinations (${repository.path})`,
+        `ambiguous historical configuration: integrationBranch equals defaultBranch (${target}) while targetBranch is omitted`,
+      );
+    }
+    return warn(
+      `Branch destinations (${repository.path})`,
+      `integrationBranch and targetBranch both resolve to ${target}; this explicit legacy-style opt-in has no separate final promotion ref`,
+    );
+  }
+  const [targetHead, stagingHead] = await Promise.all([
+    refCommit(repository.path, `refs/heads/${target}`),
+    refCommit(repository.path, `refs/heads/${repository.integrationBranch}`),
+  ]);
+  if (!targetHead) {
+    return fail(
+      `Branch destinations (${repository.path})`,
+      `target branch ${target} does not exist`,
+    );
+  }
+  if (!stagingHead || stagingHead === targetHead) {
+    return pass(
+      `Branch destinations (${repository.path})`,
+      `staging ${repository.integrationBranch}; target ${target}${repository.targetBranch ? " (override)" : " (defaultBranch)"}`,
+    );
+  }
+  const [stagingBehind, targetBehind] = await Promise.all([
+    run("git", ["merge-base", "--is-ancestor", stagingHead, targetHead], {
+      cwd: repository.path,
+    }),
+    run("git", ["merge-base", "--is-ancestor", targetHead, stagingHead], {
+      cwd: repository.path,
+    }),
+  ]);
+  if (stagingBehind.code === 0) {
+    return pass(
+      `Branch destinations (${repository.path})`,
+      `staging ${repository.integrationBranch} can fast-forward to target ${target}`,
+    );
+  }
+  if (targetBehind.code === 0) {
+    return warn(
+      `Branch destinations (${repository.path})`,
+      `staging ${repository.integrationBranch} is ahead of target ${target}; run codex-handoff reconcile`,
+    );
+  }
+  return fail(
+    `Branch destinations (${repository.path})`,
+    `staging ${repository.integrationBranch} and target ${target} have diverged; manual review required`,
+  );
 }
 
 async function repositoryCheck(repository: RepositoryConfig): Promise<Check> {
@@ -348,6 +408,13 @@ function validateConfig(config: Config): void {
     if (
       typeof repository.path !== "string" ||
       typeof repository.gitCommonDir !== "string" ||
+      typeof repository.defaultBranch !== "string" ||
+      repository.defaultBranch.length === 0 ||
+      typeof repository.integrationBranch !== "string" ||
+      repository.integrationBranch.length === 0 ||
+      (repository.targetBranch !== undefined &&
+        (typeof repository.targetBranch !== "string" ||
+          repository.targetBranch.length === 0)) ||
       !Array.isArray(repository.setupCommands) ||
       (repository.setupCommandPolicy !== undefined &&
         repository.setupCommandPolicy !== "advisory" &&
@@ -365,6 +432,14 @@ function validateConfig(config: Config): void {
           )))
     ) {
       throw new Error("invalid repository entry in config.json");
+    }
+    if (
+      repository.targetBranch === undefined &&
+      repository.integrationBranch === repository.defaultBranch
+    ) {
+      throw new Error(
+        `ambiguous historical repository entry: integrationBranch equals defaultBranch (${repository.defaultBranch}) while targetBranch is omitted`,
+      );
     }
   }
 }

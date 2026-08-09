@@ -68,7 +68,8 @@ begin
 → integrate
 → conflict resolution
 → tests
-→ integration commit
+→ staging integration commit
+→ target promotion
 ```
 
 ## Phase 3 — Disable Old Runtime Automation
@@ -139,11 +140,25 @@ codex-handoff/integration
 
 This avoids branch collision while validating the new design.
 
+This branch is internal staging, not the final destination. The effective
+target defaults to each registration's `defaultBranch`; set `targetBranch` only
+for an intentional per-repository override.
+
 ## Phase 4 — Real Project Trial
 
 Use the new system on one real repository.
 
 Keep the old daemon source/config available for rollback, but leave the old runtime automation stopped.
+
+Before a real trial, audit older handoff state:
+
+```bash
+codex-handoff reconcile
+```
+
+Review every `PENDING` result. Use `reconcile --apply` only when the command
+reports a recorded, ancestry-safe fast-forward. Divergent or unrecorded staging
+history requires manual Git review; do not reset or merge it blindly.
 
 ## Phase 5 — Optional Cleanup
 

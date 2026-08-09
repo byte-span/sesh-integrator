@@ -18,6 +18,7 @@ Complete personal MVP implementation checklist.
 - [x] Detect and store the default branch
 - [x] Prevent duplicate registrations
 - [x] Default to `codex-handoff/integration`
+- [x] Keep the staging branch separate from an optional target branch that defaults to `defaultBranch`
 - [x] Optionally auto-configure safe package validation scripts without overwriting existing commands
 - [x] Detect, store, and run centralized worktree setup commands for registered repositories
 - [x] Keep auto-detected setup advisory at begin while requiring explicit and integration setup
@@ -54,9 +55,12 @@ Complete personal MVP implementation checklist.
 - [x] Verify all conflicts are resolved and staged
 - [x] Run integration validation commands in order and stop on first failure
 - [x] Commit only after successful validation
-- [x] Run post-integration commands only after the integration branch advances
+- [x] Run post-integration commands only after the staging branch advances
 - [x] Preserve post-integration failures and the already-advanced commit for review
 - [x] Record the integration commit/result or `needs_review` error
+- [x] Promote the exact validated staging commit with expected-old verification
+- [x] Synchronize a clean checked-out target and preserve dirty/inaccessible targets as `promotion_pending`
+- [x] Resume post-check and promotion failures without rebuilding a moving source tip
 - [x] Preserve failed integration state for diagnosis and release the controlled lock
 - [x] Run Codex conflict resolution with isolated writable state and workspace sandboxing
 - [x] Default to current-session conflict resolution with a verified `resume` command
@@ -69,6 +73,7 @@ Complete personal MVP implementation checklist.
 - [x] Inspect merge/dirty state before limited stale-lock recovery
 - [x] Never blindly remove ambiguous or unfinished locks
 - [x] Implement status output for sessions, commits, times, paths, locks, and latest errors
+- [x] Show staging, target, promotion, and recovery-phase diagnostics
 
 ## Legacy audit
 
@@ -76,6 +81,7 @@ Complete personal MVP implementation checklist.
 - [x] Detect likely source, runtime, skill, global instruction/config, LaunchAgent, launchctl, hook, branch, and worktree artifacts
 - [x] Print `FOUND` / `NOT FOUND` / `UNKNOWN` and safe disable guidance
 - [x] Never edit or delete legacy components
+- [x] Add explicit read-only historical promotion reconciliation with opt-in safe fast-forward apply
 
 ## Readiness doctor
 
@@ -104,6 +110,9 @@ Complete personal MVP implementation checklist.
 - [x] Post-integration ordering and failure preservation
 - [x] Unresolved conflict becomes `needs_review`
 - [x] Source worktrees remain untouched
+- [x] Default and overridden target promotion
+- [x] Checked-out clean, dirty, inaccessible, and concurrently moved target handling
+- [x] Historical missing-promotion fast-forward and divergent-history refusal
 - [x] Dirty interrupted integration makes stale-lock recovery conservative
 - [x] Legacy audit does not mutate legacy fixtures
 - [x] Doctor ready/failure paths do not mutate runtime or home fixtures
@@ -114,3 +123,11 @@ Complete personal MVP implementation checklist.
 - [x] Disposable manual trial
 - [x] Old daemon audit/disable and rollback guidance
 - [x] Known limitations
+
+## GPG reliability
+
+- [x] Add a controlled signed source-commit command
+- [x] Run real signing preflights immediately before source and integration commits
+- [x] Provide a no-autostart health-checking wrapper with launchd recovery
+- [x] Provide a keepalive canonical-agent LaunchAgent installer with config backups
+- [x] Retain fake-GPG coverage and add an opt-in real sandboxed end-to-end test

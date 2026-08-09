@@ -11,6 +11,11 @@
     "skill",
     "scripts/install-cli.sh",
     "scripts/install-skill.sh",
+    "scripts/install-gpg-reliability.sh",
+    "scripts/test-real-gpg-e2e.sh",
+    "scripts/codex-gpg",
+    "scripts/codex-gpg-agent",
+    "scripts/com.codex.gpg-agent.plist",
     "GLOBAL_AGENTS_SNIPPET.md"
   ],
   "scripts": {

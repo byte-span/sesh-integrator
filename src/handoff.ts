@@ -46,6 +46,12 @@ import {
   assessCompletionState,
   type HandoffStateDecision,
 } from "./source-state.js";
+import { preflightCommitSigning } from "./signing.js";
+import {
+  promoteValidatedCommit,
+  PromotionBlockedError,
+  targetBranch,
+} from "./promotion.js";
 
 export async function initCommand(): Promise<void> {
   const paths = await ensureRuntime();
@@ -94,6 +100,7 @@ export async function registerCommand(
   await writeConfig(config);
   process.stdout.write(`Registered ${repository.path}\n`);
   process.stdout.write(`Integration branch: ${repository.integrationBranch}\n`);
+  process.stdout.write(`Target branch: ${targetBranch(repository)}\n`);
   return repository;
 }
 
@@ -192,7 +199,7 @@ export async function beginCommand(
   const duplicate = sessions.find(
     (session) =>
       session.worktreePath === context.worktreePath &&
-      (session.status === "active" || session.status === "ready"),
+      session.status !== "succeeded",
   );
   if (duplicate)
     throw new Error(`Worktree already has active session ${duplicate.id}`);
@@ -228,10 +235,17 @@ export async function beginCommand(
   reportStateDecision("setup", assessCompletionState(baseline, afterSetup, []));
   const sessionId = makeSessionId();
   let branch = context.branch;
-  if (!branch || branch === repository.defaultBranch) {
+  const effectiveTarget = targetBranch(repository);
+  if (
+    !branch ||
+    branch === repository.defaultBranch ||
+    branch === effectiveTarget
+  ) {
     if (!autoBranch) {
       if (!branch) throw new Error("Cannot begin on a detached HEAD");
-      throw new Error(`Cannot begin on default branch ${branch}`);
+      throw new Error(
+        `Cannot begin on ${branch === effectiveTarget ? "target" : "default"} branch ${branch}`,
+      );
     }
     branch = `codex/${sessionId.replaceAll("_", "-")}`;
     await git(["switch", "-c", branch], context.worktreePath);
@@ -258,6 +272,81 @@ export async function beginCommand(
   await writeSession(session);
   process.stdout.write(`Started ${session.id}\n`);
   process.stdout.write(`Base commit: ${session.startCommit}\n`);
+  return session;
+}
+
+export async function commitCommand(message: string): Promise<Session> {
+  if (!message.trim()) throw new Error('commit requires --message "..."');
+  const source = await inspectGit(process.cwd());
+  const config = await readConfig();
+  const repository = findRepository(config, source.gitCommonDir);
+  const sessions = await readSessions();
+  const session = sessions
+    .filter(
+      (item) =>
+        item.worktreePath === source.worktreePath && item.status === "active",
+    )
+    .at(-1);
+  if (!session) throw new Error("No active session exists for this worktree");
+  if (source.branch !== session.branch) {
+    throw new Error(
+      `Source branch changed since begin (expected ${session.branch}, found ${source.branch ?? "detached"})`,
+    );
+  }
+  if (!session.gitBaseline) {
+    throw new Error(
+      "Session predates observable Git baselines; begin a new handoff session before committing",
+    );
+  }
+
+  const stagedOutput = await git(
+    ["diff", "--cached", "--name-only", "--diff-filter=ACDMRTUXB"],
+    source.worktreePath,
+  );
+  const stagedPaths = stagedOutput.split("\n").filter(Boolean);
+  if (stagedPaths.length === 0) {
+    throw new Error(
+      "No staged task changes. Stage only the intended task paths before running codex-handoff commit",
+    );
+  }
+  for (const path of stagedPaths) {
+    const unstaged = await run("git", ["diff", "--quiet", "--", path], {
+      cwd: source.worktreePath,
+    });
+    if (unstaged.code === 1) {
+      throw new Error(
+        `${path}: staged task path also has unstaged changes; make the source commit snapshot explicit first`,
+      );
+    }
+    if (unstaged.code !== 0) {
+      throw new Error(`${path}: could not determine unstaged state`);
+    }
+  }
+  const current = await observeGitState(source.worktreePath);
+  const staged = new Set(stagedPaths);
+  reportStateDecision(
+    "source commit",
+    assessCompletionState(
+      session.gitBaseline,
+      {
+        ...current,
+        paths: current.paths.filter((path) => !staged.has(path.path)),
+      },
+      stagedPaths,
+    ),
+  );
+
+  await preflightCommitSigning(
+    repository,
+    source.worktreePath,
+    "source commit",
+  );
+  await git(
+    withGpgProgram(repository.gpgProgram, ["commit", "-m", message.trim()]),
+    source.worktreePath,
+  );
+  const committed = await inspectGit(source.worktreePath);
+  process.stdout.write(`Committed ${session.id} source at ${committed.head}\n`);
   return session;
 }
 
@@ -349,6 +438,7 @@ export async function integrateCommand(summary: string): Promise<Session> {
     session.waitingForLock = false;
     await writeSession(session);
     await assertDependencies(session, await readSessions());
+    await captureTargetExpectation(repository, session);
     if (
       await tryDirectIntegration(
         repository,
@@ -358,7 +448,7 @@ export async function integrateCommand(summary: string): Promise<Session> {
       )
     ) {
       process.stdout.write(
-        `Integrated ${session.id} directly at ${session.integratedCommit}\n`,
+        `Promoted ${session.id} directly to ${session.targetBranch} at ${session.promotedCommit}\n`,
       );
       return session;
     }
@@ -366,13 +456,15 @@ export async function integrateCommand(summary: string): Promise<Session> {
     integrationStarted = true;
     await mergeAndValidate(config, repository, session, integrationWorktree);
     process.stdout.write(
-      `Integrated ${session.id} at ${session.integratedCommit}\n`,
+      `Promoted ${session.id} to ${session.targetBranch} at ${session.promotedCommit}\n`,
     );
     return session;
   } catch (error) {
     session.waitingForLock = false;
     session.latestError = errorMessage(error);
-    if (integrationStarted) session.status = "needs_review";
+    if (integrationStarted && session.status !== "promotion_pending") {
+      session.status = "needs_review";
+    }
     await writeSession(session);
     throw error;
   } finally {
@@ -438,7 +530,8 @@ export async function resumeCommand(): Promise<Session> {
     .filter(
       (item) =>
         item.worktreePath === source.worktreePath &&
-        item.status === "needs_review" &&
+        (item.status === "needs_review" ||
+          item.status === "promotion_pending") &&
         item.readyCommit !== undefined,
     )
     .at(-1);
@@ -498,23 +591,32 @@ export async function resumeCommand(): Promise<Session> {
     session.waitingForLock = false;
     await writeSession(session);
     await assertDependencies(session, await readSessions());
-    if (session.awaitingConflictResolution) {
+    if (session.recoveryPhase === "promotion") {
+      await completePromotion(repository, session);
+    } else if (session.recoveryPhase === "post_integration") {
+      await runPostIntegrationAndPromote(
+        repository,
+        session,
+        integrationWorktree,
+      );
+    } else if (session.awaitingConflictResolution) {
       await assertResumableConflict(repository, session, integrationWorktree);
+      await validateCommitAndFinish(repository, session, integrationWorktree);
     } else {
       await assertResumableCommitFailure(
         repository,
         session,
         integrationWorktree,
       );
+      await validateCommitAndFinish(repository, session, integrationWorktree);
     }
-    await validateCommitAndFinish(repository, session, integrationWorktree);
     process.stdout.write(
-      `Integrated ${session.id} at ${session.integratedCommit}\n`,
+      `Promoted ${session.id} to ${session.targetBranch} at ${session.promotedCommit}\n`,
     );
     return session;
   } catch (error) {
     session.waitingForLock = false;
-    session.status = "needs_review";
+    if (session.status !== "promotion_pending") session.status = "needs_review";
     session.latestError = errorMessage(error);
     await writeSession(session);
     throw error;
@@ -528,15 +630,6 @@ async function prepareIntegrationWorktree(
   session: Session,
   path: string,
 ): Promise<void> {
-  if (
-    repository.integrationBranch === repository.defaultBranch ||
-    repository.integrationBranch === "main" ||
-    repository.integrationBranch === "master"
-  ) {
-    throw new Error(
-      `Unsafe integration branch: ${repository.integrationBranch}`,
-    );
-  }
   if (await pathExists(path)) {
     const context = await inspectGit(path);
     if (context.gitCommonDir !== repository.gitCommonDir) {
@@ -557,6 +650,7 @@ async function prepareIntegrationWorktree(
       );
     }
     await assertIntegrationWorktreeReady(session, path);
+    await alignIntegrationBranchWithTarget(repository, session, path);
     return;
   }
   const branchRef = `refs/heads/${repository.integrationBranch}`;
@@ -567,12 +661,9 @@ async function prepareIntegrationWorktree(
       repository.path,
     );
   } else {
-    const defaultCommit = await refCommit(
-      repository.path,
-      `refs/heads/${repository.defaultBranch}`,
-    );
-    if (!defaultCommit)
-      throw new Error(`Default branch not found: ${repository.defaultBranch}`);
+    const targetCommit = session.targetCommitBeforeIntegration;
+    if (!targetCommit)
+      throw new Error("Session is missing target baseline metadata");
     await git(
       [
         "worktree",
@@ -580,12 +671,13 @@ async function prepareIntegrationWorktree(
         "-b",
         repository.integrationBranch,
         path,
-        defaultCommit,
+        targetCommit,
       ],
       repository.path,
     );
   }
   await assertIntegrationWorktreeReady(session, path);
+  await alignIntegrationBranchWithTarget(repository, session, path);
 }
 
 async function mergeAndValidate(
@@ -770,6 +862,7 @@ async function validateCommitAndFinish(
   await assertNoUnstagedChanges(session, worktree);
   const integrationBranchAdvanced = await hasMergeInProgress(worktree);
   if (integrationBranchAdvanced) {
+    await preflightCommitSigning(repository, worktree, "integration commit");
     await git(
       withGpgProgram(repository.gpgProgram, [
         "commit",
@@ -789,28 +882,14 @@ async function validateCommitAndFinish(
   session.awaitingConflictResolution = false;
   await writeSession(session);
 
-  if (integrationBranchAdvanced) {
-    session.postIntegrationResults = await runCommandList(
-      repository.postIntegrationCommands,
-      worktree,
-      "post-integration command",
-    );
-    await writeSession(session);
-    const failed = session.postIntegrationResults.find(
-      (result) => result.exitCode !== 0,
-    );
-    if (failed) {
-      throw new Error(
-        `Post-integration command failed after ${repository.integrationBranch} advanced (${failed.exitCode}): ${failed.command.join(" ")}`,
-      );
-    }
-  } else {
-    session.postIntegrationResults = [];
-  }
-
-  session.status = "succeeded";
-  delete session.latestError;
+  session.recoveryPhase = "post_integration";
   await writeSession(session);
+  await runPostIntegrationAndPromote(
+    repository,
+    session,
+    worktree,
+    integrationBranchAdvanced,
+  );
 }
 
 async function tryDirectIntegration(
@@ -838,12 +917,18 @@ async function tryDirectIntegration(
   if (!session.readyCommit) return false;
   const branchRef = `refs/heads/${repository.integrationBranch}`;
   const existingIntegrationHead = await refCommit(repository.path, branchRef);
-  const integrationHead =
-    existingIntegrationHead ??
-    (await refCommit(
-      repository.path,
-      `refs/heads/${repository.defaultBranch}`,
-    ));
+  const targetCommit = session.targetCommitBeforeIntegration;
+  if (!targetCommit) return false;
+  let integrationHead = existingIntegrationHead ?? targetCommit;
+  if (existingIntegrationHead && existingIntegrationHead !== targetCommit) {
+    const stagingBehindTarget = await run(
+      "git",
+      ["merge-base", "--is-ancestor", existingIntegrationHead, targetCommit],
+      { cwd: repository.path },
+    );
+    if (stagingBehindTarget.code !== 0) return false;
+    integrationHead = targetCommit;
+  }
   if (!integrationHead) return false;
 
   let integratedCommit: string;
@@ -869,6 +954,13 @@ async function tryDirectIntegration(
     const tree = mergeTree.stdout.split("\n", 1)[0]?.trim();
     if (!tree) return false;
     const signCommit = await commitSigningEnabled(repository.path);
+    if (signCommit) {
+      await preflightCommitSigning(
+        repository,
+        repository.path,
+        "direct integration commit",
+      );
+    }
     integratedCommit = await git(
       withGpgProgram(repository.gpgProgram, [
         "commit-tree",
@@ -913,10 +1005,139 @@ async function tryDirectIntegration(
   session.waitingForLock = false;
   session.awaitingConflictResolution = false;
   session.postIntegrationResults = [];
+  session.recoveryPhase = "promotion";
+  await writeSession(session);
+  await completePromotion(repository, session);
+  return true;
+}
+
+async function captureTargetExpectation(
+  repository: RepositoryConfig,
+  session: Session,
+): Promise<void> {
+  const branch = targetBranch(repository);
+  const commit =
+    (await refCommit(repository.path, `refs/heads/${branch}`)) ??
+    (branch === repository.integrationBranch
+      ? await refCommit(
+          repository.path,
+          `refs/heads/${repository.defaultBranch}`,
+        )
+      : null);
+  if (!commit) throw new Error(`Target branch not found: ${branch}`);
+  session.targetBranch = branch;
+  session.targetCommitBeforeIntegration = commit;
+  await writeSession(session);
+}
+
+async function alignIntegrationBranchWithTarget(
+  repository: RepositoryConfig,
+  session: Session,
+  worktree: string,
+): Promise<void> {
+  const target = session.targetCommitBeforeIntegration;
+  if (!target) throw new Error("Session is missing target baseline metadata");
+  const staging = await git(["rev-parse", "HEAD"], worktree);
+  if (staging === target) return;
+  const stagingBehind = await run(
+    "git",
+    ["merge-base", "--is-ancestor", staging, target],
+    { cwd: worktree },
+  );
+  if (stagingBehind.code === 0) {
+    await git(["merge", "--ff-only", "--no-edit", target], worktree);
+    return;
+  }
+  const targetBehind = await run(
+    "git",
+    ["merge-base", "--is-ancestor", target, staging],
+    { cwd: worktree },
+  );
+  const relation = targetBehind.code === 0 ? "ahead of" : "divergent from";
+  throw new Error(
+    `Staging branch ${repository.integrationBranch} at ${staging} is ${relation} target ${session.targetBranch} at ${target}. Run codex-handoff reconcile to audit historical integrations before starting new work.`,
+  );
+}
+
+async function runPostIntegrationAndPromote(
+  repository: RepositoryConfig,
+  session: Session,
+  worktree: string,
+  integrationBranchAdvanced = true,
+): Promise<void> {
+  session.recoveryPhase = "post_integration";
+  await writeSession(session);
+  if (integrationBranchAdvanced) {
+    session.postIntegrationResults = await runCommandList(
+      repository.postIntegrationCommands,
+      worktree,
+      "post-integration command",
+    );
+    await writeSession(session);
+    const failed = session.postIntegrationResults.find(
+      (result) => result.exitCode !== 0,
+    );
+    if (failed) {
+      throw new Error(
+        `Post-integration check failed before target promotion (${failed.exitCode}): ${failed.command.join(" ")}`,
+      );
+    }
+  } else {
+    session.postIntegrationResults = [];
+  }
+  session.recoveryPhase = "promotion";
+  await writeSession(session);
+  await completePromotion(repository, session);
+}
+
+async function completePromotion(
+  repository: RepositoryConfig,
+  session: Session,
+): Promise<void> {
+  if (!session.integratedCommit || !session.targetCommitBeforeIntegration) {
+    throw new Error(
+      "Session is missing validated integration promotion metadata",
+    );
+  }
+  if (targetBranch(repository) === repository.integrationBranch) {
+    const current = await refCommit(
+      repository.path,
+      `refs/heads/${repository.integrationBranch}`,
+    );
+    if (current !== session.integratedCommit) {
+      throw new Error(
+        `Combined staging/target branch ${repository.integrationBranch} moved after validation; expected ${session.integratedCommit}, found ${current ?? "missing"}.`,
+      );
+    }
+    session.promotedCommit = session.integratedCommit;
+    session.promotedAt = new Date().toISOString();
+    session.status = "succeeded";
+    delete session.recoveryPhase;
+    delete session.latestError;
+    await writeSession(session);
+    return;
+  }
+  try {
+    await promoteValidatedCommit(
+      repository,
+      session.integratedCommit,
+      session.targetCommitBeforeIntegration,
+    );
+  } catch (error) {
+    if (error instanceof PromotionBlockedError) {
+      session.status = "promotion_pending";
+      session.recoveryPhase = "promotion";
+      session.latestError = error.message;
+      await writeSession(session);
+    }
+    throw error;
+  }
+  session.promotedCommit = session.integratedCommit;
+  session.promotedAt = new Date().toISOString();
   session.status = "succeeded";
+  delete session.recoveryPhase;
   delete session.latestError;
   await writeSession(session);
-  return true;
 }
 
 export function withGpgProgram(
@@ -1046,7 +1267,7 @@ async function assertDependencies(
     }
     if (dependency.status !== "succeeded") {
       throw new Error(
-        `Dependency ${dependencyId} has not integrated successfully (status: ${dependency.status})`,
+        `Dependency ${dependencyId} has not been promoted successfully (status: ${dependency.status})`,
       );
     }
   }
@@ -1062,8 +1283,8 @@ async function buildConflictPrompt(
     (item) =>
       item.repositoryId === session.repositoryId &&
       item.status === "succeeded" &&
-      Boolean(item.integratedAt) &&
-      item.integratedAt! > session.startedAt,
+      Boolean(item.promotedAt ?? item.integratedAt) &&
+      (item.promotedAt ?? item.integratedAt)! > session.startedAt,
   );
   const agentsPath = join(repository.path, "AGENTS.md");
   let repositoryInstructions = "(No repository AGENTS.md found.)";
@@ -1088,7 +1309,7 @@ async function buildConflictPrompt(
     `- Explicit dependencies: ${
       session.dependsOn.length ? session.dependsOn.join(", ") : "none"
     }\n\n` +
-    `Successful integrations after this session began:\n${formatLaterIntegrations(
+    `Successful target promotions after this session began:\n${formatLaterIntegrations(
       laterIntegrations,
     )}\n\n` +
     `Repository conflict instructions:\n${
@@ -1111,8 +1332,8 @@ function formatLaterIntegrations(sessions: Session[]): string {
   return sessions
     .map(
       (item) =>
-        `- ${item.id}: started ${item.startedAt}; integrated ${
-          item.integratedAt
+        `- ${item.id}: started ${item.startedAt}; promoted ${
+          item.promotedAt ?? item.integratedAt
         }; task ${item.taskSummary}; completion ${
           item.completionSummary ?? "(none)"
         }`,

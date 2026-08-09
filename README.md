@@ -11,10 +11,13 @@ codex-handoff begin
 → merge the exact ready commit in a dedicated integration worktree
 → let the current Codex session resolve conflicts if needed
 → codex-handoff resume
-→ validate, commit, record the result, release the lock, and exit
+→ validate and commit on the internal staging branch
+→ run post-integration checks
+→ safely promote the exact validated commit to the configured target branch
+→ record success, release the lock, and exit
 ```
 
-The new runtime and branch are deliberately separate from the legacy daemon:
+The new runtime and internal staging branch are deliberately separate from the legacy daemon:
 
 ```text
 new: ~/.codex-handoff/       codex-handoff/integration
@@ -57,10 +60,12 @@ These are the complete commands implemented by the MVP:
 codex-handoff init
 codex-handoff register [repo-path] [--auto-config] [--setup-command '<json-array>']...
 codex-handoff begin --summary "Implement feature" [--no-auto-branch] [--depends-on <session-id>]...
+codex-handoff commit --message "Implement feature"
 codex-handoff validate
 codex-handoff integrate --summary "Implemented feature and tests"
 codex-handoff resume
 codex-handoff status
+codex-handoff reconcile [repo-path] [--apply]
 codex-handoff audit-legacy
 codex-handoff doctor
 ```
@@ -153,6 +158,7 @@ Edit `~/.codex-handoff/config.json` to add validation and conflict settings. Com
       "gitCommonDir": "/Users/you/Developer/my-project/.git",
       "defaultBranch": "main",
       "integrationBranch": "codex-handoff/integration",
+      "targetBranch": "main",
       "gpgProgram": "/Users/you/.local/bin/codex-gpg",
       "setupCommands": [["corepack", "pnpm", "install", "--frozen-lockfile"]],
       "setupCommandPolicy": "advisory",
@@ -181,19 +187,33 @@ Edit `~/.codex-handoff/config.json` to add validation and conflict settings. Com
 }
 ```
 
-`gpgProgram` is optional. When set, `codex-handoff` applies it only to Git
-commands that create integration commits. It does not modify repository or
-global Git configuration, so ordinary commits can keep using the user's normal
-GPG installation. Direct-integration merge commits are signed when the
-effective `commit.gpgSign` setting is enabled.
+`integrationBranch` is internal staging. `targetBranch` is the final local
+destination and may be omitted; omission is backward compatible and resolves
+to the registered `defaultBranch`. Existing `integrationBranch` values keep
+their staging meaning. An explicit `targetBranch` equal to `integrationBranch`
+is supported as a legacy-style opt-in, but then there is no separate final ref
+and that branch cannot already be checked out in another worktree. No branch is
+pushed automatically.
+
+An older entry that omits `targetBranch` while setting `integrationBranch`
+equal to `defaultBranch` is rejected as ambiguous instead of being silently
+migrated. Review its history, then configure a separate staging branch or make
+the combined target choice explicit.
+
+`gpgProgram` is optional. When set, `codex-handoff` applies it only to its
+controlled source and integration commit commands. When signing is enabled,
+the CLI performs a real in-memory OpenPGP signing preflight immediately before
+each commit and refuses to invoke Git if the agent, key, pinentry, or program is
+unavailable. Direct-integration merge commits are signed when the effective
+`commit.gpgSign` setting is enabled.
 
 Auto-configured setup is `advisory` during `begin`: failure prints a warning but
 does not block branch or session creation. Explicit `--setup-command` setup is
 `required` and still blocks `begin` on failure. Integration normally requires
 successful setup before its selected validation commands. The workflow skill
 commits the focused change, then runs `codex-handoff validate` against that exact
-commit. After the integration branch advances, the CLI runs
-`postIntegrationCommands`. All
+commit. After the staging branch advances, the CLI runs
+`postIntegrationCommands`; only after they pass does target promotion occur. All
 commands are argument arrays executed directly without a shell.
 
 Validation tiers are evaluated in configuration order. A tier matches only when
@@ -206,7 +226,8 @@ An explicitly configured tier may set `bypassIntegrationWorktree` to `true`.
 The bypass is used only for the exact commit previously checked by
 `codex-handoff validate`, and only when the tier has no integration commands and
 the repository has no post-integration commands. Under the repository lock, the
-CLI uses Git plumbing and atomically advances the integration ref. Conflicts or
+CLI uses Git plumbing and atomically advances the staging ref, then promotes
+through the normal checked-target safety path. Conflicts or
 unsupported Git fall back to the normal integration worktree. A clean,
 tool-owned integration worktree may be removed before this update; user
 worktrees are never removed.
@@ -256,14 +277,25 @@ session; they are never silently interpreted using weaker cleanliness rules.
 
 ### `integrate`
 
-After a focused source commit and tiered source validation:
+After staging only the focused task paths, create the source commit and run
+tiered validation:
 
 ```bash
+codex-handoff commit --message "Implement comment editing"
 codex-handoff validate
 codex-handoff integrate --summary "Implemented comment editing and tests"
 ```
 
-The ready SHA and timestamp are persisted before dependency or lock checks. Dependencies must already have succeeded. Simultaneous processes wait on an atomic per-repository directory lock, then merge against the current integration branch. The mutable source branch name is never merged.
+The ready SHA and timestamp are persisted before dependency or lock checks. Dependencies must already have succeeded. Simultaneous processes wait on an atomic per-repository directory lock, then merge against the current staging branch. Under that lock the CLI records the target's exact expected commit. The mutable source branch name is never merged.
+
+The staging branch starts from, or safely fast-forwards to, the current target.
+After setup, validation, signing, and post-integration checks pass, the exact
+validated staging commit is promoted. An unheld target uses atomic `update-ref`
+with the expected old SHA. A target checked out in one clean worktree is
+fast-forwarded there and verified so its ref, index, and files remain aligned.
+A dirty, inaccessible, divergent, or unexpectedly moved target is never reset:
+the session becomes `promotion_pending` and the validated staging commit is
+preserved for `resume`.
 
 On conflict, `integrate` preserves the merge and saves a contextual prompt under
 `~/.codex-handoff/logs/`. The workflow skill directs the current Codex session to
@@ -286,12 +318,17 @@ codex-handoff resume
 ```
 
 Do not run it from the integration worktree. It resumes only the matching
-`needs_review` session and refuses changed source snapshots, mismatched merge
+`needs_review` or `promotion_pending` session and refuses changed source snapshots, mismatched merge
 commits, unresolved files, or a moved integration branch. It also retries an
 unchanged clean merge after validation or commit creation failed, but only when
 the staged tree exactly matches Git's reconstructed merge tree.
 
-Validation failure or unresolved conflict leaves the integration worktree intact, records `needs_review`, releases the one-shot lock, and exits nonzero. A failed post-integration command also records `needs_review`, but preserves the integration commit because the branch has already advanced; its command, exit code, stdout, and stderr remain in the session record for diagnosis. Post-integration commands are skipped when the ready commit was already present and the branch did not advance. The source worktree is never modified.
+For `promotion_pending`, `resume` retries only the recorded validated staging
+commit against the recorded expected target SHA. It does not rebuild from a
+source branch that may have advanced. Post-integration failures are likewise
+resumable and rerun their configured checks before promotion.
+
+Validation failure or unresolved conflict leaves the integration worktree intact, records `needs_review`, releases the one-shot lock, and exits nonzero. A failed post-integration command also records `needs_review`, but preserves the staging commit because that branch has already advanced; its command, exit code, stdout, and stderr remain in the session record for diagnosis. Post-integration commands are skipped when the ready commit was already present and the staging branch did not advance. The source worktree is never modified.
 
 ### `status`
 
@@ -299,7 +336,17 @@ Validation failure or unresolved conflict leaves the integration worktree intact
 codex-handoff status
 ```
 
-Shows every session, active/ready/waiting/succeeded/`needs_review` state, timestamps, commits, worktree paths, latest error, and current lock owners.
+Shows every session, active/ready/waiting/succeeded/`needs_review`/`promotion_pending` state, staging and promoted commits, target branch, recovery phase, worktree paths, latest error, and current lock owners.
+
+### `reconcile`
+
+`codex-handoff reconcile` audits registered repositories for historical session
+records marked succeeded whose staging commits are absent from the effective
+target. It is read-only unless `--apply` is passed. Apply is offered only for a
+recorded, ancestry-safe fast-forward whose staging head is an exact successful
+integration commit; divergence, staging-behind ambiguity, and unrecorded heads
+are refused. Checked-out targets use the same clean-worktree synchronization as
+normal promotion. It never merges, resets, deletes, fetches, or pushes.
 
 If a process dies, a same-host dead-PID lock is removed automatically only when the integration worktree is verifiably clean and has no merge in progress. Otherwise the lock and worktree are preserved with manual recovery guidance. A missing owner record or remote-host owner is treated conservatively.
 
@@ -311,7 +358,7 @@ Run one read-only readiness check from the project you intend to use:
 codex-handoff doctor
 ```
 
-It checks Node.js, Git, the configured Codex executable, runtime/config files, the installed workflow skill, synchronized global guidance without stale branch prohibitions, current-project registration, source and integration validation commands, active locks, and conflicting legacy automation. It prints `READY`, `READY WITH ... WARNINGS`, or `NOT READY` with actionable details. A `NOT READY` result exits nonzero. Warnings cover checks that could not be confirmed safely, such as an unavailable `launchctl` query.
+It checks Node.js, Git, the configured Codex executable, runtime/config files, the installed workflow skill, synchronized global guidance without stale branch prohibitions, current-project registration, separate staging/target branch ancestry, source and integration validation commands, active locks, and conflicting legacy automation. It prints `READY`, `READY WITH ... WARNINGS`, or `NOT READY` with actionable details. A `NOT READY` result exits nonzero. Warnings cover checks that could not be confirmed safely, such as an unavailable `launchctl` query.
 
 ## Disposable-repository verification
 
@@ -325,6 +372,38 @@ pnpm build
 ```
 
 It proves begin metadata, exact clean merges, simultaneous serialization, refreshed integration state, contextual conflict resolution, non-precedence of start time, dependencies, validation failure, unresolved conflicts, untouched source worktrees, conservative stale-lock behavior, read-only legacy audit, and both successful and failing read-only doctor checks.
+
+### Real macOS signing reliability
+
+Install current native Homebrew GnuPG and pinentry, then run the idempotent host
+installer outside a Codex sandbox:
+
+```bash
+/opt/homebrew/bin/brew install gnupg pinentry-mac
+./scripts/install-gpg-reliability.sh
+```
+
+The installer backs up Git/GPG configuration (never private keys), selects
+`/opt/homebrew/opt/gnupg`, installs a keepalive user LaunchAgent for the
+canonical `~/.gnupg` agent, disables only MacGPG's competing agent-shutdown
+job, and installs `~/.local/bin/codex-gpg`. The wrapper checks the agent with
+autostart disabled, asks launchd to recover it, retries for five seconds, and
+fails with an actionable diagnostic. It rejects any private material in
+`~/.codex-gpg/private-keys-v1.d`.
+
+The real test is deliberately opt-in because it invokes the real signing key
+and pinentry, kills the agent, and may display a pinentry prompt:
+
+```bash
+CODEX_HANDOFF_REAL_GPG_E2E=1 ./scripts/test-real-gpg-e2e.sh initial
+CODEX_HANDOFF_REAL_GPG_E2E=1 ./scripts/test-real-gpg-e2e.sh after-wake
+CODEX_HANDOFF_REAL_GPG_E2E=1 ./scripts/test-real-gpg-e2e.sh after-fresh-login
+```
+
+It uses `sandbox-exec` to deny writes to `~/.gnupg`, creates signed source and
+integration commits through `codex-handoff`, verifies both with Git, checks the
+bridge and disposable repository for private-key directories, prints exact
+versions/paths/commits, and retains the disposable evidence directory.
 
 A manual clean-merge trial can also be run:
 
@@ -342,9 +421,11 @@ cd "$trial_dir/demo"
 codex-handoff begin --summary "Disposable demo"
 echo demo > demo.txt
 git add demo.txt
-git commit -m "Add demo"
+codex-handoff commit --message "Add demo"
+codex-handoff validate
 codex-handoff integrate --summary "Added disposable demo"
 git -C "$trial_dir/repo" log --oneline --graph codex-handoff/integration
+git -C "$trial_dir/repo" log --oneline --graph main
 ```
 
 ## Auditing and disabling the old daemon
@@ -371,8 +452,10 @@ For rollback, stop invoking the new skill, restore the previous global guidance,
 
 ## Known limitations
 
-- Skill invocation and source commit creation are instruction-driven. A crashed Codex session must be resumed manually.
-- The tool does not fetch, push, force-push, delete branches, or update the default branch.
+- Skill invocation remains instruction-driven. Source commit creation itself is
+  controlled by `codex-handoff commit`; a crashed Codex session must still be
+  resumed manually.
+- The tool does not fetch, push, force-push, delete branches, or merge/reset user worktrees. It updates only the configured local target after all checks pass.
 - One preserved `needs_review` merge blocks further integrations until the workflow resolves it and runs `resume`.
 - Dependency checks fail clearly rather than running a background waiter; retry after dependencies succeed.
 - The current-session resolution path is instruction-driven; genuinely ambiguous conflicts or failed validation still require user review.

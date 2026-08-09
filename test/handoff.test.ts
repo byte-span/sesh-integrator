@@ -42,6 +42,46 @@ afterEach(async () => {
 });
 
 describe.sequential("codex-handoff disposable repository workflow", () => {
+  it("keeps existing configuration without targetBranch and defaults it to defaultBranch", async () => {
+    const fixture = await createFixture();
+    const config = JSON.parse(
+      await readFile(join(fixture.runtime, "config.json"), "utf8"),
+    );
+    expect(config.repositories[0].targetBranch).toBeUndefined();
+    expect(config.repositories[0].defaultBranch).toBe("main");
+    const worktree = await addWorktree(fixture, "legacy-target-default");
+    await runCliOk(fixture, worktree, [
+      "begin",
+      "--summary",
+      "legacy config target",
+    ]);
+    commitFile(worktree, "legacy.txt", "legacy\n", "legacy config source");
+    await runCliOk(fixture, worktree, [
+      "integrate",
+      "--summary",
+      "legacy config complete",
+    ]);
+    const completed = (await sessions(fixture))[0]!;
+    expect(completed.targetBranch).toBe("main");
+    expect(git(fixture.repo, "rev-parse", "main")).toBe(
+      completed.integratedCommit,
+    );
+  });
+
+  it("rejects ambiguous historical configuration instead of guessing", async () => {
+    const fixture = await createFixture();
+    await updateConfig(fixture, (config) => {
+      config.repositories[0].integrationBranch = "main";
+      delete config.repositories[0].targetBranch;
+    });
+
+    const result = await runCli(fixture, fixture.repo, ["status"]);
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("Ambiguous historical configuration");
+    expect(result.stderr).toContain("integrationBranch equals defaultBranch");
+  });
+
   it("automatically creates a task branch from a clean detached worktree", async () => {
     const fixture = await createFixture();
     const detachedPath = join(fixture.root, "detached");
@@ -79,6 +119,24 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     const active = (await sessions(fixture))[0]!;
     expect(active.branch).toBe(branch);
     expect(active.startCommit).toBe(startCommit);
+  });
+
+  it("automatically leaves an explicitly configured target branch", async () => {
+    const fixture = await createFixture();
+    git(fixture.repo, "switch", "-c", "develop");
+    await updateConfig(fixture, (config) => {
+      config.repositories[0].targetBranch = "develop";
+    });
+
+    await runCliOk(fixture, fixture.repo, [
+      "begin",
+      "--summary",
+      "target branch task",
+    ]);
+
+    expect(git(fixture.repo, "branch", "--show-current")).toMatch(
+      /^codex\/session-/,
+    );
   });
 
   it("records and preserves a pre-existing accessible dirty file", async () => {
@@ -535,6 +593,11 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     expect(complete.status).toBe("succeeded");
     expect(complete.readyCommit).toBe(sourceHead);
     expect(complete.integratedCommit).toMatch(/^[0-9a-f]{40}$/);
+    expect(complete.targetBranch).toBe("main");
+    expect(complete.promotedCommit).toBe(complete.integratedCommit);
+    expect(git(fixture.repo, "rev-parse", "main")).toBe(
+      complete.integratedCommit,
+    );
     expect(
       git(
         fixture.repo,
@@ -595,16 +658,321 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
       "documented behavior",
     ]);
     expect(integration.code, integration.stderr).toBe(0);
-    expect(integration.stdout).toContain("Integrated");
+    expect(integration.stdout).toContain("Promoted");
     expect(integration.stdout).toContain("directly");
     expect(git(fixture.repo, "rev-parse", "codex-handoff/integration")).toBe(
       readyCommit,
     );
+    expect(git(fixture.repo, "rev-parse", "main")).toBe(readyCommit);
     expect(await readdir(join(fixture.runtime, "worktrees"))).toEqual([]);
     const complete = (await sessions(fixture))[0]!;
     expect(complete.validationTier).toBe("docs");
     expect(complete.changedPaths).toEqual(["README.md"]);
     expect(complete.status).toBe("succeeded");
+  });
+
+  it("promotes to an explicit per-repository target without moving the default branch", async () => {
+    const fixture = await createFixture();
+    const originalMain = git(fixture.repo, "rev-parse", "main");
+    git(fixture.repo, "branch", "release", "main");
+    await updateConfig(fixture, (config) => {
+      config.repositories[0].targetBranch = "release";
+    });
+    const worktree = await addWorktree(fixture, "target-override");
+    await runCliOk(fixture, worktree, [
+      "begin",
+      "--summary",
+      "release-only task",
+    ]);
+    commitFile(worktree, "release.txt", "release\n", "release task");
+
+    await runCliOk(fixture, worktree, [
+      "integrate",
+      "--summary",
+      "release target complete",
+    ]);
+
+    const completed = (await sessions(fixture))[0]!;
+    expect(completed.targetBranch).toBe("release");
+    expect(git(fixture.repo, "rev-parse", "release")).toBe(
+      completed.integratedCommit,
+    );
+    expect(git(fixture.repo, "rev-parse", "main")).toBe(originalMain);
+  });
+
+  it("supports explicitly choosing the staging branch as the final target", async () => {
+    const fixture = await createFixture();
+    const originalMain = git(fixture.repo, "rev-parse", "main");
+    await updateConfig(fixture, (config) => {
+      config.repositories[0].targetBranch = "codex-handoff/integration";
+    });
+    const worktree = await addWorktree(fixture, "combined-staging-target");
+    await runCliOk(fixture, worktree, [
+      "begin",
+      "--summary",
+      "explicit combined target",
+    ]);
+    commitFile(worktree, "combined.txt", "combined\n", "combined source");
+
+    await runCliOk(fixture, worktree, [
+      "integrate",
+      "--summary",
+      "combined target complete",
+    ]);
+
+    const completed = (await sessions(fixture))[0]!;
+    expect(completed.status).toBe("succeeded");
+    expect(completed.targetBranch).toBe("codex-handoff/integration");
+    expect(completed.promotedCommit).toBe(completed.integratedCommit);
+    expect(git(fixture.repo, "rev-parse", "main")).toBe(originalMain);
+  });
+
+  it("atomically promotes when the target is not checked out", async () => {
+    const fixture = await createFixture();
+    const worktree = await addWorktree(fixture, "unheld-target");
+    git(fixture.repo, "switch", "--detach");
+    await runCliOk(fixture, worktree, ["begin", "--summary", "unheld target"]);
+    commitFile(worktree, "unheld.txt", "safe\n", "unheld target commit");
+
+    await runCliOk(fixture, worktree, [
+      "integrate",
+      "--summary",
+      "unheld target complete",
+    ]);
+
+    const completed = (await sessions(fixture))[0]!;
+    expect(git(fixture.repo, "rev-parse", "main")).toBe(
+      completed.integratedCommit,
+    );
+    expect(git(fixture.repo, "branch", "--show-current")).toBe("");
+  });
+
+  it("never pushes target promotion", async () => {
+    const fixture = await createFixture();
+    const remote = join(fixture.root, "remote.git");
+    await mkdir(remote);
+    git(remote, "init", "--bare");
+    git(fixture.repo, "remote", "add", "origin", remote);
+    git(fixture.repo, "push", "origin", "main");
+    const remoteBefore = git(remote, "rev-parse", "refs/heads/main");
+    const worktree = await addWorktree(fixture, "no-push");
+    await runCliOk(fixture, worktree, ["begin", "--summary", "no push"]);
+    commitFile(worktree, "local-only.txt", "local\n", "local-only source");
+
+    await runCliOk(fixture, worktree, [
+      "integrate",
+      "--summary",
+      "local promotion only",
+    ]);
+
+    expect(git(remote, "rev-parse", "refs/heads/main")).toBe(remoteBefore);
+    expect(git(fixture.repo, "rev-parse", "main")).not.toBe(remoteBefore);
+  });
+
+  it("preserves a validated integration when the checked-out target is dirty and resumes safely", async () => {
+    const fixture = await createFixture();
+    const originalMain = git(fixture.repo, "rev-parse", "main");
+    const worktree = await addWorktree(fixture, "dirty-target");
+    await runCliOk(fixture, worktree, [
+      "begin",
+      "--summary",
+      "dirty target handling",
+    ]);
+    commitFile(worktree, "target-safe.txt", "safe\n", "target-safe commit");
+    await writeFile(join(fixture.repo, "shared.txt"), "user change\n");
+
+    const blocked = await runCli(fixture, worktree, [
+      "integrate",
+      "--summary",
+      "dirty target complete",
+    ]);
+
+    expect(blocked.code).toBe(1);
+    expect(blocked.stderr).toContain("Target worktree");
+    expect(blocked.stderr).toContain("dirty");
+    const pending = (await sessions(fixture))[0]!;
+    expect(pending.status).toBe("promotion_pending");
+    expect(git(fixture.repo, "rev-parse", "main")).toBe(originalMain);
+    expect(git(fixture.repo, "rev-parse", "codex-handoff/integration")).toBe(
+      pending.integratedCommit,
+    );
+    expect(await readFile(join(fixture.repo, "shared.txt"), "utf8")).toBe(
+      "user change\n",
+    );
+
+    await writeFile(join(fixture.repo, "shared.txt"), "base\n");
+    await runCliOk(fixture, worktree, ["resume"]);
+    const completed = (await sessions(fixture))[0]!;
+    expect(completed.status).toBe("succeeded");
+    expect(git(fixture.repo, "rev-parse", "main")).toBe(
+      completed.integratedCommit,
+    );
+  });
+
+  it("detects concurrent target movement after validation and refuses promotion", async () => {
+    const fixture = await createFixture();
+    const originalMain = git(fixture.repo, "rev-parse", "main");
+    const worktree = await addWorktree(fixture, "moving-target");
+    await runCliOk(fixture, worktree, ["begin", "--summary", "moving target"]);
+    const readyCommit = commitFile(
+      worktree,
+      "movement.txt",
+      "movement\n",
+      "movement source",
+    );
+    await updateConfig(fixture, (config) => {
+      config.repositories[0].postIntegrationCommands = [
+        ["git", "update-ref", "refs/heads/main", readyCommit, originalMain],
+      ];
+    });
+
+    const result = await runCli(fixture, worktree, [
+      "integrate",
+      "--summary",
+      "movement complete",
+    ]);
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("moved unexpectedly");
+    const pending = (await sessions(fixture))[0]!;
+    expect(pending.status).toBe("promotion_pending");
+    expect(git(fixture.repo, "rev-parse", "main")).toBe(readyCommit);
+    expect(pending.integratedCommit).not.toBe(readyCommit);
+  });
+
+  it("preserves validated work when the target worktree becomes inaccessible", async () => {
+    const fixture = await createFixture();
+    const worktree = await addWorktree(fixture, "inaccessible-target-task");
+    git(fixture.repo, "switch", "--detach");
+    const targetHolder = join(fixture.root, "target-holder");
+    git(fixture.repo, "worktree", "add", targetHolder, "main");
+    await runCliOk(fixture, worktree, [
+      "begin",
+      "--summary",
+      "inaccessible target",
+    ]);
+    commitFile(worktree, "inaccessible.txt", "safe\n", "safe source");
+    await updateConfig(fixture, (config) => {
+      config.repositories[0].postIntegrationCommands = [
+        [
+          process.execPath,
+          "-e",
+          `require("fs").rmSync(${JSON.stringify(targetHolder)},{recursive:true,force:true})`,
+        ],
+      ];
+    });
+
+    const result = await runCli(fixture, worktree, [
+      "integrate",
+      "--summary",
+      "inaccessible target complete",
+    ]);
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("inaccessible worktree");
+    const pending = (await sessions(fixture))[0]!;
+    expect(pending.status).toBe("promotion_pending");
+    expect(git(fixture.repo, "rev-parse", "codex-handoff/integration")).toBe(
+      pending.integratedCommit,
+    );
+  });
+
+  it("audits and explicitly reconciles historical succeeded integrations missing from the target", async () => {
+    const fixture = await createFixture();
+    const worktree = await addWorktree(fixture, "historical-promotion");
+    await runCliOk(fixture, worktree, [
+      "begin",
+      "--summary",
+      "historical integration",
+    ]);
+    commitFile(worktree, "historical.txt", "historical\n", "historical source");
+    await runCliOk(fixture, worktree, [
+      "integrate",
+      "--summary",
+      "historical complete",
+    ]);
+    const completed = (await sessions(fixture))[0]!;
+    const historicalTarget = completed.targetCommitBeforeIntegration;
+    git(fixture.repo, "switch", "--detach");
+    git(
+      fixture.repo,
+      "update-ref",
+      "refs/heads/main",
+      historicalTarget,
+      completed.integratedCommit,
+    );
+    const historicalTargetWorktree = join(
+      fixture.root,
+      "historical-target-worktree",
+    );
+    git(fixture.repo, "worktree", "add", historicalTargetWorktree, "main");
+
+    const audit = await runCli(fixture, fixture.repo, ["reconcile"]);
+    expect(audit.code, audit.stderr).toBe(0);
+    expect(audit.stdout).toContain("PENDING");
+    expect(audit.stdout).toContain("safe fast-forward candidate");
+    expect(git(fixture.repo, "rev-parse", "main")).toBe(historicalTarget);
+    const doctor = await runCli(fixture, fixture.repo, ["doctor"]);
+    expect(doctor.stdout).toContain(
+      "staging codex-handoff/integration is ahead",
+    );
+    expect(doctor.stdout).toContain("codex-handoff reconcile");
+
+    const applied = await runCli(fixture, fixture.repo, [
+      "reconcile",
+      "--apply",
+    ]);
+    expect(applied.code, applied.stderr).toBe(0);
+    expect(applied.stdout).toContain("PROMOTED");
+    expect(git(fixture.repo, "rev-parse", "main")).toBe(
+      completed.integratedCommit,
+    );
+    expect(
+      await readFile(join(historicalTargetWorktree, "historical.txt"), "utf8"),
+    ).toBe("historical\n");
+    expect(git(historicalTargetWorktree, "status", "--porcelain=v1")).toBe("");
+  });
+
+  it("refuses historical reconciliation when target and staging histories diverge", async () => {
+    const fixture = await createFixture();
+    const worktree = await addWorktree(fixture, "divergent-history");
+    await runCliOk(fixture, worktree, [
+      "begin",
+      "--summary",
+      "divergent history",
+    ]);
+    commitFile(worktree, "staged.txt", "staged\n", "staged source");
+    await runCliOk(fixture, worktree, [
+      "integrate",
+      "--summary",
+      "staged complete",
+    ]);
+    const completed = (await sessions(fixture))[0]!;
+    const base = completed.targetCommitBeforeIntegration;
+    git(fixture.repo, "switch", "--detach");
+    const tree = git(fixture.repo, "rev-parse", `${base}^{tree}`);
+    const external = git(
+      fixture.repo,
+      "commit-tree",
+      tree,
+      "-p",
+      base,
+      "-m",
+      "external target change",
+    );
+    git(fixture.repo, "update-ref", "refs/heads/main", external);
+
+    const result = await runCli(fixture, fixture.repo, [
+      "reconcile",
+      "--apply",
+    ]);
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("diverged");
+    expect(git(fixture.repo, "rev-parse", "main")).toBe(external);
+    expect(git(fixture.repo, "rev-parse", "codex-handoff/integration")).toBe(
+      completed.integratedCommit,
+    );
   });
 
   it("uses full validation and the integration worktree for non-tiered changes", async () => {
@@ -813,6 +1181,66 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     expect(repositoryConfig).not.toContain(scopedProgram);
   });
 
+  it("creates a signed source commit through the controlled commit command", async () => {
+    const fixture = await createFixture();
+    const signingProgram = await createFakeSigningProgram(fixture);
+    await updateConfig(fixture, (config) => {
+      config.repositories[0].gpgProgram = signingProgram;
+    });
+    const worktree = await addWorktree(fixture, "signed-source");
+    await runCliOk(fixture, worktree, [
+      "begin",
+      "--summary",
+      "controlled signed source",
+    ]);
+    await writeFile(join(worktree, "signed-source.txt"), "signed\n");
+    git(worktree, "add", "signed-source.txt");
+    git(worktree, "config", "commit.gpgSign", "true");
+    git(worktree, "config", "user.signingkey", "TEST-SIGNING-KEY");
+
+    const result = await runCli(fixture, worktree, [
+      "commit",
+      "--message",
+      "signed source commit",
+    ]);
+
+    expect(result.code, result.stderr).toBe(0);
+    expect(result.stdout).toContain(
+      "Signing preflight passed for source commit",
+    );
+    expect(git(worktree, "cat-file", "commit", "HEAD")).toContain(
+      "gpgsig -----BEGIN PGP SIGNATURE-----",
+    );
+  });
+
+  it("does not attempt a source commit when the signing preflight fails", async () => {
+    const fixture = await createFixture();
+    await updateConfig(fixture, (config) => {
+      config.repositories[0].gpgProgram = "/usr/bin/false";
+    });
+    const worktree = await addWorktree(fixture, "failed-source-preflight");
+    await runCliOk(fixture, worktree, [
+      "begin",
+      "--summary",
+      "failed signed source",
+    ]);
+    const head = git(worktree, "rev-parse", "HEAD");
+    await writeFile(join(worktree, "staged.txt"), "staged\n");
+    git(worktree, "add", "staged.txt");
+    git(worktree, "config", "commit.gpgSign", "true");
+
+    const result = await runCli(fixture, worktree, [
+      "commit",
+      "--message",
+      "must not be created",
+    ]);
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("OpenPGP signing preflight failed");
+    expect(git(worktree, "rev-parse", "HEAD")).toBe(head);
+    expect(git(worktree, "diff", "--cached", "--name-only")).toBe("staged.txt");
+  });
+
   it("creates a signed integration commit with the command-scoped GPG program", async () => {
     const fixture = await createFixture();
     const signingProgram = await createFakeSigningProgram(fixture);
@@ -839,6 +1267,9 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     expect(
       git(fixture.repo, "cat-file", "commit", "codex-handoff/integration"),
     ).toContain("gpgsig -----BEGIN PGP SIGNATURE-----");
+    expect(git(fixture.repo, "rev-parse", "main")).toBe(
+      git(fixture.repo, "rev-parse", "codex-handoff/integration"),
+    );
   });
 
   it("resumes an unchanged clean merge after a signing failure", async () => {
@@ -856,6 +1287,7 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
       config.repositories[0].gpgProgram = "/usr/bin/false";
     });
 
+    const targetBefore = git(fixture.repo, "rev-parse", "main");
     const failed = await runCli(fixture, worktree, [
       "integrate",
       "--summary",
@@ -865,6 +1297,7 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     const preserved = (await sessions(fixture))[0]!;
     expect(preserved.status).toBe("needs_review");
     expect(preserved.awaitingConflictResolution).not.toBe(true);
+    expect(git(fixture.repo, "rev-parse", "main")).toBe(targetBefore);
 
     const signingProgram = await createFakeSigningProgram(fixture);
     await updateConfig(fixture, (config) => {
@@ -1112,7 +1545,7 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
       "dependent complete",
     ]);
     expect(blocked.code).toBe(1);
-    expect(blocked.stderr).toContain("has not integrated successfully");
+    expect(blocked.stderr).toContain("has not been promoted successfully");
     const dependentReady = (await sessions(fixture)).find(
       (session) => session.worktreePath === dependentWorktree,
     )!;
@@ -1169,7 +1602,7 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     expect(git(worktree, "status", "--porcelain=v1")).toBe("");
   });
 
-  it("runs post-integration commands only after the integration branch advances", async () => {
+  it("runs post-integration commands only after the staging branch advances", async () => {
     const fixture = await createFixture();
     const worktree = await addWorktree(fixture, "post-integration");
     await runCliOk(fixture, worktree, [
@@ -1261,7 +1694,7 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
 
     expect(result.code).toBe(1);
     expect(result.stderr).toContain(
-      "Post-integration command failed after codex-handoff/integration advanced",
+      "Post-integration check failed before target promotion",
     );
     const failed = (await sessions(fixture))[0]!;
     expect(failed.status).toBe("needs_review");
@@ -1269,6 +1702,9 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
       git(fixture.repo, "rev-parse", "codex-handoff/integration"),
     );
     expect(failed.integratedAt).toBeTruthy();
+    expect(git(fixture.repo, "rev-parse", "main")).not.toBe(
+      failed.integratedCommit,
+    );
     expect(failed.postIntegrationResults).toHaveLength(1);
     expect(failed.postIntegrationResults[0].exitCode).toBe(8);
     expect(
@@ -1281,6 +1717,18 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
       ),
     ).toBe("");
     expect(git(worktree, "status", "--porcelain=v1")).toBe("");
+
+    await updateConfig(fixture, (config) => {
+      config.repositories[0].postIntegrationCommands = [
+        [process.execPath, "-e", "process.exit(0)"],
+      ];
+    });
+    await runCliOk(fixture, worktree, ["resume"]);
+    const recovered = (await sessions(fixture))[0]!;
+    expect(recovered.status).toBe("succeeded");
+    expect(git(fixture.repo, "rev-parse", "main")).toBe(
+      recovered.integratedCommit,
+    );
   });
 
   it("lets the current session resolve a preserved conflict and resume", async () => {

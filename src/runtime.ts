@@ -79,6 +79,25 @@ export async function readConfig(): Promise<Config> {
     repository.setupCommands ??= [];
     repository.validationTiers ??= [];
     repository.postIntegrationCommands ??= [];
+    // targetBranch intentionally remains optional for backward compatibility.
+    // Its effective value is the registered defaultBranch.
+    if (
+      !repository.defaultBranch ||
+      !repository.integrationBranch ||
+      repository.targetBranch === ""
+    ) {
+      throw new Error(
+        `Invalid branch configuration for ${repository.path}: defaultBranch and integrationBranch must be non-empty, and targetBranch must be omitted or non-empty`,
+      );
+    }
+    if (
+      repository.targetBranch === undefined &&
+      repository.integrationBranch === repository.defaultBranch
+    ) {
+      throw new Error(
+        `Ambiguous historical configuration for ${repository.path}: integrationBranch equals defaultBranch (${repository.defaultBranch}) while targetBranch is omitted. Existing integrationBranch values retain staging meaning; configure a separate staging branch or explicitly set targetBranch after reviewing the history.`,
+      );
+    }
   }
   value.conflictResolutionMode ??= "current-session";
   return value;

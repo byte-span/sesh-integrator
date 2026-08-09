@@ -13,6 +13,7 @@ export interface RepositoryConfig {
   gitCommonDir: string;
   defaultBranch: string;
   integrationBranch: string;
+  targetBranch?: string;
   gpgProgram?: string;
   setupCommands: Command[];
   setupCommandPolicy?: "advisory" | "required";
@@ -30,7 +31,8 @@ export interface Config {
   repositories: RepositoryConfig[];
 }
 
-export type SessionStatus = "active" | "ready" | "succeeded" | "needs_review";
+export type SessionStatus =
+  "active" | "ready" | "promotion_pending" | "succeeded" | "needs_review";
 
 export interface Session {
   id: string;
@@ -53,6 +55,11 @@ export interface Session {
   sourceValidatedCommit?: string;
   integratedCommit?: string;
   integratedAt?: string;
+  targetBranch?: string;
+  targetCommitBeforeIntegration?: string;
+  promotedCommit?: string;
+  promotedAt?: string;
+  recoveryPhase?: "merge" | "post_integration" | "promotion";
   latestError?: string;
   conflictPromptPath?: string;
   conflictIntegrationHead?: string;

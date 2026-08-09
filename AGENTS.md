@@ -29,6 +29,8 @@ Codex session starts
 → Codex resolves conflicts if necessary
 → run integration checks
 → commit successful integration
+→ run post-integration checks
+→ atomically promote the validated commit to the configured target branch
 → exit
 ```
 
@@ -97,9 +99,9 @@ Use a new namespace:
 
 Never reuse `~/.codex-integrator/`.
 
-## Integration Branch
+## Staging and Target Branches
 
-Default:
+The internal staging branch defaults to:
 
 ```text
 codex-handoff/integration
@@ -107,7 +109,9 @@ codex-handoff/integration
 
 Do not reuse the old daemon's integration branch by default.
 
-A repository may override it in config.
+A repository may override it in config. The final `targetBranch` is separate,
+defaults to the registered `defaultBranch`, and may also be overridden per
+repository.
 
 ## Session Start
 
@@ -157,10 +161,14 @@ codex-handoff integrate --summary "<completion summary>"
 9. On conflict, preserve the merge for the current Codex session.
 10. Resume after the current session resolves and stages the conflict.
 11. Run configured integration validation.
-12. Commit successful integration.
-13. Record result.
-14. Release the lock.
-15. Exit.
+12. Commit the successful staging integration.
+13. Run configured post-integration checks.
+14. Atomically promote the exact validated commit to the target branch while
+    verifying the expected previous target commit.
+15. Synchronize a clean checked-out target worktree without losing user state,
+    or record `promotion_pending` with recovery guidance.
+16. Record success only after promotion.
+17. Release the lock and exit.
 
 No polling.
 
@@ -201,7 +209,7 @@ When a merge conflicts, provide Codex with:
 - ready time
 - conflicted files
 - integration branch HEAD
-- successful integrations that happened after the incoming session began
+- successful target promotions that happened after the incoming session began
 - their summaries and timestamps
 - explicit dependencies
 - repository `AGENTS.md`
@@ -220,7 +228,9 @@ Tell Codex:
 
 Never:
 
-- merge into `main` or `master`
+- merge or validate inside a user target worktree
+- advance a target ref without verifying its expected previous commit
+- leave a checked-out target ref ahead of its index and working tree
 - push automatically
 - force-push
 - delete user branches

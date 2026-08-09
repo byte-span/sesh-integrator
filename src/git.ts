@@ -14,6 +14,12 @@ export interface GitContext {
   head: string;
 }
 
+export interface GitWorktree {
+  path: string;
+  head: string | null;
+  branch: string | null;
+}
+
 export async function git(args: string[], cwd: string): Promise<string> {
   return await runChecked("git", args, cwd);
 }
@@ -256,6 +262,27 @@ export async function detectDefaultBranch(cwd: string): Promise<string> {
   const current = await inspectGit(cwd);
   if (current.branch) return current.branch;
   throw new Error("Could not determine the repository default branch");
+}
+
+export async function listWorktrees(cwd: string): Promise<GitWorktree[]> {
+  const output = await git(["worktree", "list", "--porcelain"], cwd);
+  const result: GitWorktree[] = [];
+  let current: GitWorktree | undefined;
+  for (const line of output.split("\n")) {
+    if (line.startsWith("worktree ")) {
+      if (current) result.push(current);
+      current = { path: line.slice(9), head: null, branch: null };
+    } else if (current && line.startsWith("HEAD ")) {
+      current.head = line.slice(5);
+    } else if (current && line.startsWith("branch ")) {
+      current.branch = line.slice(7);
+    } else if (!line && current) {
+      result.push(current);
+      current = undefined;
+    }
+  }
+  if (current) result.push(current);
+  return result;
 }
 
 export async function unmergedFiles(cwd: string): Promise<string[]> {

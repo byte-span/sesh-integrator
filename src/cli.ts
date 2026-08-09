@@ -5,6 +5,7 @@ import { auditLegacyCommand } from "./audit.js";
 import { doctorCommand } from "./doctor.js";
 import {
   beginCommand,
+  commitCommand,
   initCommand,
   integrateCommand,
   registerCommand,
@@ -12,6 +13,7 @@ import {
   validateCommand,
 } from "./handoff.js";
 import { statusCommand } from "./status.js";
+import { reconcileCommand } from "./reconcile.js";
 
 export async function main(argv = process.argv.slice(2)): Promise<void> {
   const [command, ...args] = argv;
@@ -44,6 +46,10 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
       await integrateCommand(options.summary);
       break;
     }
+    case "commit": {
+      await commitCommand(parseCommitOptions(args));
+      break;
+    }
     case "validate":
       rejectArguments(args);
       await validateCommand();
@@ -56,6 +62,11 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
       rejectArguments(args);
       await statusCommand();
       break;
+    case "reconcile": {
+      const options = parseReconcileOptions(args);
+      await reconcileCommand(options.apply, options.path);
+      break;
+    }
     case "audit-legacy":
       rejectArguments(args);
       await auditLegacyCommand();
@@ -110,6 +121,25 @@ function rejectArguments(args: string[]): void {
   if (args.length) throw new Error(`Unexpected arguments: ${args.join(" ")}`);
 }
 
+function parseCommitOptions(args: string[]): string {
+  let message = "";
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = args[index];
+    const value = args[index + 1];
+    if (
+      (argument === "--message" || argument === "-m") &&
+      value !== undefined
+    ) {
+      if (message) throw new Error("commit accepts exactly one message");
+      message = value;
+      index += 1;
+    } else {
+      throw new Error(`Unknown or incomplete commit option: ${argument}`);
+    }
+  }
+  return message;
+}
+
 function parseRegisterOptions(args: string[]): {
   path: string | undefined;
   autoConfig: boolean;
@@ -161,7 +191,22 @@ function registerUsageError(): Error {
   );
 }
 
-const helpText = `codex-handoff - one-shot Git integration\n\nUsage:\n  codex-handoff init\n  codex-handoff register [repo-path] [--auto-config] [--setup-command '<json-array>']...\n  codex-handoff begin --summary \"...\" [--no-auto-branch] [--depends-on <session-id>]...\n  codex-handoff validate\n  codex-handoff integrate --summary \"...\"\n  codex-handoff resume\n  codex-handoff status\n  codex-handoff audit-legacy\n  codex-handoff doctor\n`;
+function parseReconcileOptions(args: string[]): {
+  apply: boolean;
+  path: string | undefined;
+} {
+  let apply = false;
+  let path: string | undefined;
+  for (const argument of args) {
+    if (argument === "--apply" && !apply) apply = true;
+    else if (!argument.startsWith("--") && path === undefined) path = argument;
+    else
+      throw new Error("Usage: codex-handoff reconcile [repo-path] [--apply]");
+  }
+  return { apply, path };
+}
+
+const helpText = `codex-handoff - one-shot Git integration\n\nUsage:\n  codex-handoff init\n  codex-handoff register [repo-path] [--auto-config] [--setup-command '<json-array>']...\n  codex-handoff begin --summary \"...\" [--no-auto-branch] [--depends-on <session-id>]...\n  codex-handoff commit --message \"...\"\n  codex-handoff validate\n  codex-handoff integrate --summary \"...\"\n  codex-handoff resume\n  codex-handoff status\n  codex-handoff reconcile [repo-path] [--apply]\n  codex-handoff audit-legacy\n  codex-handoff doctor\n`;
 
 if (isMainModule()) {
   main().catch((error: unknown) => {

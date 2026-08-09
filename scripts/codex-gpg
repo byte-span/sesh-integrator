@@ -1,0 +1,59 @@
+#!/bin/sh
+set -eu
+
+canonical_home="${CODEX_GPG_CANONICAL_HOME:-$HOME/.gnupg}"
+bridge_home="${CODEX_GPG_BRIDGE_HOME:-$HOME/.codex-gpg}"
+gpg_bin="${CODEX_GPG_BIN:-/opt/homebrew/opt/gnupg/bin/gpg}"
+connect_bin="${CODEX_GPG_CONNECT_BIN:-/opt/homebrew/opt/gnupg/bin/gpg-connect-agent}"
+launch_label="${CODEX_GPG_LAUNCH_LABEL:-com.codex.gpg-agent}"
+launchctl_bin="${CODEX_GPG_LAUNCHCTL_BIN:-/bin/launchctl}"
+canonical_socket="$canonical_home/S.gpg-agent"
+bridge_socket="$bridge_home/S.gpg-agent"
+
+fail() {
+  printf '%s\n' "codex-gpg: $*" >&2
+  exit 70
+}
+
+[ -x "$gpg_bin" ] || fail "canonical GPG is missing or not executable: $gpg_bin"
+[ -x "$connect_bin" ] || fail "gpg-connect-agent is missing or not executable: $connect_bin"
+[ -d "$canonical_home" ] || fail "canonical GPG home is missing: $canonical_home"
+[ -d "$bridge_home" ] || fail "sandbox bridge home is missing: $bridge_home"
+
+if [ -d "$bridge_home/private-keys-v1.d" ] &&
+  find "$bridge_home/private-keys-v1.d" -mindepth 1 -print -quit | grep -q .; then
+  fail "private-key material exists in $bridge_home/private-keys-v1.d; refusing to use an exposed bridge"
+fi
+
+agent_healthy() {
+  GNUPGHOME="$canonical_home" "$connect_bin" --no-autostart \
+    'GETINFO pid' /bye >/dev/null 2>&1
+}
+
+if ! agent_healthy; then
+  launch_domain="gui/$(id -u)/$launch_label"
+  if ! "$launchctl_bin" kickstart -k "$launch_domain" >/dev/null 2>&1; then
+    fail "canonical gpg-agent is unreachable and launchd recovery failed for $launch_domain; run scripts/install-gpg-reliability.sh outside the Codex sandbox and inspect launchctl print $launch_domain"
+  fi
+  attempts=0
+  while ! agent_healthy; do
+    attempts=$((attempts + 1))
+    if [ "$attempts" -ge 20 ]; then
+      fail "launchd recovery was requested but no agent answered at $canonical_socket after 5 seconds; inspect $bridge_home/gpg-agent.stderr.log"
+    fi
+    sleep 0.25
+  done
+fi
+
+if [ -L "$bridge_socket" ]; then
+  [ "$(readlink "$bridge_socket")" = "$canonical_socket" ] ||
+    fail "$bridge_socket points somewhere other than the canonical agent socket"
+elif [ -e "$bridge_socket" ] || [ -S "$bridge_socket" ]; then
+  fail "$bridge_socket is not the canonical socket symlink; refusing to delete a possibly competing agent socket"
+else
+  ln -s "$canonical_socket" "$bridge_socket" ||
+    fail "could not create the canonical agent socket bridge at $bridge_socket"
+fi
+
+export GNUPGHOME="$bridge_home"
+exec "$gpg_bin" "$@"

@@ -8,6 +8,7 @@
       "gitCommonDir": "/Users/you/Developer/my-project/.git",
       "defaultBranch": "main",
       "integrationBranch": "codex-handoff/integration",
+      "targetBranch": "main",
       "sourceValidationCommands": [
         ["pnpm", "typecheck"],
         ["pnpm", "test"]

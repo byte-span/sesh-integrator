@@ -37,8 +37,11 @@ init
 register
 begin
 integrate
+resume
 status
+reconcile
 audit-legacy
+doctor
 ```
 
 Do NOT implement:
@@ -81,9 +84,11 @@ At completion:
 10. include session timing + relevant later integrations in the prompt
 11. run integration validation
 12. commit only after validation success
-13. persist result
-14. release lock
-15. exit
+13. run post-integration checks
+14. atomically promote the exact validated staging commit to the configured target branch
+15. synchronize a clean checked-out target or preserve `promotion_pending`
+16. persist success only after promotion
+17. release lock and exit
 
 ## Critical Rules
 
@@ -92,6 +97,7 @@ At completion:
 - Start time is conflict context only.
 - Never merge mutable branch tips when a ready SHA has been captured.
 - Never modify the user's source worktree during integration.
+- Never push, reset a user target worktree, or advance a target ref without its expected old commit.
 
 ## Concurrent Sessions
 
@@ -167,6 +173,9 @@ Prove:
 10. source worktrees remain untouched
 11. stale/interrupted lock handling is conservative
 12. audit-legacy is read-only
+13. target defaults to the registered default branch and supports an override
+14. dirty, inaccessible, moved, and divergent targets are preserved safely
+15. historical succeeded staging commits can be audited and explicitly reconciled
 
 Use a fake Codex executable for deterministic conflict tests.
 

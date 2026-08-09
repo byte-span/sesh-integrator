@@ -1,6 +1,6 @@
 ---
 name: codex-handoff-workflow
-description: Use for code-changing tasks running in Codex Worktree mode that should be integrated by the local codex-handoff tool. At task start, record the session/base commit; at successful completion, validate, create a focused commit when safe, and run one-shot integration. Never use in Codex Local mode, for read-only tasks, on the codex-handoff integration branch, or with the legacy codex-integrator daemon workflow.
+description: Use for code-changing tasks running in Codex Worktree mode that should be staged, validated, and promoted to the configured target by the local codex-handoff tool. At task start, record the session/base commit; at completion, validate, create a focused commit when safe, and run one-shot integration. Never use in Codex Local mode, for read-only tasks, on the codex-handoff integration branch, or with the legacy codex-integrator daemon workflow.
 ---
 
 # Codex Handoff Workflow
@@ -73,10 +73,15 @@ Before saying the task is complete:
 2. If task changes are uncommitted:
    - confirm they belong to this task
    - confirm the branch is safe
-   - if the registered repository config sets `gpgProgram`, create the commit
-     with `git -c gpg.program="<configured path>" commit ...`; never persist
-     that override in repository or global Git configuration
-   - create one focused commit using repository conventions
+   - stage only the intended task paths
+   - create one focused commit through the controlled command so signing is
+     preflighted immediately before Git creates the commit:
+
+     ```bash
+     codex-handoff commit --message "<focused commit message>"
+     ```
+
+   - never substitute a raw `git commit` when a handoff session is active
 3. If unrelated/ambiguous changes are present, ask before staging or committing.
 4. Require no newly introduced or changed non-task working-tree state. An
    observably unchanged baseline path may remain only when `validate` explicitly
@@ -104,15 +109,19 @@ Before saying the task is complete:
 9. If a clean merge was preserved after validation or commit creation failed,
    run `codex-handoff resume` from the original source worktree. The CLI must
    verify that its exact staged merge tree is unchanged before retrying.
-10. For any other integration failure, report the CLI's recorded error; do not
+10. If validation and all checks succeeded but target promotion reports
+    `promotion_pending`, preserve the staging commit. Correct only the reported
+    condition (for example, save and clean user changes in the target worktree)
+    and run `codex-handoff resume`. Do not reset, clean, or discard user state.
+11. For any other integration failure, report the CLI's recorded error; do not
     describe the session as `needs_review` unless the CLI recorded that status.
-11. Report:
+12. Report:
 
 - session ID
 - source commit
-- integration result
-- integration commit if successful
-- `needs_review` details if unsuccessful
+- staging integration commit
+- target branch and promoted commit if successful
+- `promotion_pending` or `needs_review` details if unsuccessful
 
 ## Concurrent integration
 
@@ -129,6 +138,7 @@ If `integrate` fails:
 - preserve the reported integration worktree
 - automatically follow the resumable-conflict procedure above when offered
 - otherwise report the status and recommended next action
+- distinguish a validated staging result from completed target promotion
 
 ## Boundaries
 

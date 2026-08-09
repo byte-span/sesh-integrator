@@ -48,7 +48,11 @@ SESSION 1                         SESSION 2
                               │
                        integration tests
                               │
-                         commit + exit
+                      staging commit
+                              │
+                   post-integration checks
+                              │
+                 atomic target promotion + exit
 ```
 
 ## 3. Key Design Choice
@@ -106,7 +110,9 @@ Example `~/.codex-handoff/config.json`:
   "repositories": [
     {
       "path": "/Users/you/Developer/my-app",
+      "defaultBranch": "main",
       "integrationBranch": "codex-handoff/integration",
+      "targetBranch": "main",
       "gpgProgram": "/Users/you/.local/bin/codex-gpg",
       "setupCommands": [["corepack", "pnpm", "install", "--frozen-lockfile"]],
       "setupCommandPolicy": "advisory",
@@ -173,11 +179,18 @@ codex-handoff register [--auto-config]
 Add a repository entry using:
 
 - real repository path
-- default integration branch `codex-handoff/integration`
+- registered default branch
+- internal integration branch `codex-handoff/integration`
+- no explicit target override, so the effective target is `defaultBranch`
 - empty validation command arrays
 - empty conflict instructions
 
 If already registered, show current config instead of duplicating it.
+
+An existing entry without `targetBranch` remains valid and defaults to
+`defaultBranch`, except when its `integrationBranch` already equals
+`defaultBranch`. That historical state is ambiguous and must be rejected with a
+migration message rather than guessed.
 
 When `--auto-config` is present, detect setup commands without executing them.
 Prefer an executable `scripts/bootstrap`, `scripts/setup`, or `bin/setup`, then detect common
@@ -260,7 +273,10 @@ Before integration, the skill:
 
 1. Reads repository instructions.
 2. Inspects `git status` and diff.
-3. Creates a focused source-branch commit if task changes remain uncommitted.
+3. Stages only intended task paths and creates a focused source-branch commit
+   with `codex-handoff commit --message "..."` if task changes remain
+   uncommitted. When signing is enabled, this performs a real OpenPGP preflight
+   immediately before the commit and scopes the configured GPG program to Git.
 4. Runs `codex-handoff validate` to compare the source against its recorded
    baseline and select a path-based tier for the exact task commit range.
 5. Stops if validation fails.
@@ -285,9 +301,9 @@ A tier may explicitly request `bypassIntegrationWorktree`. The bypass requires
 the exact ready commit to have passed `codex-handoff validate`, zero integration
 commands for the tier, and zero post-integration commands. It still acquires the
 repository lock, merges against the current integration HEAD using Git plumbing,
-and atomically advances only the dedicated integration branch. Conflicts or an
-unsafe tool-owned worktree fall back to normal integration. It never updates the
-default branch or removes a user worktree.
+atomically advances the dedicated staging branch, and then uses the same safe
+target-promotion path. Conflicts or an unsafe tool-owned worktree fall back to
+normal integration. It never removes a user worktree or pushes.
 
 ## 10. `integrate`
 
@@ -340,6 +356,7 @@ If lock exists:
 2. wait/retry until timeout
 3. do not spin aggressively
 4. after acquiring it, refresh integration branch state before merging
+5. capture the current target commit as the exact expected promotion baseline
 
 ### 10.4 Integration Worktree
 
@@ -354,7 +371,9 @@ Rules:
 - never use source worktree for integration
 - worktree must be clean
 - integration branch must be checked out only there
-- create branch from repository default branch if it does not exist
+- create the staging branch from the current target if it does not exist
+- fast-forward a clean staging branch to the current target when staging is behind
+- refuse staging-ahead or divergent historical state and require reconciliation
 - never reset an existing integration branch automatically
 
 ### 10.5 Merge
@@ -374,16 +393,27 @@ If merge is clean:
 1. run setup commands
 2. run integration validation
 3. if successful, create merge commit
-4. record integration commit and timestamp
-5. run post-integration commands in order after the integration branch advances
-6. mark session succeeded
-7. release lock
-8. exit 0
+4. record the validated staging commit and timestamp
+5. run post-integration commands in order after the staging branch advances
+6. promote the exact validated staging commit to the configured target
+7. mark the session succeeded only after promotion
+8. release the lock and exit 0
 
-If a post-integration command fails, preserve the already-advanced integration
-commit and command output, mark the session `needs_review`, release the lock, and
-exit non-zero. Do not run post-integration commands when the ready commit was
-already present and the integration branch did not advance.
+Target promotion uses the target commit captured under the repository lock as
+an expected-old value. If the target is not checked out, use atomic
+`update-ref`. If it is checked out in one accessible, clean worktree at the
+expected commit, use a verified fast-forward in that worktree so its ref,
+index, and files remain synchronized. Dirty, inaccessible, multiply checked
+out, or unexpectedly moved targets produce `promotion_pending`; they never
+discard user changes. `resume` retries only the preserved validated commit.
+An explicit configuration where target and staging names are equal is supported
+as a legacy-style opt-in; the validated staging ref is already the target and
+must not be checked out by another worktree.
+
+If a post-integration command fails, preserve the already-advanced staging
+commit and command output, mark the session `needs_review`, release the lock,
+and exit non-zero. `resume` reruns the checks before promotion. Do not run them
+when the ready commit was already present and the staging branch did not advance.
 
 If validation or integration commit creation fails after a clean merge, `resume`
 may retry only when the source snapshot and merge target still match and the
@@ -454,11 +484,13 @@ Show:
 - active sessions
 - waiting integrations
 - succeeded integrations
+- validated integrations awaiting target promotion
 - `needs_review`
 - lock owner
 - integration worktree path
 - start time / ready time / integrated time
 - latest error
+- target branch, expected target commit, promoted commit, and recovery phase
 
 Keep it simple.
 
@@ -473,6 +505,7 @@ Check:
 - installed workflow skill and global guidance synchronized with the bundled
   policy and free of stale detached/default-branch prohibitions
 - current repository registration
+- separate staging and effective target branches, including missing or divergent refs
 - configured source and integration validation commands
 - active integration locks
 - likely active legacy automation
@@ -509,6 +542,17 @@ For each found component, explain whether it can conflict with `codex-handoff`.
 
 Do not disable anything automatically.
 
+### 14.1 `reconcile`
+
+`codex-handoff reconcile` is read-only by default. For each selected registered
+repository it compares staging and target ancestry and finds recorded
+`succeeded` integrations absent from the target. It offers a fast-forward only
+when the target is an ancestor of staging, the staging head is an exact recorded
+successful integration commit, and every missing recorded integration is in
+that history. Divergence, staging-behind ambiguity, and unrecorded staging heads
+are refused. `--apply` uses the normal checked-out-target synchronization and
+atomic expected-old promotion path. It never merges, resets, deletes, or pushes.
+
 ## 15. Failure / Sleep Behavior
 
 The tool is intentionally one-shot.
@@ -541,7 +585,7 @@ The MVP is ready when disposable repo tests prove:
 11. Integration validation failure is not committed.
 12. Source worktrees are untouched.
 13. Old daemon components are only audited, never silently removed.
-14. Post-integration commands run only after the integration branch advances.
+14. Post-integration commands run only after the staging branch advances.
 15. A post-integration failure preserves the advanced commit and command result.
 16. `doctor` reports both ready and actionable not-ready states without mutation.
 17. Setup runs before session creation and before integration validation.
@@ -553,3 +597,9 @@ The MVP is ready when disposable repo tests prove:
 21. The bundled workflow and global guidance treat Codex Local mode as an
     explicit opt-out and conservatively require a linked worktree when mode
     metadata is unavailable.
+22. The effective target defaults to `defaultBranch` and supports a per-repo override.
+23. Success is recorded only after exact validated-commit promotion.
+24. Clean checked-out targets synchronize; dirty, inaccessible, or concurrently
+    moved targets preserve `promotion_pending` state.
+25. Historical missing promotions are audited and only explicit safe
+    fast-forwards are applied.

@@ -1,12 +1,19 @@
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { readLockMetadata } from "./lock.js";
-import { readSessions, runtimePaths } from "./runtime.js";
+import { targetBranch } from "./promotion.js";
+import { readConfig, readSessions, runtimePaths } from "./runtime.js";
 
 export async function statusCommand(): Promise<void> {
   const paths = runtimePaths();
-  const sessions = await readSessions();
+  const [sessions, config] = await Promise.all([readSessions(), readConfig()]);
   process.stdout.write(`Runtime: ${paths.root}\n`);
+  process.stdout.write(`Repositories: ${config.repositories.length}\n`);
+  for (const repository of config.repositories) {
+    process.stdout.write(
+      `  ${repository.path}: staging ${repository.integrationBranch} -> target ${targetBranch(repository)}${repository.targetBranch ? " (override)" : " (defaultBranch)"}\n`,
+    );
+  }
   process.stdout.write(`Sessions: ${sessions.length}\n`);
   if (sessions.length === 0) process.stdout.write("  (none)\n");
   for (const session of sessions) {
@@ -17,6 +24,7 @@ export async function statusCommand(): Promise<void> {
     process.stdout.write(`  repo: ${session.repositoryPath}\n`);
     process.stdout.write(`  worktree: ${session.worktreePath}\n`);
     process.stdout.write(`  branch: ${session.branch}\n`);
+    process.stdout.write(`  target branch: ${session.targetBranch ?? "-"}\n`);
     process.stdout.write(`  started: ${session.startedAt}\n`);
     process.stdout.write(
       `  ready: ${session.readyAt ?? "-"} ${session.readyCommit ?? ""}\n`,
@@ -25,10 +33,15 @@ export async function statusCommand(): Promise<void> {
       `  validation: ${session.validationTier ?? "-"} (${session.changedPaths?.length ?? 0} changed path(s))\n`,
     );
     process.stdout.write(
-      `  integrated: ${session.integratedAt ?? "-"} ${
+      `  staged/validated: ${session.integratedAt ?? "-"} ${
         session.integratedCommit ?? ""
       }\n`,
     );
+    process.stdout.write(
+      `  promoted: ${session.promotedAt ?? "-"} ${session.promotedCommit ?? ""}\n`,
+    );
+    if (session.recoveryPhase)
+      process.stdout.write(`  recovery phase: ${session.recoveryPhase}\n`);
     process.stdout.write(
       `  integration worktree: ${join(paths.worktrees, session.repositoryId)}\n`,
     );
