@@ -558,7 +558,7 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     ]);
 
     expect(result.code).toBe(1);
-    expect(result.stderr).toContain("Cannot begin on default branch main");
+    expect(result.stderr).toContain("Cannot begin on target branch main");
     expect(git(fixture.repo, "branch", "--show-current")).toBe("main");
   });
 
