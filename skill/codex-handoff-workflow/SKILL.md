@@ -1,6 +1,6 @@
 ---
 name: codex-handoff-workflow
-description: Use for code-changing tasks in Git worktrees that should be integrated by the local codex-handoff tool. At task start, safely create a task branch when needed and record the session/base commit; at successful completion, validate, create a focused commit when safe, and run one-shot integration. Do not use for read-only tasks, the codex-handoff integration branch, or the legacy codex-integrator daemon workflow.
+description: Use for code-changing tasks running in Codex Worktree mode that should be integrated by the local codex-handoff tool. At task start, record the session/base commit; at successful completion, validate, create a focused commit when safe, and run one-shot integration. Never use in Codex Local mode, for read-only tasks, on the codex-handoff integration branch, or with the legacy codex-integrator daemon workflow.
 ---
 
 # Codex Handoff Workflow
@@ -13,9 +13,24 @@ It does not perform daemon monitoring.
 
 Before modifying files:
 
-1. Confirm the current directory belongs to a Git repository.
-2. Check whether `codex-handoff` is available.
-3. Run:
+1. Apply the environment eligibility gate before calling any `codex-handoff`
+   command:
+   - If the current Codex chat is in Local mode, do not use this skill. Continue
+     the task directly in the current project directory without beginning,
+     registering, validating, or integrating a handoff session. Local mode is
+     authoritative even when the repository is registered or the checkout is
+     technically a Git worktree.
+   - Use this workflow when the chat is in Worktree mode.
+   - If the Codex mode is not available, proceed only when the checkout is
+     verifiably a linked Git worktree. Resolve the paths returned by both
+     commands:
+     - `git rev-parse --git-dir`
+     - `git rev-parse --git-common-dir`
+   - If the resulting paths are equal or the distinction cannot be verified,
+     continue without handoff.
+2. Confirm the current directory belongs to a Git repository.
+3. Check whether `codex-handoff` is available.
+4. Run:
 
    ```bash
    codex-handoff begin --summary "<concise task summary>"
@@ -25,23 +40,23 @@ Before modifying files:
    is detached or on the registered default branch. It leaves an existing
    non-default branch unchanged.
 
-4. If the repository is not registered, ask the user whether to register it.
-5. If approved:
+5. If the repository is not registered, ask the user whether to register it.
+6. If approved:
 
    ```bash
    codex-handoff register --auto-config
    codex-handoff begin --summary "<concise task summary>"
    ```
 
-6. `begin` runs centrally configured setup commands before creating a task
+7. `begin` runs centrally configured setup commands before creating a task
    branch or session. Auto-configured setup failures warn and continue; explicit
    setup failures stop. Do not stop solely for the advisory warning.
-7. If `begin` reports staged baseline state, a changed setup result, an
+8. If `begin` reports staged baseline state, a changed setup result, an
    indeterminate Git error, or the handoff integration branch, stop and explain.
    Pre-existing unstaged paths may proceed only under the CLI's recorded-baseline
    diagnostics. Never create or switch a branch manually as a workaround.
-8. If the user explicitly says this work depends on another handoff session, pass its ID with `--depends-on`.
-9. Do not infer dependencies from start time alone.
+9. If the user explicitly says this work depends on another handoff session, pass its ID with `--depends-on`.
+10. Do not infer dependencies from start time alone.
 
 ## During work
 

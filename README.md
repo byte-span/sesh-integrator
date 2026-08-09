@@ -47,7 +47,7 @@ The CLI installer creates an idempotent symlink in `~/.local/bin`, which must be
 ./scripts/install-skill.sh /tmp/codex-handoff-skill
 ```
 
-Finally, copy [GLOBAL_AGENTS_SNIPPET.md](./GLOBAL_AGENTS_SNIPPET.md) into `~/.codex/AGENTS.md`. It excludes this tool's own repository, read-only tasks, and the integration branch while allowing the skill to leave detached/default-branch worktrees safely.
+Finally, copy [GLOBAL_AGENTS_SNIPPET.md](./GLOBAL_AGENTS_SNIPPET.md) into `~/.codex/AGENTS.md`. It scopes automatic handoff to Codex Worktree mode and excludes Local mode, this tool's own repository, read-only tasks, and the integration branch. When Codex mode metadata is unavailable, the policy falls back conservatively to a verifiable linked-Git-worktree check.
 
 ## Commands
 
@@ -212,6 +212,15 @@ tool-owned integration worktree may be removed before this update; user
 worktrees are never removed.
 
 ### `begin`
+
+Automatic workflow invocation is for Codex Worktree mode only. Selecting Local
+mode is an explicit opt-out: Codex should work directly in the current project
+directory without running `begin`, `register`, `validate`, or `integrate`, even
+when that repository is already registered. If the app's mode is unavailable,
+the workflow runs only when the resolved Git directory differs from the resolved
+Git common directory, which identifies a linked worktree rather than the primary
+checkout. This is a workflow trigger rule; the CLI remains available for
+deliberate manual use.
 
 The workflow skill starts from a source worktree whose observable state can be
 safely baselined:

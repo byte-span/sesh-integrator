@@ -91,6 +91,7 @@ Complete personal MVP implementation checklist.
 - [x] Require a focused source commit and one-shot integrate
 - [x] Never invoke `codex-integrator`
 - [x] Supply global guidance with registration, read-only, branch, and self-repository guards
+- [x] Scope automatic invocation to Codex Worktree mode and explicitly bypass Local mode
 
 ## Disposable verification
 

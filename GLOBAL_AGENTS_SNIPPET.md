@@ -1,6 +1,21 @@
 # codex-handoff global workflow
 
-For code-changing work inside a Git repository (except for `codex-handoff` itself):
+For code-changing work inside a Git repository (except for `codex-handoff`
+itself), use this workflow only when the current Codex chat runs in Worktree
+mode. Local mode is an explicit opt-out: continue the task directly in the
+current project directory without calling any `codex-handoff` command, even if
+the repository is registered.
+
+If the Codex mode is unavailable, verify a linked Git worktree by resolving the
+paths returned by both commands:
+
+- `git rev-parse --git-dir`
+- `git rev-parse --git-common-dir`
+
+The resulting paths must differ. If they are the same or the distinction cannot
+be verified, skip `codex-handoff`.
+
+For eligible Worktree-mode tasks:
 
 1. Use `$codex-handoff-workflow` before making edits.
 2. If the repository is not registered with `codex-handoff`, ask whether to register it.

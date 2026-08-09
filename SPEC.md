@@ -248,6 +248,14 @@ Requirements:
 
 ## 9. Skill Completion Behavior
 
+The workflow is automatically eligible only for Codex chats running in Worktree
+mode. Local mode explicitly bypasses the entire handoff lifecycle, including
+registration prompts and `begin`, even when the repository is registered. When
+Codex mode metadata is unavailable, the skill may proceed only after verifying
+that the resolved Git directory and Git common directory differ, indicating a
+linked worktree. This restriction applies to automatic workflow invocation, not
+deliberate manual CLI use.
+
 Before integration, the skill:
 
 1. Reads repository instructions.
@@ -542,3 +550,6 @@ The MVP is ready when disposable repo tests prove:
 20. A tracked baseline-inaccessible path remains safely excluded when sandboxed
     Git reports only a scoped permission warning plus a raw deletion and omits
     the path from porcelain status.
+21. The bundled workflow and global guidance treat Codex Local mode as an
+    explicit opt-out and conservatively require a linked worktree when mode
+    metadata is unavailable.
