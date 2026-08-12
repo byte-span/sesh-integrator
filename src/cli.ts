@@ -14,76 +14,123 @@ import {
 } from "./handoff.js";
 import { statusCommand } from "./status.js";
 import { reconcileCommand } from "./reconcile.js";
+import { benchmarkCommand } from "./benchmark.js";
+import { finishPerformance, startPerformance } from "./performance.js";
 
 export async function main(argv = process.argv.slice(2)): Promise<void> {
   const [command, ...args] = argv;
-  switch (command) {
-    case "init":
-      rejectArguments(args);
-      await initCommand();
-      break;
-    case "register":
-      {
-        const options = parseRegisterOptions(args);
-        await registerCommand(
-          options.path,
-          options.autoConfig,
-          options.setupCommands,
+  const instrument = new Set([
+    "begin",
+    "commit",
+    "validate",
+    "integrate",
+    "resume",
+  ]).has(command ?? "");
+  if (instrument) startPerformance(command!);
+  try {
+    switch (command) {
+      case "init":
+        rejectArguments(args);
+        await initCommand();
+        break;
+      case "register":
+        {
+          const options = parseRegisterOptions(args);
+          await registerCommand(
+            options.path,
+            options.autoConfig,
+            options.setupCommands,
+          );
+        }
+        break;
+      case "begin": {
+        const options = parseOptions(args, true);
+        await beginCommand(
+          options.summary,
+          options.dependsOn,
+          options.autoBranch,
         );
+        break;
       }
-      break;
-    case "begin": {
-      const options = parseOptions(args, true);
-      await beginCommand(
-        options.summary,
-        options.dependsOn,
-        options.autoBranch,
-      );
-      break;
+      case "integrate": {
+        const options = parseOptions(args, false);
+        await integrateCommand(options.summary);
+        break;
+      }
+      case "commit": {
+        await commitCommand(parseCommitOptions(args));
+        break;
+      }
+      case "validate":
+        rejectArguments(args);
+        await validateCommand();
+        break;
+      case "resume":
+        rejectArguments(args);
+        await resumeCommand();
+        break;
+      case "status":
+        rejectArguments(args);
+        await statusCommand();
+        break;
+      case "reconcile": {
+        const options = parseReconcileOptions(args);
+        await reconcileCommand(options.apply, options.path);
+        break;
+      }
+      case "audit-legacy":
+        rejectArguments(args);
+        await auditLegacyCommand();
+        break;
+      case "doctor":
+        rejectArguments(args);
+        await doctorCommand();
+        break;
+      case "benchmark":
+        await benchmarkCommand(parseBenchmarkOptions(args));
+        break;
+      case "help":
+      case "--help":
+      case "-h":
+      case undefined:
+        process.stdout.write(helpText);
+        break;
+      default:
+        throw new Error(`Unknown command: ${command}\n\n${helpText}`);
     }
-    case "integrate": {
-      const options = parseOptions(args, false);
-      await integrateCommand(options.summary);
-      break;
-    }
-    case "commit": {
-      await commitCommand(parseCommitOptions(args));
-      break;
-    }
-    case "validate":
-      rejectArguments(args);
-      await validateCommand();
-      break;
-    case "resume":
-      rejectArguments(args);
-      await resumeCommand();
-      break;
-    case "status":
-      rejectArguments(args);
-      await statusCommand();
-      break;
-    case "reconcile": {
-      const options = parseReconcileOptions(args);
-      await reconcileCommand(options.apply, options.path);
-      break;
-    }
-    case "audit-legacy":
-      rejectArguments(args);
-      await auditLegacyCommand();
-      break;
-    case "doctor":
-      rejectArguments(args);
-      await doctorCommand();
-      break;
-    case "help":
-    case "--help":
-    case "-h":
-    case undefined:
-      process.stdout.write(helpText);
-      break;
-    default:
-      throw new Error(`Unknown command: ${command}\n\n${helpText}`);
+    if (instrument) await finishPerformance("succeeded");
+  } catch (error) {
+    if (instrument) await finishPerformance("failed", error);
+    throw error;
   }
+}
+
+function parseBenchmarkOptions(args: string[]): {
+  runs: number;
+  json: boolean;
+  check: boolean;
+} {
+  let runs = 5;
+  let json = false;
+  let check = false;
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = args[index];
+    if (argument === "--json") json = true;
+    else if (argument === "--check") {
+      check = true;
+      runs = Math.min(runs, 3);
+    } else if (argument === "--runs") {
+      const value = Number(args[index + 1]);
+      if (!Number.isInteger(value) || value < 1 || value > 100) {
+        throw new Error("benchmark --runs must be an integer from 1 to 100");
+      }
+      runs = value;
+      index += 1;
+    } else {
+      throw new Error(`Unknown benchmark option: ${argument}`);
+    }
+  }
+  return { runs, json, check };
 }
 
 function parseOptions(
@@ -206,7 +253,7 @@ function parseReconcileOptions(args: string[]): {
   return { apply, path };
 }
 
-const helpText = `codex-handoff - one-shot Git integration\n\nUsage:\n  codex-handoff init\n  codex-handoff register [repo-path] [--auto-config] [--setup-command '<json-array>']...\n  codex-handoff begin --summary \"...\" [--no-auto-branch] [--depends-on <session-id>]...\n  codex-handoff commit --message \"...\"\n  codex-handoff validate\n  codex-handoff integrate --summary \"...\"\n  codex-handoff resume\n  codex-handoff status\n  codex-handoff reconcile [repo-path] [--apply]\n  codex-handoff audit-legacy\n  codex-handoff doctor\n`;
+const helpText = `codex-handoff - one-shot Git integration\n\nUsage:\n  codex-handoff init\n  codex-handoff register [repo-path] [--auto-config] [--setup-command '<json-array>']...\n  codex-handoff begin --summary \"...\" [--no-auto-branch] [--depends-on <session-id>]...\n  codex-handoff commit --message \"...\"\n  codex-handoff validate\n  codex-handoff integrate --summary \"...\"\n  codex-handoff resume\n  codex-handoff status\n  codex-handoff reconcile [repo-path] [--apply]\n  codex-handoff audit-legacy\n  codex-handoff doctor\n  codex-handoff benchmark [--runs <n>] [--json] [--check]\n`;
 
 if (isMainModule()) {
   main().catch((error: unknown) => {

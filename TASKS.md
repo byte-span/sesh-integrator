@@ -117,6 +117,18 @@ Complete personal MVP implementation checklist.
 - [x] Legacy audit does not mutate legacy fixtures
 - [x] Doctor ready/failure paths do not mutate runtime or home fixtures
 
+## Performance
+
+- [x] Reuse exact-tree source validation during integration when fingerprints match
+- [x] Cache advisory setup and validation conservatively by content fingerprints
+- [x] Auto-configure documentation and test validation tiers
+- [x] Support explicit parallel validation command groups
+- [x] Batch Git content hashing and parallelize independent Git metadata probes
+- [x] Index the latest worktree session while retaining JSON session history
+- [x] Persist phased per-session timing, subprocess, tier, path, and cache metrics
+- [x] Benchmark disposable small, large, dirty, conflict, and concurrent scenarios
+- [x] Provide median, p95, maximum, and CI regression-budget reporting
+
 ## Documentation
 
 - [x] Exact install, CLI, configuration, and test commands

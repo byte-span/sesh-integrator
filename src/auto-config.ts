@@ -1,7 +1,7 @@
 import { access, readFile } from "node:fs/promises";
 import { constants } from "node:fs";
 import { join } from "node:path";
-import type { Command, ValidationTier } from "./types.js";
+import type { Command, ValidationStep, ValidationTier } from "./types.js";
 
 const SOURCE_SCRIPTS = ["format:check", "typecheck", "lint", "test"];
 const INTEGRATION_ONLY_SCRIPTS = ["build"];
@@ -12,8 +12,8 @@ const POST_INTEGRATION_SCRIPT = "handoff:post-integration";
 export interface AutoConfig {
   environments: string[];
   setupCommands: Command[];
-  sourceValidationCommands: Command[];
-  integrationValidationCommands: Command[];
+  sourceValidationCommands: ValidationStep[];
+  integrationValidationCommands: ValidationStep[];
   validationTiers: ValidationTier[];
   postIntegrationCommands: Command[];
 }
@@ -52,19 +52,28 @@ export async function detectAutoConfig(
   const postIntegrationScripts = scripts.has(POST_INTEGRATION_SCRIPT)
     ? [POST_INTEGRATION_SCRIPT]
     : [];
+  const sourceCommands = packageManager
+    ? sourceScripts.map((name) => packageScriptCommand(packageManager, name))
+    : [];
+  const integrationCommands = packageManager
+    ? integrationScripts.map((name) =>
+        packageScriptCommand(packageManager, name),
+      )
+    : [];
 
   if (!packageManager && setup.commands.length === 0) return null;
   return {
     environments: setup.environments,
     setupCommands: setup.commands,
-    sourceValidationCommands: packageManager
-      ? sourceScripts.map((name) => packageScriptCommand(packageManager, name))
-      : [],
-    integrationValidationCommands: packageManager
-      ? integrationScripts.map((name) =>
-          packageScriptCommand(packageManager, name),
-        )
-      : [],
+    sourceValidationCommands: parallelizeInferred(
+      sourceCommands,
+      scripts.has(SOURCE_OVERRIDE),
+    ),
+    integrationValidationCommands: integrationPlan(
+      sourceCommands,
+      integrationCommands,
+      scripts.has(INTEGRATION_OVERRIDE),
+    ),
     validationTiers: [
       {
         name: "docs",
@@ -80,6 +89,32 @@ export async function detectAutoConfig(
         integrationValidationCommands: [],
         bypassIntegrationWorktree: true,
       },
+      ...(packageManager && scripts.has("test")
+        ? [
+            {
+              name: "tests",
+              paths: [
+                "**/*.test.*",
+                "**/*.spec.*",
+                "**/__tests__/**",
+                "test/**",
+                "tests/**",
+              ],
+              sourceValidationCommands: parallelizeInferred(
+                ["typecheck", "test"]
+                  .filter((name) => scripts.has(name))
+                  .map((name) => packageScriptCommand(packageManager, name)),
+                false,
+              ),
+              integrationValidationCommands: parallelizeInferred(
+                ["typecheck", "test"]
+                  .filter((name) => scripts.has(name))
+                  .map((name) => packageScriptCommand(packageManager, name)),
+                false,
+              ),
+            } satisfies ValidationTier,
+          ]
+        : []),
     ],
     postIntegrationCommands: packageManager
       ? postIntegrationScripts.map((name) =>
@@ -87,6 +122,26 @@ export async function detectAutoConfig(
         )
       : [],
   };
+}
+
+function parallelizeInferred(
+  commands: Command[],
+  aggregateOverride: boolean,
+): ValidationStep[] {
+  if (aggregateOverride || commands.length < 2) return commands;
+  return [{ parallel: commands }];
+}
+
+function integrationPlan(
+  sourceCommands: Command[],
+  integrationCommands: Command[],
+  aggregateOverride: boolean,
+): ValidationStep[] {
+  if (aggregateOverride) return integrationCommands;
+  return [
+    ...parallelizeInferred(sourceCommands, false),
+    ...integrationCommands.slice(sourceCommands.length),
+  ];
 }
 
 async function readPackageJson(

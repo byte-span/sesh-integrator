@@ -278,3 +278,8 @@ It must not call the old `codex-integrator`.
 Build the entire MVP in one pass, but prove it with disposable Git repositories before recommending real-project use.
 
 Do not turn this into a production platform.
+
+## Completion Reporting
+
+After any code-changing task, list all required manual follow-up steps in the
+final response. If none are required, state `No manual follow-up required.`

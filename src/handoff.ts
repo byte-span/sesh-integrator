@@ -3,6 +3,11 @@ import { constants } from "node:fs";
 import { join } from "node:path";
 import { detectAutoConfig } from "./auto-config.js";
 import {
+  recordValidationCache,
+  runSetupWithCache,
+  validationCacheFor,
+} from "./cache.js";
+import {
   changedPaths,
   detectDefaultBranch,
   git,
@@ -14,31 +19,34 @@ import {
   unmergedFiles,
 } from "./git.js";
 import { acquireRepoLock, releaseRepoLock, type LockHandle } from "./lock.js";
-import {
-  run,
-  runCommandList,
-  runRequiredCommands,
-  runValidation,
-} from "./process.js";
+import { run, runCommandList, runValidation } from "./process.js";
 import {
   DEFAULT_INTEGRATION_BRANCH,
   ensureRuntime,
+  findLatestSessionForWorktree,
   makeSessionId,
   prepareCodexResolverHome,
   readConfig,
-  readSessions,
+  readRepositorySessionIndex,
+  readSession,
   repoId,
   runtimePaths,
   writeConfig,
   writeLog,
   writeSession,
 } from "./runtime.js";
+import {
+  bindPerformanceSession,
+  measurePhase,
+  recordPerformanceMetric,
+} from "./performance.js";
 import type {
   Command,
   Config,
   GitPathObservation,
   RepositoryConfig,
   Session,
+  SessionIndexEntry,
 } from "./types.js";
 import { selectValidation, type SelectedValidation } from "./validation.js";
 import {
@@ -149,7 +157,16 @@ async function autoConfigureRepository(
       continue;
     }
     if (detected[key].length > 0) {
-      repository[key] = detected[key];
+      if (key === "setupCommands") {
+        repository.setupCommands = detected.setupCommands;
+      } else if (key === "sourceValidationCommands") {
+        repository.sourceValidationCommands = detected.sourceValidationCommands;
+      } else if (key === "integrationValidationCommands") {
+        repository.integrationValidationCommands =
+          detected.integrationValidationCommands;
+      } else {
+        repository.postIntegrationCommands = detected.postIntegrationCommands;
+      }
       if (key === "setupCommands") {
         repository.setupCommandPolicy = "advisory";
       }
@@ -190,30 +207,31 @@ export async function beginCommand(
   const context = await inspectGit(process.cwd());
   const config = await readConfig();
   const repository = findRepository(config, context.gitCommonDir);
-  const baseline = await observeGitState(context.worktreePath);
+  const baseline = await measurePhase("source_baseline", async () =>
+    observeGitState(context.worktreePath),
+  );
   reportStateDecision("begin", assessBeginBaseline(baseline));
   if (context.branch === repository.integrationBranch) {
     throw new Error(`Cannot begin on integration branch ${context.branch}`);
   }
-  const sessions = await readSessions();
-  const duplicate = sessions.find(
-    (session) =>
-      session.worktreePath === context.worktreePath &&
-      session.status !== "succeeded",
-  );
+  const duplicate = await findLatestSessionForWorktree(context.worktreePath, [
+    "active",
+    "ready",
+    "promotion_pending",
+    "needs_review",
+  ]);
   if (duplicate)
     throw new Error(`Worktree already has active session ${duplicate.id}`);
   for (const dependency of dependsOn) {
-    if (!sessions.some((session) => session.id === dependency)) {
+    if (!(await readSession(dependency))) {
       throw new Error(`Unknown dependency session: ${dependency}`);
     }
   }
   try {
-    await runRequiredCommands(
-      repository.setupCommands,
-      context.worktreePath,
-      "setup command",
+    const setup = await measurePhase("setup", async () =>
+      runSetupWithCache(repository, context.worktreePath),
     );
+    recordPerformanceMetric("setupCacheHit", setup.cacheHit);
   } catch (error) {
     if (repository.setupCommandPolicy !== "advisory") throw error;
     process.stderr.write(
@@ -270,6 +288,7 @@ export async function beginCommand(
     gitBaseline: baseline,
   };
   await writeSession(session);
+  bindPerformanceSession(session.id);
   process.stdout.write(`Started ${session.id}\n`);
   process.stdout.write(`Base commit: ${session.startCommit}\n`);
   return session;
@@ -280,14 +299,11 @@ export async function commitCommand(message: string): Promise<Session> {
   const source = await inspectGit(process.cwd());
   const config = await readConfig();
   const repository = findRepository(config, source.gitCommonDir);
-  const sessions = await readSessions();
-  const session = sessions
-    .filter(
-      (item) =>
-        item.worktreePath === source.worktreePath && item.status === "active",
-    )
-    .at(-1);
+  const session = await findLatestSessionForWorktree(source.worktreePath, [
+    "active",
+  ]);
   if (!session) throw new Error("No active session exists for this worktree");
+  bindPerformanceSession(session.id);
   if (source.branch !== session.branch) {
     throw new Error(
       `Source branch changed since begin (expected ${session.branch}, found ${source.branch ?? "detached"})`,
@@ -355,15 +371,13 @@ export async function integrateCommand(summary: string): Promise<Session> {
   const source = await inspectGit(process.cwd());
   const config = await readConfig();
   const repository = findRepository(config, source.gitCommonDir);
-  const sessions = await readSessions();
-  const candidates = sessions.filter(
-    (item) =>
-      item.worktreePath === source.worktreePath &&
-      (item.status === "active" || item.status === "ready"),
-  );
-  const session = candidates.at(-1);
+  const session = await findLatestSessionForWorktree(source.worktreePath, [
+    "active",
+    "ready",
+  ]);
   if (!session)
     throw new Error("No active or ready session exists for this worktree");
+  bindPerformanceSession(session.id);
   if (!source.branch || source.branch !== session.branch) {
     throw new Error(
       `Source branch changed since begin (expected ${session.branch}, found ${
@@ -372,10 +386,8 @@ export async function integrateCommand(summary: string): Promise<Session> {
     );
   }
 
-  const committedPaths = await changedPaths(
-    source.worktreePath,
-    session.startCommit,
-    source.head,
+  const committedPaths = await measurePhase("source_state", async () =>
+    changedPaths(source.worktreePath, session.startCommit, source.head),
   );
   await assertSourceHandoffState(
     session,
@@ -406,12 +418,13 @@ export async function integrateCommand(summary: string): Promise<Session> {
   process.stdout.write(
     `Ready snapshot ${session.readyCommit} persisted for ${session.id}\n`,
   );
-
   const validation = selectValidation(
     repository,
     committedPaths,
     session.sourceValidatedCommit === source.head,
   );
+  recordPerformanceMetric("validationTier", validation.name);
+  recordPerformanceMetric("changedPathCount", validation.changedPaths.length);
   session.validationTier = validation.name;
   session.changedPaths = validation.changedPaths;
   await writeSession(session);
@@ -419,7 +432,7 @@ export async function integrateCommand(summary: string): Promise<Session> {
     `Validation tier: ${validation.name} (${validation.changedPaths.length} changed path(s))\n`,
   );
 
-  await assertDependencies(session, await readSessions());
+  await assertDependencies(session);
   const integrationWorktree = join(
     runtimePaths().worktrees,
     session.repositoryId,
@@ -429,22 +442,28 @@ export async function integrateCommand(summary: string): Promise<Session> {
   let lock: LockHandle | undefined;
   let integrationStarted = false;
   try {
-    lock = await acquireRepoLock(
-      session.repositoryId,
-      session.id,
-      config.lockWaitSeconds,
-      integrationWorktree,
+    lock = await measurePhase("lock_wait", async () =>
+      acquireRepoLock(
+        session.repositoryId,
+        session.id,
+        config.lockWaitSeconds,
+        integrationWorktree,
+      ),
     );
     session.waitingForLock = false;
     await writeSession(session);
-    await assertDependencies(session, await readSessions());
-    await captureTargetExpectation(repository, session);
+    await assertDependencies(session);
+    await measurePhase("target_baseline", async () =>
+      captureTargetExpectation(repository, session),
+    );
     if (
-      await tryDirectIntegration(
-        repository,
-        session,
-        validation,
-        integrationWorktree,
+      await measurePhase("direct_integration", async () =>
+        tryDirectIntegration(
+          repository,
+          session,
+          validation,
+          integrationWorktree,
+        ),
       )
     ) {
       process.stdout.write(
@@ -452,7 +471,9 @@ export async function integrateCommand(summary: string): Promise<Session> {
       );
       return session;
     }
-    await prepareIntegrationWorktree(repository, session, integrationWorktree);
+    await measurePhase("worktree_preparation", async () =>
+      prepareIntegrationWorktree(repository, session, integrationWorktree),
+    );
     integrationStarted = true;
     await mergeAndValidate(config, repository, session, integrationWorktree);
     process.stdout.write(
@@ -476,14 +497,11 @@ export async function validateCommand(): Promise<Session> {
   const source = await inspectGit(process.cwd());
   const config = await readConfig();
   const repository = findRepository(config, source.gitCommonDir);
-  const sessions = await readSessions();
-  const session = sessions
-    .filter(
-      (item) =>
-        item.worktreePath === source.worktreePath && item.status === "active",
-    )
-    .at(-1);
+  const session = await findLatestSessionForWorktree(source.worktreePath, [
+    "active",
+  ]);
   if (!session) throw new Error("No active session exists for this worktree");
+  bindPerformanceSession(session.id);
   if (source.branch !== session.branch) {
     throw new Error(
       `Source branch changed since begin (expected ${session.branch}, found ${source.branch ?? "detached"})`,
@@ -505,17 +523,43 @@ export async function validateCommand(): Promise<Session> {
   process.stdout.write(
     `Validation tier: ${validation.name} (${paths.length} changed path(s))\n`,
   );
-  await runValidation(validation.sourceCommands, source.worktreePath);
+  recordPerformanceMetric("validationTier", validation.name);
+  recordPerformanceMetric("changedPathCount", paths.length);
+  const tree = await git(
+    ["rev-parse", `${source.head}^{tree}`],
+    source.worktreePath,
+  );
+  const cachedFingerprints = await validationCacheFor(
+    repository,
+    session,
+    tree,
+    validation.sourceCommands,
+  );
+  const successfulCommands: Command[] = [];
+  const validationResult = await measurePhase("source_validation", async () =>
+    runValidation(validation.sourceCommands, source.worktreePath, {
+      cachedFingerprints,
+      onCommandSuccess: async (command) => {
+        successfulCommands.push(command);
+      },
+    }),
+  );
   await assertSourceHandoffState(
     session,
     source.worktreePath,
     paths,
     "source validation",
   );
+  for (const command of successfulCommands) {
+    await recordValidationCache(repository, session, tree, command);
+  }
+  recordPerformanceMetric("validationCacheHits", validationResult.cacheHits);
+  recordPerformanceMetric("validationCommandsRun", validationResult.executed);
   session.validationTier = validation.name;
   session.changedPaths = paths;
   session.sourceValidatedAt = new Date().toISOString();
   session.sourceValidatedCommit = source.head;
+  session.sourceValidatedTree = tree;
   await writeSession(session);
   process.stdout.write(`Validated ${session.id} at ${source.head}\n`);
   return session;
@@ -525,18 +569,16 @@ export async function resumeCommand(): Promise<Session> {
   const source = await inspectGit(process.cwd());
   const config = await readConfig();
   const repository = findRepository(config, source.gitCommonDir);
-  const sessions = await readSessions();
-  const session = sessions
-    .filter(
-      (item) =>
-        item.worktreePath === source.worktreePath &&
-        (item.status === "needs_review" ||
-          item.status === "promotion_pending") &&
-        item.readyCommit !== undefined,
-    )
-    .at(-1);
+  const session = await findLatestSessionForWorktree(source.worktreePath, [
+    "needs_review",
+    "promotion_pending",
+  ]);
   if (!session) {
     throw new Error("No resumable integration exists for this worktree");
+  }
+  bindPerformanceSession(session.id);
+  if (!session.readyCommit) {
+    throw new Error("Resumable session is missing its ready commit");
   }
   if (source.branch !== session.branch) {
     throw new Error(
@@ -582,15 +624,17 @@ export async function resumeCommand(): Promise<Session> {
   await writeSession(session);
   let lock: LockHandle | undefined;
   try {
-    lock = await acquireRepoLock(
-      session.repositoryId,
-      session.id,
-      config.lockWaitSeconds,
-      integrationWorktree,
+    lock = await measurePhase("lock_wait", async () =>
+      acquireRepoLock(
+        session.repositoryId,
+        session.id,
+        config.lockWaitSeconds,
+        integrationWorktree,
+      ),
     );
     session.waitingForLock = false;
     await writeSession(session);
-    await assertDependencies(session, await readSessions());
+    await assertDependencies(session);
     if (
       session.recoveryPhase === "promotion" ||
       session.recoveryPhase === "post_integration"
@@ -691,10 +735,10 @@ async function mergeAndValidate(
     throw new Error("Session is missing persisted ready metadata");
   }
   const integrationHead = await git(["rev-parse", "HEAD"], worktree);
-  const merge = await run(
-    "git",
-    ["merge", "--no-ff", "--no-commit", session.readyCommit],
-    { cwd: worktree },
+  const merge = await measurePhase("merge", async () =>
+    run("git", ["merge", "--no-ff", "--no-commit", session.readyCommit!], {
+      cwd: worktree,
+    }),
   );
   if (merge.code !== 0) {
     const conflicted = await unmergedFiles(worktree);
@@ -854,24 +898,45 @@ async function validateCommitAndFinish(
     session.validationTier !== "full" &&
       session.sourceValidatedCommit === session.readyCommit,
   );
-  await runRequiredCommands(
-    repository.setupCommands,
-    worktree,
-    "setup command",
+  const setup = await measurePhase("integration_setup", async () =>
+    runSetupWithCache(repository, worktree),
   );
-  await runValidation(validation.integrationCommands, worktree);
+  recordPerformanceMetric("integrationSetupCacheHit", setup.cacheHit);
+  const tree = await git(["write-tree"], worktree);
+  const cachedFingerprints = await validationCacheFor(
+    repository,
+    session,
+    tree,
+    validation.integrationCommands,
+  );
+  const successfulCommands: Command[] = [];
+  const result = await measurePhase("integration_validation", async () =>
+    runValidation(validation.integrationCommands, worktree, {
+      cachedFingerprints,
+      onCommandSuccess: async (command) => {
+        successfulCommands.push(command);
+      },
+    }),
+  );
   await assertNoUnstagedChanges(session, worktree);
+  for (const command of successfulCommands) {
+    await recordValidationCache(repository, session, tree, command);
+  }
+  recordPerformanceMetric("integrationValidationCacheHits", result.cacheHits);
+  recordPerformanceMetric("integrationValidationCommandsRun", result.executed);
   const integrationBranchAdvanced = await hasMergeInProgress(worktree);
   if (integrationBranchAdvanced) {
-    await preflightCommitSigning(repository, worktree, "integration commit");
-    await git(
-      withGpgProgram(repository.gpgProgram, [
-        "commit",
-        "-m",
-        `Integrate ${session.id}: ${session.taskSummary}`,
-      ]),
-      worktree,
-    );
+    await measurePhase("integration_commit", async () => {
+      await preflightCommitSigning(repository, worktree, "integration commit");
+      await git(
+        withGpgProgram(repository.gpgProgram, [
+          "commit",
+          "-m",
+          `Integrate ${session.id}: ${session.taskSummary}`,
+        ]),
+        worktree,
+      );
+    });
   } else {
     process.stdout.write(
       `Ready commit was already present on the integration branch; no merge commit needed.\n`,
@@ -1064,10 +1129,13 @@ async function runPostIntegrationAndPromote(
 ): Promise<void> {
   session.recoveryPhase = "promotion";
   await writeSession(session);
-  const targetWorktree = await completePromotion(
-    repository,
-    session,
-    integrationBranchAdvanced && repository.postIntegrationCommands.length > 0,
+  const targetWorktree = await measurePhase("promotion", async () =>
+    completePromotion(
+      repository,
+      session,
+      integrationBranchAdvanced &&
+        repository.postIntegrationCommands.length > 0,
+    ),
   );
   if (integrationBranchAdvanced) {
     session.recoveryPhase = "post_integration";
@@ -1081,10 +1149,14 @@ async function runPostIntegrationAndPromote(
         `Target branch ${targetBranch(repository)} has no checked-out worktree for post-integration commands`,
       );
     }
-    session.postIntegrationResults = await runCommandList(
-      repository.postIntegrationCommands,
-      commandWorktree ?? integrationWorktree,
-      "post-integration command",
+    session.postIntegrationResults = await measurePhase(
+      "post_integration",
+      async () =>
+        runCommandList(
+          repository.postIntegrationCommands,
+          commandWorktree ?? integrationWorktree,
+          "post-integration command",
+        ),
     );
     await writeSession(session);
     const failed = session.postIntegrationResults.find(
@@ -1250,12 +1322,9 @@ function isAllowedIntegrationInaccessible(
   );
 }
 
-async function assertDependencies(
-  session: Session,
-  sessions: Session[],
-): Promise<void> {
+async function assertDependencies(session: Session): Promise<void> {
   for (const dependencyId of session.dependsOn) {
-    const dependency = sessions.find((item) => item.id === dependencyId);
+    const dependency = await readSession(dependencyId);
     if (!dependency)
       throw new Error(`Dependency ${dependencyId} does not exist`);
     if (dependency.status === "needs_review") {
@@ -1277,7 +1346,9 @@ async function buildConflictPrompt(
   integrationHead: string,
   conflictedFiles: string[],
 ): Promise<string> {
-  const laterIntegrations = (await readSessions()).filter(
+  const laterIntegrations = (
+    await readRepositorySessionIndex(session.repositoryId)
+  ).filter(
     (item) =>
       item.repositoryId === session.repositoryId &&
       item.status === "succeeded" &&
@@ -1325,7 +1396,7 @@ async function buildConflictPrompt(
   );
 }
 
-function formatLaterIntegrations(sessions: Session[]): string {
+function formatLaterIntegrations(sessions: SessionIndexEntry[]): string {
   if (sessions.length === 0) return "- none";
   return sessions
     .map(

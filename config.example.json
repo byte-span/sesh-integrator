@@ -9,9 +9,14 @@
       "defaultBranch": "main",
       "integrationBranch": "codex-handoff/integration",
       "targetBranch": "main",
+      "validationCache": "session",
       "sourceValidationCommands": [
-        ["pnpm", "typecheck"],
-        ["pnpm", "test"]
+        {
+          "parallel": [
+            ["pnpm", "typecheck"],
+            ["pnpm", "test"]
+          ]
+        }
       ],
       "integrationValidationCommands": [
         ["pnpm", "typecheck"],

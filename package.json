@@ -23,6 +23,8 @@
     "pretest": "pnpm build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --testTimeout=30000 --hookTimeout=30000",
+    "benchmark": "pnpm build && node dist/cli.js benchmark",
+    "benchmark:check": "pnpm build && node dist/cli.js benchmark --check",
     "format": "prettier --write \"{src,test}/**/*.ts\" \"*.{json,md}\" \"skill/**/*.md\"",
     "format:check": "prettier --check \"{src,test}/**/*.ts\" \"*.{json,md}\" \"skill/**/*.md\""
   },

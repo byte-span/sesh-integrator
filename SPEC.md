@@ -116,6 +116,7 @@ Example `~/.codex-handoff/config.json`:
       "gpgProgram": "/Users/you/.local/bin/codex-gpg",
       "setupCommands": [["corepack", "pnpm", "install", "--frozen-lockfile"]],
       "setupCommandPolicy": "advisory",
+      "validationCache": "session",
       "sourceValidationCommands": [
         ["pnpm", "typecheck"],
         ["pnpm", "test"]
@@ -141,7 +142,8 @@ Example `~/.codex-handoff/config.json`:
 }
 ```
 
-All commands are argument arrays.
+Commands are argument arrays. Validation lists may also contain explicit
+`{"parallel": [<command>, ...]}` groups whose members run concurrently.
 
 ## 6. `init`
 
@@ -153,6 +155,9 @@ Create:
 ├── state.json
 ├── codex-home/
 ├── sessions/
+├── indexes/
+├── performance/
+├── cache/
 ├── locks/
 ├── logs/
 └── worktrees/
@@ -305,6 +310,14 @@ atomically advances the dedicated staging branch, and then uses the same safe
 target-promotion path. Conflicts or an unsafe tool-owned worktree fall back to
 normal integration. It never removes a user worktree or pushes.
 
+Auto-configuration may add conservative documentation-only and test-only tiers
+and may group independent inferred checks in explicit parallel groups.
+Successful validation commands are fingerprinted by exact Git tree, command,
+platform, architecture, and Node version. Session-local reuse is the default;
+repository-wide reuse is an explicit configuration choice. Required setup is
+never cached, while auto-detected advisory JavaScript setup may be reused only
+for an unchanged manifest/lockfile fingerprint and an extant dependency marker.
+
 ## 10. `integrate`
 
 ### 10.1 Capture Ready Snapshot
@@ -398,6 +411,23 @@ If merge is clean:
 6. run post-integration commands in order from its clean checked-out target worktree
 7. mark the session succeeded only after post-integration checks pass
 8. release the lock and exit 0
+
+If the staged merge tree is identical to the source-validated tree, reuse only
+matching successful command fingerprints and run every integration-only or
+otherwise unmatched command. A retry may reuse a successful command only while
+the exact tree and fingerprint remain unchanged.
+
+### 10.6.1 Performance records
+
+Measure total lifecycle time and named phases for source state, setup,
+validation, lock wait, worktree preparation, merge, commit, promotion, and
+post-integration checks. Persist one aggregate JSON record per session with
+subprocess counts, tier/path metrics, and cache hits. Console output remains a
+concise total plus the slowest phases.
+
+The `benchmark` command uses disposable small, large, dirty, conflicting, and
+concurrent repositories. It reports median, p95, and maximum tool overhead,
+excluding configured project commands, and supports CI regression budgets.
 
 Target promotion uses the target commit captured under the repository lock as
 an expected-old value. If the target is not checked out and no post-integration

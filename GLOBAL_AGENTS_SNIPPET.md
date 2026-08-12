@@ -15,6 +15,9 @@ paths returned by both commands:
 The resulting paths must differ. If they are the same or the distinction cannot
 be verified, skip `codex-handoff`.
 
+After any code-changing task, list all required manual follow-up steps in the
+final response. If none are required, state `No manual follow-up required.`
+
 For eligible Worktree-mode tasks:
 
 1. Use `$codex-handoff-workflow` before making edits.

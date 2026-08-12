@@ -14,6 +14,7 @@ import { join } from "node:path";
 import { realpath } from "node:fs/promises";
 import { afterEach, describe, expect, it } from "vitest";
 import { withGpgProgram } from "../src/handoff.js";
+import { runSetupWithCache } from "../src/cache.js";
 
 interface Fixture {
   root: string;
@@ -42,6 +43,51 @@ afterEach(async () => {
 });
 
 describe.sequential("codex-handoff disposable repository workflow", () => {
+  it("caches only fingerprinted advisory setup with an extant marker", async () => {
+    const root = await mkdtemp(join(tmpdir(), "codex-handoff-setup-cache-"));
+    temporaryRoots.push(root);
+    const runtime = join(root, "runtime");
+    const worktree = join(root, "worktree");
+    const marker = join(root, "runs.log");
+    await mkdir(worktree);
+    await writeFile(join(worktree, "package.json"), '{"name":"cache"}\n');
+    await writeFile(join(worktree, "pnpm-lock.yaml"), "lockfileVersion: 9\n");
+    const previousRuntime = process.env.CODEX_HANDOFF_HOME;
+    process.env.CODEX_HANDOFF_HOME = runtime;
+    try {
+      const repository = {
+        path: worktree,
+        gitCommonDir: join(worktree, ".git"),
+        defaultBranch: "main",
+        integrationBranch: "codex-handoff/integration",
+        setupCommands: [
+          [
+            process.execPath,
+            "-e",
+            `const fs=require("fs");fs.mkdirSync("node_modules");fs.appendFileSync(${JSON.stringify(marker)},"run\\n")`,
+            "pnpm",
+          ],
+        ],
+        setupCommandPolicy: "advisory",
+        sourceValidationCommands: [],
+        integrationValidationCommands: [],
+        validationTiers: [],
+        postIntegrationCommands: [],
+        conflictInstructions: "",
+      } as any;
+      expect((await runSetupWithCache(repository, worktree)).cacheHit).toBe(
+        false,
+      );
+      expect((await runSetupWithCache(repository, worktree)).cacheHit).toBe(
+        true,
+      );
+      expect(await readFile(marker, "utf8")).toBe("run\n");
+    } finally {
+      if (previousRuntime === undefined) delete process.env.CODEX_HANDOFF_HOME;
+      else process.env.CODEX_HANDOFF_HOME = previousRuntime;
+    }
+  });
+
   it("keeps existing configuration without targetBranch and defaults it to defaultBranch", async () => {
     const fixture = await createFixture();
     const config = JSON.parse(
@@ -669,6 +715,93 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     expect(complete.validationTier).toBe("docs");
     expect(complete.changedPaths).toEqual(["README.md"]);
     expect(complete.status).toBe("succeeded");
+  });
+
+  it("reuses exact-tree validation and records phased performance", async () => {
+    const fixture = await createFixture();
+    const marker = join(fixture.root, "validation-count");
+    const command = [
+      process.execPath,
+      "-e",
+      `require("fs").appendFileSync(${JSON.stringify(marker)}, "run\\n")`,
+    ];
+    await updateConfig(fixture, (config) => {
+      config.repositories[0].sourceValidationCommands = [command];
+      config.repositories[0].integrationValidationCommands = [command];
+    });
+    const worktree = await addWorktree(fixture, "validation-cache");
+    await runCliOk(fixture, worktree, [
+      "begin",
+      "--summary",
+      "cache validation",
+    ]);
+    commitFile(worktree, "cached.txt", "cached\n", "cache validation");
+    await runCliOk(fixture, worktree, ["validate"]);
+    const integration = await runCliOk(fixture, worktree, [
+      "integrate",
+      "--summary",
+      "cached validation complete",
+    ]);
+
+    expect(integration.stdout).toContain("Using cached validation:");
+    expect(await readFile(marker, "utf8")).toBe("run\n");
+    const session = (await sessions(fixture))[0]!;
+    expect(session.sourceValidatedTree).toMatch(/^[0-9a-f]{40}$/);
+    expect(session.validationCacheEntries).toHaveLength(1);
+    expect(
+      await readdir(join(fixture.runtime, "indexes", "worktrees")),
+    ).toHaveLength(1);
+    expect(
+      await readdir(
+        join(fixture.runtime, "indexes", "repositories", session.repositoryId),
+      ),
+    ).toEqual([`${session.id}.json`]);
+    const performance = JSON.parse(
+      await readFile(
+        join(fixture.runtime, "performance", `${session.id}.json`),
+        "utf8",
+      ),
+    );
+    expect(performance.runs.map((run: any) => run.command)).toEqual([
+      "begin",
+      "validate",
+      "integrate",
+    ]);
+    expect(performance.runs.every((run: any) => run.subprocessCount > 0)).toBe(
+      true,
+    );
+    expect(
+      performance.runs.find((run: any) => run.command === "integrate").metrics
+        .integrationValidationCacheHits,
+    ).toBe(1);
+  });
+
+  it("runs explicitly grouped validation commands in parallel", async () => {
+    const fixture = await createFixture();
+    const marker = join(fixture.root, "parallel-validation-events.log");
+    const parallelCommand = (label: string) => [
+      process.execPath,
+      "-e",
+      `const fs=require("fs");const p=${JSON.stringify(marker)};fs.appendFileSync(p,${JSON.stringify(`${label}-start\n`)});setTimeout(()=>fs.appendFileSync(p,${JSON.stringify(`${label}-end\n`)}),150)`,
+    ];
+    await updateConfig(fixture, (config) => {
+      config.repositories[0].sourceValidationCommands = [
+        { parallel: [parallelCommand("a"), parallelCommand("b")] },
+      ];
+    });
+    const worktree = await addWorktree(fixture, "parallel-validation");
+    await runCliOk(fixture, worktree, [
+      "begin",
+      "--summary",
+      "parallel validation",
+    ]);
+    commitFile(worktree, "parallel.txt", "parallel\n", "parallel validation");
+    await runCliOk(fixture, worktree, ["validate"]);
+
+    const events = (await readFile(marker, "utf8")).trim().split("\n");
+    expect(new Set(events.slice(0, 2))).toEqual(
+      new Set(["a-start", "b-start"]),
+    );
   });
 
   it("promotes to an explicit per-repository target without moving the default branch", async () => {
@@ -2048,16 +2181,24 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     ]);
     expect(config.repositories[0].setupCommandPolicy).toBe("advisory");
     expect(config.repositories[0].sourceValidationCommands).toEqual([
-      ["corepack", "pnpm", "run", "format:check"],
-      ["corepack", "pnpm", "run", "typecheck"],
-      ["corepack", "pnpm", "run", "lint"],
-      ["corepack", "pnpm", "run", "test"],
+      {
+        parallel: [
+          ["corepack", "pnpm", "run", "format:check"],
+          ["corepack", "pnpm", "run", "typecheck"],
+          ["corepack", "pnpm", "run", "lint"],
+          ["corepack", "pnpm", "run", "test"],
+        ],
+      },
     ]);
     expect(config.repositories[0].integrationValidationCommands).toEqual([
-      ["corepack", "pnpm", "run", "format:check"],
-      ["corepack", "pnpm", "run", "typecheck"],
-      ["corepack", "pnpm", "run", "lint"],
-      ["corepack", "pnpm", "run", "test"],
+      {
+        parallel: [
+          ["corepack", "pnpm", "run", "format:check"],
+          ["corepack", "pnpm", "run", "typecheck"],
+          ["corepack", "pnpm", "run", "lint"],
+          ["corepack", "pnpm", "run", "test"],
+        ],
+      },
       ["corepack", "pnpm", "run", "build"],
     ]);
     expect(config.repositories[0].validationTiers).toEqual([
@@ -2074,6 +2215,32 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
         sourceValidationCommands: [],
         integrationValidationCommands: [],
         bypassIntegrationWorktree: true,
+      },
+      {
+        name: "tests",
+        paths: [
+          "**/*.test.*",
+          "**/*.spec.*",
+          "**/__tests__/**",
+          "test/**",
+          "tests/**",
+        ],
+        sourceValidationCommands: [
+          {
+            parallel: [
+              ["corepack", "pnpm", "run", "typecheck"],
+              ["corepack", "pnpm", "run", "test"],
+            ],
+          },
+        ],
+        integrationValidationCommands: [
+          {
+            parallel: [
+              ["corepack", "pnpm", "run", "typecheck"],
+              ["corepack", "pnpm", "run", "test"],
+            ],
+          },
+        ],
       },
     ]);
     expect(config.repositories[0].postIntegrationCommands).toEqual([
@@ -2176,6 +2343,27 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     expect(result.stdout).toContain("FAIL  Global guidance");
     expect(result.stdout).toContain("no commands configured");
     expect(result.stdout).toContain("NOT READY");
+  });
+
+  it("benchmarks disposable small, large, conflict, and concurrent scenarios", async () => {
+    const fixture = await createFixture();
+    const result = await runCli(fixture, fixture.repo, [
+      "benchmark",
+      "--runs",
+      "1",
+      "--json",
+    ]);
+
+    expect(result.code, result.stderr).toBe(0);
+    const report = JSON.parse(result.stdout);
+    expect(report.results.map((item: any) => item.scenario)).toEqual([
+      "small-clean",
+      "large-clean",
+      "large-dirty",
+      "conflict",
+      "concurrent",
+    ]);
+    expect(report.results.every((item: any) => item.p95Ms >= 0)).toBe(true);
   });
 });
 

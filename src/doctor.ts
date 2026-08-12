@@ -9,6 +9,7 @@ import { targetBranch } from "./promotion.js";
 import { run } from "./process.js";
 import { runtimePaths } from "./runtime.js";
 import type { Config, RepositoryConfig } from "./types.js";
+import { isValidationStepList } from "./validation.js";
 
 type CheckState = "PASS" | "WARN" | "FAIL";
 
@@ -419,16 +420,20 @@ function validateConfig(config: Config): void {
       (repository.setupCommandPolicy !== undefined &&
         repository.setupCommandPolicy !== "advisory" &&
         repository.setupCommandPolicy !== "required") ||
-      !Array.isArray(repository.sourceValidationCommands) ||
-      !Array.isArray(repository.integrationValidationCommands) ||
+      !isValidationStepList(repository.sourceValidationCommands) ||
+      !isValidationStepList(repository.integrationValidationCommands) ||
+      (repository.validationCache !== undefined &&
+        repository.validationCache !== "off" &&
+        repository.validationCache !== "session" &&
+        repository.validationCache !== "repository") ||
       (repository.validationTiers !== undefined &&
         (!Array.isArray(repository.validationTiers) ||
           repository.validationTiers.some(
             (tier) =>
               typeof tier.name !== "string" ||
               !Array.isArray(tier.paths) ||
-              !Array.isArray(tier.sourceValidationCommands) ||
-              !Array.isArray(tier.integrationValidationCommands),
+              !isValidationStepList(tier.sourceValidationCommands) ||
+              !isValidationStepList(tier.integrationValidationCommands),
           )))
     ) {
       throw new Error("invalid repository entry in config.json");

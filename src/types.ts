@@ -1,10 +1,16 @@
 export type Command = [string, ...string[]];
 
+export interface ParallelCommandGroup {
+  parallel: Command[];
+}
+
+export type ValidationStep = Command | ParallelCommandGroup;
+
 export interface ValidationTier {
   name: string;
   paths: string[];
-  sourceValidationCommands: Command[];
-  integrationValidationCommands: Command[];
+  sourceValidationCommands: ValidationStep[];
+  integrationValidationCommands: ValidationStep[];
   bypassIntegrationWorktree?: boolean;
 }
 
@@ -17,11 +23,12 @@ export interface RepositoryConfig {
   gpgProgram?: string;
   setupCommands: Command[];
   setupCommandPolicy?: "advisory" | "required";
-  sourceValidationCommands: Command[];
-  integrationValidationCommands: Command[];
+  sourceValidationCommands: ValidationStep[];
+  integrationValidationCommands: ValidationStep[];
   validationTiers?: ValidationTier[];
   postIntegrationCommands: Command[];
   conflictInstructions: string;
+  validationCache?: "off" | "session" | "repository";
 }
 
 export interface Config {
@@ -53,6 +60,8 @@ export interface Session {
   changedPaths?: string[];
   sourceValidatedAt?: string;
   sourceValidatedCommit?: string;
+  sourceValidatedTree?: string;
+  validationCacheEntries?: ValidationCacheEntry[];
   integratedCommit?: string;
   integratedAt?: string;
   targetBranch?: string;
@@ -116,6 +125,31 @@ export interface RuntimePaths {
   locks: string;
   logs: string;
   worktrees: string;
+  indexes: string;
+  performance: string;
+  cache: string;
+}
+
+export interface ValidationCacheEntry {
+  fingerprint: string;
+  tree: string;
+  command: Command;
+  completedAt: string;
+}
+
+export interface SessionIndexEntry {
+  version: 1;
+  id: string;
+  repositoryId: string;
+  worktreePath: string;
+  status: SessionStatus;
+  startedAt: string;
+  readyAt?: string;
+  integratedAt?: string;
+  promotedAt?: string;
+  taskSummary: string;
+  completionSummary?: string;
+  updatedAt: string;
 }
 
 export interface CommandResult {

@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import {
   chmod,
   copyFile,
@@ -11,7 +11,13 @@ import {
 } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import type { Config, RuntimePaths, Session } from "./types.js";
+import type {
+  Config,
+  RuntimePaths,
+  Session,
+  SessionIndexEntry,
+} from "./types.js";
+import { isValidationStepList } from "./validation.js";
 
 export const DEFAULT_INTEGRATION_BRANCH = "codex-handoff/integration";
 
@@ -27,6 +33,9 @@ export function runtimePaths(): RuntimePaths {
     locks: join(root, "locks"),
     logs: join(root, "logs"),
     worktrees: join(root, "worktrees"),
+    indexes: join(root, "indexes"),
+    performance: join(root, "performance"),
+    cache: join(root, "cache"),
   };
 }
 
@@ -45,6 +54,11 @@ export async function ensureRuntime(): Promise<RuntimePaths> {
     mkdir(paths.locks, { recursive: true }),
     mkdir(paths.logs, { recursive: true }),
     mkdir(paths.worktrees, { recursive: true }),
+    mkdir(join(paths.indexes, "worktrees"), { recursive: true }),
+    mkdir(join(paths.indexes, "repositories"), { recursive: true }),
+    mkdir(paths.performance, { recursive: true }),
+    mkdir(join(paths.cache, "setup"), { recursive: true }),
+    mkdir(join(paths.cache, "validation"), { recursive: true }),
   ]);
   await chmod(paths.codexHome, 0o700);
   await writeJsonIfMissing(paths.config, defaultConfig());
@@ -79,6 +93,26 @@ export async function readConfig(): Promise<Config> {
     repository.setupCommands ??= [];
     repository.validationTiers ??= [];
     repository.postIntegrationCommands ??= [];
+    repository.validationCache ??= "session";
+    if (
+      !isValidationStepList(repository.sourceValidationCommands) ||
+      !isValidationStepList(repository.integrationValidationCommands) ||
+      !["off", "session", "repository"].includes(repository.validationCache)
+    ) {
+      throw new Error(
+        `Invalid validation configuration for ${repository.path}`,
+      );
+    }
+    for (const tier of repository.validationTiers) {
+      if (
+        !isValidationStepList(tier.sourceValidationCommands) ||
+        !isValidationStepList(tier.integrationValidationCommands)
+      ) {
+        throw new Error(
+          `Invalid validation tier ${tier.name} for ${repository.path}`,
+        );
+      }
+    }
     // targetBranch intentionally remains optional for backward compatibility.
     // Its effective value is the registered defaultBranch.
     if (
@@ -122,6 +156,112 @@ export async function readSessions(): Promise<Session[]> {
 export async function writeSession(session: Session): Promise<void> {
   const paths = await ensureRuntime();
   await writeJsonAtomic(join(paths.sessions, `${session.id}.json`), session);
+  await Promise.all([
+    writeJsonAtomic(worktreeIndexPath(paths, session.worktreePath), {
+      version: 1,
+      worktreePath: session.worktreePath,
+      sessionId: session.id,
+      status: session.status,
+      updatedAt: new Date().toISOString(),
+    }),
+    writeJsonAtomic(repositoryIndexPath(paths, session), {
+      version: 1,
+      id: session.id,
+      repositoryId: session.repositoryId,
+      worktreePath: session.worktreePath,
+      status: session.status,
+      startedAt: session.startedAt,
+      readyAt: session.readyAt,
+      integratedAt: session.integratedAt,
+      promotedAt: session.promotedAt,
+      taskSummary: session.taskSummary,
+      completionSummary: session.completionSummary,
+      updatedAt: new Date().toISOString(),
+    }),
+  ]);
+}
+
+export async function readSession(
+  sessionId: string,
+): Promise<Session | undefined> {
+  const paths = await ensureRuntime();
+  try {
+    return await readJson<Session>(join(paths.sessions, `${sessionId}.json`));
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") return undefined;
+    throw error;
+  }
+}
+
+export async function readRepositorySessionIndex(
+  repositoryId: string,
+): Promise<SessionIndexEntry[]> {
+  const paths = await ensureRuntime();
+  const directory = join(paths.indexes, "repositories", repositoryId);
+  try {
+    const names = (await readdir(directory)).filter((name) =>
+      name.endsWith(".json"),
+    );
+    if (names.length > 0) {
+      return await Promise.all(
+        names.map((name) => readJson<SessionIndexEntry>(join(directory, name))),
+      );
+    }
+  } catch (error) {
+    if (!isNodeError(error) || error.code !== "ENOENT") throw error;
+  }
+  return (await readSessions())
+    .filter((session) => session.repositoryId === repositoryId)
+    .map((session) => ({
+      version: 1,
+      id: session.id,
+      repositoryId: session.repositoryId,
+      worktreePath: session.worktreePath,
+      status: session.status,
+      startedAt: session.startedAt,
+      ...(session.readyAt ? { readyAt: session.readyAt } : {}),
+      ...(session.integratedAt ? { integratedAt: session.integratedAt } : {}),
+      ...(session.promotedAt ? { promotedAt: session.promotedAt } : {}),
+      taskSummary: session.taskSummary,
+      ...(session.completionSummary
+        ? { completionSummary: session.completionSummary }
+        : {}),
+      updatedAt:
+        session.promotedAt ?? session.integratedAt ?? session.startedAt,
+    }));
+}
+
+export async function findLatestSessionForWorktree(
+  worktreePath: string,
+  statuses: Session["status"][],
+): Promise<Session | undefined> {
+  const paths = await ensureRuntime();
+  try {
+    const pointer = await readJson<{
+      worktreePath: string;
+      sessionId: string;
+      status: Session["status"];
+    }>(worktreeIndexPath(paths, worktreePath));
+    if (
+      pointer.worktreePath === worktreePath &&
+      statuses.includes(pointer.status)
+    ) {
+      return await readJson<Session>(
+        join(paths.sessions, `${pointer.sessionId}.json`),
+      );
+    }
+    if (pointer.worktreePath === worktreePath) return undefined;
+  } catch {
+    // Older runtimes are indexed lazily below.
+  }
+  const session = (await readSessions())
+    .filter(
+      (item) =>
+        item.worktreePath === worktreePath && statuses.includes(item.status),
+    )
+    .at(-1);
+  if (session) await writeSession(session);
+  return session;
 }
 
 export async function writeLog(
@@ -149,6 +289,20 @@ function randomStableId(value: string): string {
     hash = Math.imul(hash, 16777619);
   }
   return (hash >>> 0).toString(16).padStart(8, "0");
+}
+
+function worktreeIndexPath(paths: RuntimePaths, worktreePath: string): string {
+  const key = createHash("sha256").update(worktreePath).digest("hex");
+  return join(paths.indexes, "worktrees", `${key}.json`);
+}
+
+function repositoryIndexPath(paths: RuntimePaths, session: Session): string {
+  return join(
+    paths.indexes,
+    "repositories",
+    session.repositoryId,
+    `${session.id}.json`,
+  );
 }
 
 async function readJson<T>(path: string): Promise<T> {

@@ -68,6 +68,7 @@ codex-handoff status
 codex-handoff reconcile [repo-path] [--apply]
 codex-handoff audit-legacy
 codex-handoff doctor
+codex-handoff benchmark [--runs <n>] [--json] [--check]
 ```
 
 There are no `run`, `daemon`, `watch`, or service-management commands.
@@ -82,6 +83,9 @@ Creates, without overwriting an existing configuration:
 ├── state.json
 ├── codex-home/
 ├── sessions/
+├── indexes/
+├── performance/
+├── cache/
 ├── locks/
 ├── logs/
 └── worktrees/
@@ -162,9 +166,14 @@ Edit `~/.codex-handoff/config.json` to add validation and conflict settings. Com
       "gpgProgram": "/Users/you/.local/bin/codex-gpg",
       "setupCommands": [["corepack", "pnpm", "install", "--frozen-lockfile"]],
       "setupCommandPolicy": "advisory",
+      "validationCache": "session",
       "sourceValidationCommands": [
-        ["pnpm", "typecheck"],
-        ["pnpm", "test"]
+        {
+          "parallel": [
+            ["pnpm", "typecheck"],
+            ["pnpm", "test"]
+          ]
+        }
       ],
       "integrationValidationCommands": [
         ["pnpm", "typecheck"],
@@ -234,6 +243,19 @@ unsupported Git fall back to the normal integration worktree. A clean,
 tool-owned integration worktree may be removed before this update; user
 worktrees are never removed.
 
+Validation command lists also accept explicit `{ "parallel": [...] }` groups.
+Commands within a group run concurrently; groups and ordinary commands still
+run in order and any failed member stops validation. Auto-configuration groups
+independent inferred checks and adds documentation-only and test-only tiers.
+
+`validationCache` defaults to `session`: successful commands are reusable only
+for the same Git tree, command fingerprint, platform, architecture, and Node
+version in that handoff. Set it to `repository` for content-addressed reuse
+across sessions, or `off` to disable reuse. Auto-detected advisory JavaScript
+setup is skipped only when its manifest/lockfile fingerprint matches and the
+worktree still has its dependency marker. Explicit required setup is never
+skipped.
+
 ### `begin`
 
 Automatic workflow invocation is for Codex Worktree mode only. Selecting Local
@@ -298,6 +320,10 @@ fast-forwarded there and verified so its ref, index, and files remain aligned.
 A dirty, inaccessible, divergent, or unexpectedly moved target is never reset:
 the session becomes `promotion_pending` and the validated staging commit is
 preserved for `resume`.
+
+When the staged integration tree equals the source-validated tree, matching
+integration commands reuse their exact-tree results; integration-only commands
+still run. Retries reuse successes only while every fingerprint remains exact.
 
 On conflict, `integrate` preserves the merge and saves a contextual prompt under
 `~/.codex-handoff/logs/`. The workflow skill directs the current Codex session to
@@ -371,9 +397,25 @@ pnpm format:check
 pnpm typecheck
 pnpm test
 pnpm build
+pnpm benchmark:check
 ```
 
 It proves begin metadata, exact clean merges, simultaneous serialization, refreshed integration state, contextual conflict resolution, non-precedence of start time, dependencies, validation failure, unresolved conflicts, untouched source worktrees, conservative stale-lock behavior, read-only legacy audit, and both successful and failing read-only doctor checks.
+
+### Performance reporting and benchmarks
+
+Lifecycle commands print total time plus their slowest phases and persist one
+aggregate JSON record per session under `~/.codex-handoff/performance/`.
+Records separate setup, source validation, lock wait, worktree preparation,
+merge, integration validation, commit, promotion, and post-integration timing;
+they also include subprocess counts, validation tier, changed-path count, and
+cache hits.
+
+`codex-handoff benchmark` creates disposable small, large, dirty, conflicting,
+and concurrent repositories and reports median, p95, and maximum tool/Git
+overhead separately from user-configured commands. `--check` enforces CI
+regression budgets. `CODEX_HANDOFF_BENCHMARK_BUDGET_SCALE` scales them for a
+consistently slower runner.
 
 ### Real macOS signing reliability
 

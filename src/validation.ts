@@ -1,11 +1,33 @@
-import type { Command, RepositoryConfig, ValidationTier } from "./types.js";
+import type {
+  RepositoryConfig,
+  ValidationStep,
+  ValidationTier,
+} from "./types.js";
 
 export interface SelectedValidation {
   name: string;
   changedPaths: string[];
-  sourceCommands: Command[];
-  integrationCommands: Command[];
+  sourceCommands: ValidationStep[];
+  integrationCommands: ValidationStep[];
   bypassIntegrationWorktree: boolean;
+}
+
+export function isValidationStepList(value: unknown): boolean {
+  return (
+    Array.isArray(value) &&
+    value.every((step) => {
+      if (isCommand(step)) return true;
+      if (typeof step !== "object" || step === null || !("parallel" in step)) {
+        return false;
+      }
+      const parallel = (step as { parallel?: unknown }).parallel;
+      return (
+        Array.isArray(parallel) &&
+        parallel.length > 0 &&
+        parallel.every(isCommand)
+      );
+    })
+  );
 }
 
 export function selectValidation(
@@ -69,4 +91,12 @@ function matchesPath(pattern: string, path: string): boolean {
     }
   }
   return new RegExp(`${expression}$`).test(normalizedPath);
+}
+
+function isCommand(value: unknown): boolean {
+  return (
+    Array.isArray(value) &&
+    value.length > 0 &&
+    value.every((part) => typeof part === "string" && part.length > 0)
+  );
 }

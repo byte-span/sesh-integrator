@@ -28,22 +28,19 @@ export async function inspectGit(cwd: string): Promise<GitContext> {
   const worktreePath = await realpath(
     await git(["rev-parse", "--show-toplevel"], cwd),
   );
-  const rawCommonDir = await git(
-    ["rev-parse", "--git-common-dir"],
-    worktreePath,
-  );
+  const [rawCommonDir, branchResult, head] = await Promise.all([
+    git(["rev-parse", "--git-common-dir"], worktreePath),
+    run("git", ["symbolic-ref", "--quiet", "--short", "HEAD"], {
+      cwd: worktreePath,
+    }),
+    git(["rev-parse", "HEAD"], worktreePath),
+  ]);
   const gitCommonDir = await realpath(
     isAbsolute(rawCommonDir)
       ? rawCommonDir
       : resolve(worktreePath, rawCommonDir),
   );
-  const branchResult = await run(
-    "git",
-    ["symbolic-ref", "--quiet", "--short", "HEAD"],
-    { cwd: worktreePath },
-  );
   const branch = branchResult.code === 0 ? branchResult.stdout.trim() : null;
-  const head = await git(["rev-parse", "HEAD"], worktreePath);
   return { worktreePath, gitCommonDir, branch, head };
 }
 
@@ -57,8 +54,8 @@ export async function isClean(cwd: string): Promise<boolean> {
 }
 
 export async function observeGitState(cwd: string): Promise<GitObservation> {
-  const head = await git(["rev-parse", "HEAD"], cwd);
-  const [status, worktreeDiff, stagedDiff, index] = await Promise.all([
+  const [head, status, worktreeDiff, stagedDiff, index] = await Promise.all([
+    git(["rev-parse", "HEAD"], cwd),
     observeGitCommand(
       [
         "-c",
@@ -102,6 +99,13 @@ export async function observeGitState(cwd: string): Promise<GitObservation> {
     ...worktreeRaw.keys(),
     ...indexRaw.keys(),
   ]);
+  const hashPaths = [...paths].filter((path) => {
+    const statusCode = statuses.get(path) ?? null;
+    const deleted =
+      statusCode?.includes("D") || worktreeRaw.get(path)?.endsWith(" D");
+    return (statusCode || worktreeRaw.has(path)) && !deleted;
+  });
+  const batchHashes = await hashPathsInBatch(hashPaths, cwd);
   const observations: GitPathObservation[] = [];
   for (const path of [...paths].sort()) {
     const errors = scopedErrors
@@ -117,12 +121,13 @@ export async function observeGitState(cwd: string): Promise<GitObservation> {
     const deleted =
       statusCode?.includes("D") || worktreeRaw.get(path)?.endsWith(" D");
     if (accessible && (statusCode || worktreeRaw.has(path)) && !deleted) {
-      const hash = await run("git", ["hash-object", "--", path], { cwd });
-      if (hash.code === 0) contentHash = hash.stdout.trim() || null;
+      const hash = batchHashes.get(path);
+      if (hash?.code === 0) contentHash = hash.stdout.trim() || null;
       else {
         accessible = false;
         errors.push(
-          (hash.stderr || hash.stdout).trim() || "git hash-object failed",
+          (hash?.stderr || hash?.stdout || "").trim() ||
+            "git hash-object failed",
         );
       }
     }
@@ -169,6 +174,39 @@ export async function observeGitState(cwd: string): Promise<GitObservation> {
     paths: observations,
     unscopedErrors: [...new Set(unscopedErrors)],
   };
+}
+
+async function hashPathsInBatch(
+  paths: string[],
+  cwd: string,
+): Promise<Map<string, { code: number; stdout: string; stderr: string }>> {
+  const result = new Map<
+    string,
+    { code: number; stdout: string; stderr: string }
+  >();
+  if (paths.length === 0) return result;
+  const ordinary = paths.filter((path) => !path.includes("\n"));
+  const unusual = paths.filter((path) => path.includes("\n"));
+  if (ordinary.length > 0) {
+    const batch = await run("git", ["hash-object", "--stdin-paths"], {
+      cwd,
+      input: `${ordinary.join("\n")}\n`,
+    });
+    const hashes = batch.stdout.split("\n").filter(Boolean);
+    if (batch.code === 0 && hashes.length === ordinary.length) {
+      ordinary.forEach((path, index) => {
+        result.set(path, { code: 0, stdout: hashes[index]!, stderr: "" });
+      });
+    } else {
+      unusual.push(...ordinary);
+    }
+  }
+  await Promise.all(
+    unusual.map(async (path) => {
+      result.set(path, await run("git", ["hash-object", "--", path], { cwd }));
+    }),
+  );
+  return result;
 }
 
 async function observeGitCommand(

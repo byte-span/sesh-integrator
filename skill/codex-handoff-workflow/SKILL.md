@@ -123,6 +123,8 @@ Before saying the task is complete:
 - staging integration commit
 - target branch and promoted commit if successful
 - `promotion_pending` or `needs_review` details if unsuccessful
+- all required manual follow-up steps, or `No manual follow-up required.` when
+  there are none
 
 ## Concurrent integration
 
