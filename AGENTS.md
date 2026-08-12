@@ -14,16 +14,19 @@ Do not refactor, delete, or overwrite the existing `codex-integrator` source tre
 
 ## Goal
 
-`codex-handoff` is a one-shot Git integration tool coordinated by one Codex skill.
+`codex-handoff` is a one-shot Git integration tool for Codex CLI sessions. The
+CLI is the primary interface; global instructions and the bundled skill
+coordinate the same lifecycle without relying on application-specific execution
+mode labels.
 
 Flow:
 
 ```text
-Codex session starts
-→ skill records session/base commit
+Codex CLI task starts in an existing checkout
+→ inspect or begin the handoff session and record the base commit
 → Codex works
-→ Codex validates and commits its task
-→ skill runs `codex-handoff integrate`
+→ Codex creates a focused commit and validates its task
+→ Codex runs `codex-handoff integrate`
 → tool acquires repo lock
 → merge exact session commit into dedicated integration worktree
 → Codex resolves conflicts if necessary
@@ -115,6 +118,18 @@ repository.
 
 ## Session Start
 
+For most code-changing tasks in a Git repository, use `codex-handoff`. Skip it
+for read-only work, non-Git directories, and work on this `codex-handoff`
+repository itself. Do not gate the workflow on application mode metadata or
+require a linked worktree.
+
+Operate autonomously by default. Registration and normal lifecycle commands do
+not require routine approval. If a repository is unregistered, run
+`codex-handoff register --auto-config` and continue. Before beginning, inspect
+`codex-handoff status`: continue an active or recoverable session attached to
+the current checkout when it belongs to the same task; otherwise begin a new
+session. Never replace or overwrite a session for a different task.
+
 `codex-handoff begin` records:
 
 - session ID
@@ -127,22 +142,38 @@ repository.
 - task summary
 - optional dependencies
 
-Automatically create a unique task branch from a clean detached HEAD or the
-registered default branch. Allow explicit strict rejection with
-`--no-auto-branch`.
+`begin` operates in the current checkout. From a detached HEAD or the registered
+default/target branch, it automatically creates and switches to a unique task
+branch in that checkout. It leaves an existing non-default task branch in
+place. Allow explicit strict rejection with `--no-auto-branch`.
+
+Current capability gap: `begin` does **not** create a separate linked task
+worktree from an ordinary CLI checkout. Only the later integration phase
+creates/reuses a dedicated integration worktree. Supporting automatic task
+worktree isolation would require a new CLI workflow that chooses and creates a
+safe linked-worktree path and task branch, transfers execution to that
+worktree, records the new worktree as the session source, handles cleanup and
+recovery, and proves that no dirty user state can be moved or lost. Until that
+exists, never claim that `begin` isolates normal CLI work in a new worktree.
 
 Reject:
 
-- dirty worktree
+- staged baseline changes, indeterminate Git state, or setup-created changes
 - integration branch
 - unregistered repo
 - duplicate active session for the same worktree
+
+Pre-existing unstaged changes may remain only under the observable-baseline
+rules: they must stay unchanged and outside the task commit. Never reset,
+overwrite, discard, clean, or silently stash user changes, and never switch
+branches manually to bypass a blocked `begin`.
 
 Session start time is context, not precedence.
 
 ## Session Completion / Integration
 
-The Codex skill is responsible for validating and creating a focused source-branch commit before invoking:
+The Codex CLI workflow is responsible for validating and creating a focused
+source-branch commit before invoking:
 
 ```bash
 codex-handoff integrate --summary "<completion summary>"
@@ -231,8 +262,10 @@ Never:
 - merge or validate inside a user target worktree
 - advance a target ref without verifying its expected previous commit
 - leave a checked-out target ref ahead of its index and working tree
-- push automatically
-- force-push
+- push automatically unless the user clearly requests it
+- force-push unless the user clearly requests it
+- deploy or perform destructive remote actions unless the user clearly requests
+  the specific action
 - delete user branches
 - delete user worktrees
 - reset a user worktree
@@ -269,7 +302,15 @@ One global skill:
 codex-handoff-workflow
 ```
 
-The skill records task start and runs one-shot integration at task completion.
+The global policy and skill must be CLI-first. They record or continue the task
+session, automatically register unregistered repositories with `--auto-config`,
+and run focused commit, validation, one-shot integration, conflict-resume, and
+`promotion_pending` recovery without depending on application mode metadata or
+routine approval prompts.
+
+The skill must preserve unrelated and dirty user state. It may continue an
+appropriate session in the current checkout, but must not start a duplicate or
+claim that `begin` created a separate task worktree.
 
 It must not call the old `codex-integrator`.
 

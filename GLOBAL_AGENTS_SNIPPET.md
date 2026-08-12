@@ -1,32 +1,71 @@
 # codex-handoff global workflow
 
-For code-changing work inside a Git repository (except for `codex-handoff`
-itself), use this workflow only when the current Codex chat runs in Worktree
-mode. Local mode is an explicit opt-out: continue the task directly in the
-current project directory without calling any `codex-handoff` command, even if
-the repository is registered.
+For most code-changing tasks inside a Git repository, use `codex-handoff` from
+the current Codex CLI checkout. Do not use it for read-only work, non-Git
+directories, or changes to the `codex-handoff` repository itself. Do not invoke
+the legacy `codex-integrator` workflow for repositories using `codex-handoff`.
 
-If the Codex mode is unavailable, verify a linked Git worktree by resolving the
-paths returned by both commands:
+Operate autonomously by default. Do not ask for routine approval to register,
+begin, validate, commit, integrate, resume, or safely promote local work that is
+already within the user's request.
 
-- `git rev-parse --git-dir`
-- `git rev-parse --git-common-dir`
+Before editing:
 
-The resulting paths must differ. If they are the same or the distinction cannot
-be verified, skip `codex-handoff`.
+1. Inspect the repository instructions and Git state. Preserve all pre-existing
+   user changes; never reset, overwrite, discard, clean, or silently stash them.
+2. Inspect `codex-handoff status`. If the current checkout already has an active
+   or recoverable handoff session for the same task, continue that session at
+   its recorded phase instead of beginning another one. If it belongs to a
+   different task, stop and report the mismatch without altering it.
+3. If the repository is unregistered, run:
 
-After any code-changing task, list all required manual follow-up steps in the
-final response. If none are required, state `No manual follow-up required.`
+   ```bash
+   codex-handoff register --auto-config
+   ```
 
-For eligible Worktree-mode tasks:
+   Registration is automatic and does not require routine approval.
 
-1. Use `$codex-handoff-workflow` before making edits.
-2. If the repository is not registered with `codex-handoff`, ask whether to register it.
-3. If approved, register it with `codex-handoff register --auto-config`, then begin the handoff session.
-4. Do not use this workflow for read-only questions or investigations that make no code changes.
-5. Let the skill create a task branch automatically from a clean detached/default-branch worktree; never begin on `codex-handoff/integration`.
-6. Before declaring coding work complete, use the same skill to stage only task
-   paths, create the focused source commit through `codex-handoff commit`,
-   validate, and run one-shot integration.
-7. If integration reports a resumable conflict, resolve and stage the preserved integration worktree, then run `codex-handoff resume` from the source worktree. If it reports `promotion_pending`, preserve the validated staging commit, correct only the reported target-worktree condition, and run `resume`; never claim success until target promotion completes.
-8. Do not invoke the legacy `codex-integrator` workflow for repositories using `codex-handoff`.
+4. If no appropriate session exists, run:
+
+   ```bash
+   codex-handoff begin --summary "<concise task summary>"
+   ```
+
+   `begin` works in the current checkout. It may create and switch to a unique
+   task branch there when the checkout is detached or on the registered default
+   or target branch, but it does not create a separate task worktree. Do not
+   claim otherwise. Pre-existing unstaged changes may proceed only under the
+   CLI's recorded-baseline checks; staged or indeterminate state blocks `begin`.
+   Never manipulate user state or switch branches manually to bypass a block.
+
+5. Never begin on `codex-handoff/integration` (or the repository's configured
+   integration branch). Pass `--depends-on` only for explicit dependencies.
+
+At completion:
+
+1. Inspect the task diff and Git status. Stage only intended task paths and
+   preserve unrelated state.
+2. Create one focused source commit through:
+
+   ```bash
+   codex-handoff commit --message "<focused commit message>"
+   ```
+
+3. Run `codex-handoff validate`; do not integrate if validation fails.
+4. Run `codex-handoff integrate --summary "<concise completion summary>"`.
+5. For a resumable conflict, resolve and stage the preserved integration
+   worktree without committing there, then run `codex-handoff resume` from the
+   original source checkout. Preserve compatible intent and continue
+   autonomously unless the conflict is genuinely ambiguous or validation fails.
+6. For `promotion_pending`, preserve the validated staging commit, correct only
+   the reported blocking condition without disturbing user state, and run
+   `codex-handoff resume`. Do not claim success until promotion and configured
+   post-integration checks complete.
+7. Report the session, source commit, integration result, target promotion, and
+   every required manual follow-up step. If none remain, state
+   `No manual follow-up required.`
+
+Never push, force-push, deploy, or perform destructive remote actions unless the
+user clearly requests that specific external action. Never delete branches or
+worktrees, reset a user checkout, discard changes, or trade away user state to
+make handoff succeed.
