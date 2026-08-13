@@ -49,6 +49,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
           options.summary,
           options.dependsOn,
           options.autoBranch,
+          options.createWorktree,
         );
         break;
       }
@@ -136,10 +137,16 @@ function parseBenchmarkOptions(args: string[]): {
 function parseOptions(
   args: string[],
   allowDependencies: boolean,
-): { summary: string; dependsOn: string[]; autoBranch: boolean } {
+): {
+  summary: string;
+  dependsOn: string[];
+  autoBranch: boolean;
+  createWorktree: boolean;
+} {
   let summary = "";
   const dependsOn: string[] = [];
   let autoBranch = true;
+  let createWorktree = false;
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
     const value = args[index + 1];
@@ -157,11 +164,13 @@ function parseOptions(
       autoBranch = true;
     } else if (allowDependencies && argument === "--no-auto-branch") {
       autoBranch = false;
+    } else if (allowDependencies && argument === "--create-worktree") {
+      createWorktree = true;
     } else {
       throw new Error(`Unknown or incomplete option: ${argument}`);
     }
   }
-  return { summary, dependsOn, autoBranch };
+  return { summary, dependsOn, autoBranch, createWorktree };
 }
 
 function rejectArguments(args: string[]): void {
@@ -253,7 +262,7 @@ function parseReconcileOptions(args: string[]): {
   return { apply, path };
 }
 
-const helpText = `codex-handoff - one-shot Git integration\n\nUsage:\n  codex-handoff init\n  codex-handoff register [repo-path] [--auto-config] [--setup-command '<json-array>']...\n  codex-handoff begin --summary \"...\" [--no-auto-branch] [--depends-on <session-id>]...\n  codex-handoff commit --message \"...\"\n  codex-handoff validate\n  codex-handoff integrate --summary \"...\"\n  codex-handoff resume\n  codex-handoff status\n  codex-handoff reconcile [repo-path] [--apply]\n  codex-handoff audit-legacy\n  codex-handoff doctor\n  codex-handoff benchmark [--runs <n>] [--json] [--check]\n`;
+const helpText = `codex-handoff - one-shot Git integration\n\nUsage:\n  codex-handoff init\n  codex-handoff register [repo-path] [--auto-config] [--setup-command '<json-array>']...\n  codex-handoff begin --summary \"...\" [--create-worktree] [--no-auto-branch] [--depends-on <session-id>]...\n  codex-handoff commit --message \"...\"\n  codex-handoff validate\n  codex-handoff integrate --summary \"...\"\n  codex-handoff resume\n  codex-handoff status\n  codex-handoff reconcile [repo-path] [--apply]\n  codex-handoff audit-legacy\n  codex-handoff doctor\n  codex-handoff benchmark [--runs <n>] [--json] [--check]\n`;
 
 if (isMainModule()) {
   main().catch((error: unknown) => {

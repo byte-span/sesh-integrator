@@ -160,6 +160,7 @@ Create:
 ├── cache/
 ├── locks/
 ├── logs/
+├── source-worktrees/
 └── worktrees/
 ```
 
@@ -221,7 +222,7 @@ Unknown ecosystems may supply repeatable JSON argument arrays with
 Usage:
 
 ```bash
-codex-handoff begin --summary "Implement comment editing"
+codex-handoff begin --create-worktree --summary "Implement comment editing"
 ```
 
 Optional:
@@ -252,6 +253,12 @@ Record:
 Requirements:
 
 - repo registered
+- `--create-worktree` creates a unique task branch and linked source worktree
+  under the runtime when invoked from an ordinary checkout
+- an already-linked checkout is reused rather than nested
+- the launch checkout, including staged and unstaged user state, is not modified
+- output identifies the source path that the Codex CLI session must use for all
+  subsequent edits and lifecycle commands
 - auto-configured setup failures warn but do not block branch or session creation
 - explicitly configured setup commands must succeed before branch or session creation
 - observable Git baseline captured before setup, including separate status,
@@ -266,13 +273,13 @@ Requirements:
 
 ## 9. Skill Completion Behavior
 
-The workflow is automatically eligible only for Codex chats running in Worktree
-mode. Local mode explicitly bypasses the entire handoff lifecycle, including
-registration prompts and `begin`, even when the repository is registered. When
-Codex mode metadata is unavailable, the skill may proceed only after verifying
-that the resolved Git directory and Git common directory differ, indicating a
-linked worktree. This restriction applies to automatic workflow invocation, not
-deliberate manual CLI use.
+The workflow is CLI-first and applies to most code-changing work in Git
+repositories. It excludes read-only work, non-Git directories, this repository,
+and the integration branch. It does not depend on application mode labels. It
+automatically registers an unregistered repository with `--auto-config`,
+continues an appropriate active session, or begins with `--create-worktree`.
+After begin, the session performs every edit and lifecycle command from the
+recorded source path.
 
 Before integration, the skill:
 
@@ -628,9 +635,9 @@ The MVP is ready when disposable repo tests prove:
 20. A tracked baseline-inaccessible path remains safely excluded when sandboxed
     Git reports only a scoped permission warning plus a raw deletion and omits
     the path from porcelain status.
-21. The bundled workflow and global guidance treat Codex Local mode as an
-    explicit opt-out and conservatively require a linked worktree when mode
-    metadata is unavailable.
+21. The bundled workflow and global guidance are CLI-first and create a managed
+    source worktree from an ordinary checkout without relying on application
+    mode metadata.
 22. The effective target defaults to `defaultBranch` and supports a per-repo override.
 23. Success is recorded only after exact validated-commit promotion.
 24. Clean checked-out targets synchronize; dirty, inaccessible, or concurrently

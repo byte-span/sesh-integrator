@@ -1,6 +1,6 @@
 ---
 name: codex-handoff-workflow
-description: Use for code-changing tasks running in Codex Worktree mode that should be staged, validated, and promoted to the configured target by the local codex-handoff tool. At task start, record the session/base commit; at completion, validate, create a focused commit when safe, and run one-shot integration. Never use in Codex Local mode, for read-only tasks, on the codex-handoff integration branch, or with the legacy codex-integrator daemon workflow.
+description: Use for most code-changing Codex CLI tasks in Git repositories that should run in an isolated source worktree and be validated and promoted by the local codex-handoff tool. Automatically register and begin or continue a session, then create a focused commit, validate, integrate, and resume when safe. Never use for read-only work, non-Git directories, codex-handoff itself, its integration branch, or the legacy codex-integrator workflow.
 ---
 
 # Codex Handoff Workflow
@@ -13,54 +13,50 @@ It does not perform daemon monitoring.
 
 Before modifying files:
 
-1. Apply the environment eligibility gate before calling any `codex-handoff`
-   command:
-   - If the current Codex chat is in Local mode, do not use this skill. Continue
-     the task directly in the current project directory without beginning,
-     registering, validating, or integrating a handoff session. Local mode is
-     authoritative even when the repository is registered or the checkout is
-     technically a Git worktree.
-   - Use this workflow when the chat is in Worktree mode.
-   - If the Codex mode is not available, proceed only when the checkout is
-     verifiably a linked Git worktree. Resolve the paths returned by both
-     commands:
-     - `git rev-parse --git-dir`
-     - `git rev-parse --git-common-dir`
-   - If the resulting paths are equal or the distinction cannot be verified,
-     continue without handoff.
-2. Confirm the current directory belongs to a Git repository.
-3. Check whether `codex-handoff` is available.
-4. Run:
-
-   ```bash
-   codex-handoff begin --summary "<concise task summary>"
-   ```
-
-   `begin` records the observable pre-setup Git baseline and creates a unique `codex/session-...` branch when the worktree
-   is detached or on the registered default branch. It leaves an existing
-   non-default branch unchanged.
-
-5. If the repository is not registered, ask the user whether to register it.
-6. If approved:
+1. Confirm this is code-changing work in a Git repository and is not work on
+   `codex-handoff` itself or its configured integration branch.
+2. Inspect repository instructions and Git state. Never reset, overwrite,
+   discard, clean, or silently stash existing user state.
+3. Check whether `codex-handoff` is available and inspect
+   `codex-handoff status`. Continue an active or recoverable session for this
+   task from its recorded source path. Do not replace a different task's
+   session.
+4. If the repository is unregistered, autonomously run:
 
    ```bash
    codex-handoff register --auto-config
-   codex-handoff begin --summary "<concise task summary>"
    ```
 
-7. `begin` runs centrally configured setup commands before creating a task
+5. If no appropriate session exists, run:
+
+   ```bash
+   codex-handoff begin --create-worktree --summary "<concise task summary>"
+   ```
+
+   From an ordinary checkout, the command creates a unique task branch and
+   source worktree. From an existing linked worktree it reuses that worktree.
+   Read `Continue task in: <path>` from the output and perform every subsequent
+   edit and handoff command from that path. Do not edit the launch checkout.
+
+6. `begin` runs centrally configured setup commands before creating a task
    branch or session. Auto-configured setup failures warn and continue; explicit
    setup failures stop. Do not stop solely for the advisory warning.
-8. If `begin` reports staged baseline state, a changed setup result, an
-   indeterminate Git error, or the handoff integration branch, stop and explain.
-   Pre-existing unstaged paths may proceed only under the CLI's recorded-baseline
-   diagnostics. Never create or switch a branch manually as a workaround.
-9. If the user explicitly says this work depends on another handoff session, pass its ID with `--depends-on`.
+7. If `begin` reports a changed setup result, an indeterminate Git error, or the
+   handoff integration branch, stop and explain. A newly created worktree may be
+   preserved after failure; do not delete it or its branch automatically.
+8. For an already-linked/in-place source, if `begin` reports staged baseline
+   state, stop. Pre-existing unstaged paths may proceed only under the CLI's
+   recorded-baseline diagnostics. Never create or switch a branch manually as a
+   workaround. Dirty or staged state in an ordinary launch checkout is left
+   untouched and excluded from the new task worktree.
+9. If the user explicitly says this work depends on another handoff session,
+   pass its ID with `--depends-on`.
 10. Do not infer dependencies from start time alone.
 
 ## During work
 
 - Follow repository `AGENTS.md`.
+- Work only in the source path recorded by the active session.
 - Keep changes scoped to the task.
 - Do not invoke the legacy `codex-integrator`.
 - Do not merge into the integration branch manually.

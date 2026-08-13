@@ -28,6 +28,7 @@ Complete personal MVP implementation checklist.
 - [x] Implement `begin`
 - [x] Reject staged/indeterminate baseline state, integration worktrees, and duplicate active sessions, with an explicit strict opt-out for detached/default branches
 - [x] Let the workflow safely auto-create a unique task branch from baseline-safe detached/default-branch worktrees
+- [x] Let Codex CLI create an isolated managed source worktree from an ordinary checkout while preserving launch-checkout state
 - [x] Record worktree, branch, start commit, integration HEAD, timestamp, summary, and dependencies
 - [x] Record a pre-setup observable Git baseline and distinguish stable inaccessible paths from genuine task/unrelated changes
 - [x] Reject unknown explicit dependencies
@@ -97,7 +98,7 @@ Complete personal MVP implementation checklist.
 - [x] Require a focused source commit and one-shot integrate
 - [x] Never invoke `codex-integrator`
 - [x] Supply global guidance with registration, read-only, branch, and self-repository guards
-- [x] Scope automatic invocation to Codex Worktree mode and explicitly bypass Local mode
+- [x] Make CLI-first invocation create/reuse a source worktree without relying on application mode labels
 
 ## Disposable verification
 

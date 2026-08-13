@@ -12,6 +12,7 @@ export interface GitContext {
   gitCommonDir: string;
   branch: string | null;
   head: string;
+  linkedWorktree: boolean;
 }
 
 export interface GitWorktree {
@@ -28,7 +29,8 @@ export async function inspectGit(cwd: string): Promise<GitContext> {
   const worktreePath = await realpath(
     await git(["rev-parse", "--show-toplevel"], cwd),
   );
-  const [rawCommonDir, branchResult, head] = await Promise.all([
+  const [rawGitDir, rawCommonDir, branchResult, head] = await Promise.all([
+    git(["rev-parse", "--git-dir"], worktreePath),
     git(["rev-parse", "--git-common-dir"], worktreePath),
     run("git", ["symbolic-ref", "--quiet", "--short", "HEAD"], {
       cwd: worktreePath,
@@ -40,8 +42,17 @@ export async function inspectGit(cwd: string): Promise<GitContext> {
       ? rawCommonDir
       : resolve(worktreePath, rawCommonDir),
   );
+  const gitDir = await realpath(
+    isAbsolute(rawGitDir) ? rawGitDir : resolve(worktreePath, rawGitDir),
+  );
   const branch = branchResult.code === 0 ? branchResult.stdout.trim() : null;
-  return { worktreePath, gitCommonDir, branch, head };
+  return {
+    worktreePath,
+    gitCommonDir,
+    branch,
+    head,
+    linkedWorktree: gitDir !== gitCommonDir,
+  };
 }
 
 export async function isClean(cwd: string): Promise<boolean> {

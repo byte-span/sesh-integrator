@@ -608,6 +608,66 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     expect(git(fixture.repo, "branch", "--show-current")).toBe("main");
   });
 
+  it("creates a separate source worktree for a CLI checkout when requested", async () => {
+    const fixture = await createFixture();
+
+    const begin = await runCli(fixture, fixture.repo, [
+      "begin",
+      "--summary",
+      "isolated CLI task",
+      "--create-worktree",
+    ]);
+
+    expect(begin.code, begin.stderr).toBe(0);
+    const active = (await sessions(fixture))[0]!;
+    expect(active.status).toBe("active");
+    expect(active.launchWorktreePath).toBe(await realpath(fixture.repo));
+    expect(active.managedSourceWorktree).toBe(true);
+    expect(active.worktreePath).not.toBe(await realpath(fixture.repo));
+    expect(active.worktreePath).toContain(
+      join(fixture.runtime, "source-worktrees"),
+    );
+    expect(active.branch).toMatch(/^codex\/session-[a-z0-9-]+$/);
+    expect(begin.stdout).toContain(`Continue task in: ${active.worktreePath}`);
+    expect(git(fixture.repo, "branch", "--show-current")).toBe("main");
+
+    commitFile(
+      active.worktreePath,
+      "isolated.txt",
+      "isolated\n",
+      "isolated source",
+    );
+    const integration = await runCli(fixture, active.worktreePath, [
+      "integrate",
+      "--summary",
+      "isolated CLI task complete",
+    ]);
+    expect(integration.code, integration.stderr).toBe(0);
+    expect(git(fixture.repo, "show", "main:isolated.txt")).toBe("isolated");
+  });
+
+  it("preserves dirty launch-checkout state when creating a source worktree", async () => {
+    const fixture = await createFixture();
+    await writeFile(join(fixture.repo, "user-state.txt"), "do not move\n");
+    git(fixture.repo, "add", "user-state.txt");
+    const before = git(fixture.repo, "status", "--porcelain=v1");
+
+    const begin = await runCli(fixture, fixture.repo, [
+      "begin",
+      "--summary",
+      "preserve launch state",
+      "--create-worktree",
+    ]);
+
+    expect(begin.code, begin.stderr).toBe(0);
+    const active = (await sessions(fixture))[0]!;
+    expect(git(fixture.repo, "status", "--porcelain=v1")).toBe(before);
+    expect(git(fixture.repo, "branch", "--show-current")).toBe("main");
+    expect(() =>
+      git(active.worktreePath, "rev-parse", "--verify", "HEAD:user-state.txt"),
+    ).toThrow();
+  });
+
   it("records begin metadata, cleanly merges the exact commit, and leaves the source untouched", async () => {
     const fixture = await createFixture();
     const worktree = await addWorktree(fixture, "feature-clean");

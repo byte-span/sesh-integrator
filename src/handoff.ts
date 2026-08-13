@@ -1,6 +1,6 @@
-import { access, readFile } from "node:fs/promises";
+import { access, mkdir, readFile } from "node:fs/promises";
 import { constants } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { detectAutoConfig } from "./auto-config.js";
 import {
   recordValidationCache,
@@ -29,6 +29,7 @@ import {
   readConfig,
   readRepositorySessionIndex,
   readSession,
+  readSessions,
   repoId,
   runtimePaths,
   writeConfig,
@@ -202,96 +203,167 @@ export async function beginCommand(
   summary: string,
   dependsOn: string[],
   autoBranch = true,
+  createWorktree = false,
 ): Promise<Session> {
   if (!summary.trim()) throw new Error('begin requires --summary "..."');
-  const context = await inspectGit(process.cwd());
-  const config = await readConfig();
-  const repository = findRepository(config, context.gitCommonDir);
-  const baseline = await measurePhase("source_baseline", async () =>
-    observeGitState(context.worktreePath),
-  );
-  reportStateDecision("begin", assessBeginBaseline(baseline));
-  if (context.branch === repository.integrationBranch) {
-    throw new Error(`Cannot begin on integration branch ${context.branch}`);
+  if (createWorktree && !autoBranch) {
+    throw new Error(
+      "--create-worktree cannot be combined with --no-auto-branch",
+    );
   }
-  const duplicate = await findLatestSessionForWorktree(context.worktreePath, [
+  const launchContext = await inspectGit(process.cwd());
+  const config = await readConfig();
+  const repository = findRepository(config, launchContext.gitCommonDir);
+  if (launchContext.branch === repository.integrationBranch) {
+    throw new Error(
+      `Cannot begin on integration branch ${launchContext.branch}`,
+    );
+  }
+  const activeStatuses: Session["status"][] = [
     "active",
     "ready",
     "promotion_pending",
     "needs_review",
-  ]);
+  ];
+  const duplicate =
+    (await findLatestSessionForWorktree(
+      launchContext.worktreePath,
+      activeStatuses,
+    )) ??
+    (await findSessionLaunchedFrom(launchContext.worktreePath, activeStatuses));
   if (duplicate)
-    throw new Error(`Worktree already has active session ${duplicate.id}`);
+    throw new Error(
+      `Checkout already has handoff session ${duplicate.id}; continue from ${duplicate.worktreePath}`,
+    );
   for (const dependency of dependsOn) {
     if (!(await readSession(dependency))) {
       throw new Error(`Unknown dependency session: ${dependency}`);
     }
   }
-  try {
-    const setup = await measurePhase("setup", async () =>
-      runSetupWithCache(repository, context.worktreePath),
-    );
-    recordPerformanceMetric("setupCacheHit", setup.cacheHit);
-  } catch (error) {
-    if (repository.setupCommandPolicy !== "advisory") throw error;
-    process.stderr.write(
-      `Warning: auto-configured setup failed during begin; continuing without it. ${errorMessage(error)}\n`,
-    );
-  }
-  const afterSetup = await observeGitState(context.worktreePath);
-  const afterSetupContext = await inspectGit(context.worktreePath);
-  if (afterSetup.head !== baseline.head) {
-    throw new Error(
-      "Setup command changed HEAD; no handoff session was created",
-    );
-  }
-  if (afterSetupContext.branch !== context.branch) {
-    throw new Error(
-      "Setup command changed the current branch; no handoff session was created",
-    );
-  }
-  reportStateDecision("setup", assessCompletionState(baseline, afterSetup, []));
   const sessionId = makeSessionId();
+  let context = launchContext;
+  let managedSourceWorktree = false;
   let branch = context.branch;
-  const effectiveTarget = targetBranch(repository);
-  if (
-    !branch ||
-    branch === repository.defaultBranch ||
-    branch === effectiveTarget
-  ) {
-    if (!autoBranch) {
-      if (!branch) throw new Error("Cannot begin on a detached HEAD");
-      throw new Error(
-        `Cannot begin on ${branch === effectiveTarget ? "target" : "default"} branch ${branch}`,
+  if (createWorktree && !launchContext.linkedWorktree) {
+    const paths = await ensureRuntime();
+    const worktree = join(
+      paths.sourceWorktrees,
+      repoId(repository.gitCommonDir),
+      sessionId,
+    );
+    branch = `codex/${sessionId.replaceAll("_", "-")}`;
+    await mkdir(dirname(worktree), { recursive: true });
+    await git(
+      ["worktree", "add", "-b", branch, worktree, launchContext.head],
+      launchContext.worktreePath,
+    );
+    context = await inspectGit(worktree);
+    managedSourceWorktree = true;
+    process.stdout.write(`Created source worktree ${context.worktreePath}\n`);
+  } else if (createWorktree) {
+    process.stdout.write(
+      `Using existing linked source worktree ${context.worktreePath}\n`,
+    );
+  }
+  try {
+    const baseline = await measurePhase("source_baseline", async () =>
+      observeGitState(context.worktreePath),
+    );
+    reportStateDecision("begin", assessBeginBaseline(baseline));
+    try {
+      const setup = await measurePhase("setup", async () =>
+        runSetupWithCache(repository, context.worktreePath),
+      );
+      recordPerformanceMetric("setupCacheHit", setup.cacheHit);
+    } catch (error) {
+      if (repository.setupCommandPolicy !== "advisory") throw error;
+      process.stderr.write(
+        `Warning: auto-configured setup failed during begin; continuing without it. ${errorMessage(error)}\n`,
       );
     }
-    branch = `codex/${sessionId.replaceAll("_", "-")}`;
-    await git(["switch", "-c", branch], context.worktreePath);
-    process.stdout.write(`Created task branch ${branch}\n`);
+    const afterSetup = await observeGitState(context.worktreePath);
+    const afterSetupContext = await inspectGit(context.worktreePath);
+    if (afterSetup.head !== baseline.head) {
+      throw new Error(
+        "Setup command changed HEAD; no handoff session was created",
+      );
+    }
+    if (afterSetupContext.branch !== context.branch) {
+      throw new Error(
+        "Setup command changed the current branch; no handoff session was created",
+      );
+    }
+    reportStateDecision(
+      "setup",
+      assessCompletionState(baseline, afterSetup, []),
+    );
+    const effectiveTarget = targetBranch(repository);
+    if (
+      !branch ||
+      branch === repository.defaultBranch ||
+      branch === effectiveTarget
+    ) {
+      if (!autoBranch) {
+        if (!branch) throw new Error("Cannot begin on a detached HEAD");
+        throw new Error(
+          `Cannot begin on ${branch === effectiveTarget ? "target" : "default"} branch ${branch}`,
+        );
+      }
+      branch = `codex/${sessionId.replaceAll("_", "-")}`;
+      await git(["switch", "-c", branch], context.worktreePath);
+      process.stdout.write(`Created task branch ${branch}\n`);
+    }
+    const integrationCommitAtStart = await refCommit(
+      repository.path,
+      `refs/heads/${repository.integrationBranch}`,
+    );
+    const session: Session = {
+      id: sessionId,
+      status: "active",
+      repositoryPath: repository.path,
+      repositoryId: repoId(repository.gitCommonDir),
+      worktreePath: context.worktreePath,
+      ...(context.worktreePath !== launchContext.worktreePath
+        ? {
+            launchWorktreePath: launchContext.worktreePath,
+            managedSourceWorktree: true,
+          }
+        : {}),
+      branch,
+      startCommit: context.head,
+      integrationCommitAtStart,
+      startedAt: new Date().toISOString(),
+      taskSummary: summary.trim(),
+      dependsOn: [...new Set(dependsOn)],
+      gitBaseline: baseline,
+    };
+    await writeSession(session);
+    bindPerformanceSession(session.id);
+    process.stdout.write(`Started ${session.id}\n`);
+    process.stdout.write(`Base commit: ${session.startCommit}\n`);
+    process.stdout.write(`Continue task in: ${session.worktreePath}\n`);
+    return session;
+  } catch (error) {
+    if (managedSourceWorktree) {
+      process.stderr.write(
+        `Source worktree preserved after begin failed: ${context.worktreePath}\n`,
+      );
+    }
+    throw error;
   }
-  const integrationCommitAtStart = await refCommit(
-    repository.path,
-    `refs/heads/${repository.integrationBranch}`,
-  );
-  const session: Session = {
-    id: sessionId,
-    status: "active",
-    repositoryPath: repository.path,
-    repositoryId: repoId(repository.gitCommonDir),
-    worktreePath: context.worktreePath,
-    branch,
-    startCommit: context.head,
-    integrationCommitAtStart,
-    startedAt: new Date().toISOString(),
-    taskSummary: summary.trim(),
-    dependsOn: [...new Set(dependsOn)],
-    gitBaseline: baseline,
-  };
-  await writeSession(session);
-  bindPerformanceSession(session.id);
-  process.stdout.write(`Started ${session.id}\n`);
-  process.stdout.write(`Base commit: ${session.startCommit}\n`);
-  return session;
+}
+
+async function findSessionLaunchedFrom(
+  launchWorktreePath: string,
+  statuses: Session["status"][],
+): Promise<Session | undefined> {
+  return (await readSessions())
+    .filter(
+      (session) =>
+        session.launchWorktreePath === launchWorktreePath &&
+        statuses.includes(session.status),
+    )
+    .at(-1);
 }
 
 export async function commitCommand(message: string): Promise<Session> {

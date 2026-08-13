@@ -28,15 +28,16 @@ Before editing:
 4. If no appropriate session exists, run:
 
    ```bash
-   codex-handoff begin --summary "<concise task summary>"
+   codex-handoff begin --create-worktree --summary "<concise task summary>"
    ```
 
-   `begin` works in the current checkout. It may create and switch to a unique
-   task branch there when the checkout is detached or on the registered default
-   or target branch, but it does not create a separate task worktree. Do not
-   claim otherwise. Pre-existing unstaged changes may proceed only under the
-   CLI's recorded-baseline checks; staged or indeterminate state blocks `begin`.
-   Never manipulate user state or switch branches manually to bypass a block.
+   From an ordinary checkout, `--create-worktree` creates a unique task branch
+   in a separate source worktree and prints `Continue task in: <path>`. Perform
+   every subsequent file edit and handoff command from that path. If the CLI
+   session already started in a linked worktree, the command reuses it. The
+   launch checkout and all dirty or staged user state there remain untouched;
+   never copy that state into the task worktree unless the user explicitly
+   makes it part of the task.
 
 5. Never begin on `codex-handoff/integration` (or the repository's configured
    integration branch). Pass `--depends-on` only for explicit dependencies.

@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 describe("bundled workflow trigger policy", () => {
-  it("treats Codex Local mode as an opt-out", async () => {
+  it("uses CLI-first managed source worktrees without application mode gates", async () => {
     const [guidance, skill] = await Promise.all([
       readFile(join(process.cwd(), "GLOBAL_AGENTS_SNIPPET.md"), "utf8"),
       readFile(
@@ -13,11 +13,10 @@ describe("bundled workflow trigger policy", () => {
     ]);
 
     for (const policy of [guidance, skill]) {
-      expect(policy).toMatch(
-        /Local mode is an explicit opt-out|Local mode.*authoritative/s,
-      );
-      expect(policy).toMatch(/git\s+rev-parse --git-dir/);
-      expect(policy).toMatch(/git\s+rev-parse --git-common-dir/);
+      expect(policy).toContain("begin --create-worktree");
+      expect(policy).toContain("Continue task in:");
+      expect(policy).toMatch(/dirty or staged|staged and unstaged/is);
+      expect(policy).not.toMatch(/Local mode|Worktree mode/);
     }
   });
 });

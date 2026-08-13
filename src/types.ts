@@ -47,6 +47,8 @@ export interface Session {
   repositoryPath: string;
   repositoryId: string;
   worktreePath: string;
+  launchWorktreePath?: string;
+  managedSourceWorktree?: boolean;
   branch: string;
   startCommit: string;
   integrationCommitAtStart: string | null;
@@ -125,6 +127,7 @@ export interface RuntimePaths {
   locks: string;
   logs: string;
   worktrees: string;
+  sourceWorktrees: string;
   indexes: string;
   performance: string;
   cache: string;

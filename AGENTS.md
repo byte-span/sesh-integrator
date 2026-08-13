@@ -97,6 +97,7 @@ Use a new namespace:
 ├── sessions/
 ├── locks/
 ├── logs/
+├── source-worktrees/
 └── worktrees/
 ```
 
@@ -142,19 +143,19 @@ session. Never replace or overwrite a session for a different task.
 - task summary
 - optional dependencies
 
-`begin` operates in the current checkout. From a detached HEAD or the registered
-default/target branch, it automatically creates and switches to a unique task
-branch in that checkout. It leaves an existing non-default task branch in
-place. Allow explicit strict rejection with `--no-auto-branch`.
+For Codex CLI tasks, run
+`codex-handoff begin --create-worktree --summary "..."`. From an ordinary
+checkout it creates a unique task branch in a separate, tool-managed source
+worktree under `~/.codex-handoff/source-worktrees/`, records both the launch and
+source paths, and prints the source path. All subsequent edits and lifecycle
+commands must run from that source path. If the session already starts in a
+linked worktree, `--create-worktree` reuses it instead of nesting another one.
 
-Current capability gap: `begin` does **not** create a separate linked task
-worktree from an ordinary CLI checkout. Only the later integration phase
-creates/reuses a dedicated integration worktree. Supporting automatic task
-worktree isolation would require a new CLI workflow that chooses and creates a
-safe linked-worktree path and task branch, transfers execution to that
-worktree, records the new worktree as the session source, handles cleanup and
-recovery, and proves that no dirty user state can be moved or lost. Until that
-exists, never claim that `begin` isolates normal CLI work in a new worktree.
+Without `--create-worktree`, `begin` retains its in-place behavior: it creates
+and switches to a task branch when detached or on the registered default/target
+branch and leaves an existing non-default branch in place. Allow explicit
+strict rejection with `--no-auto-branch`; it cannot be combined with
+`--create-worktree`.
 
 Reject:
 
@@ -163,10 +164,13 @@ Reject:
 - unregistered repo
 - duplicate active session for the same worktree
 
-Pre-existing unstaged changes may remain only under the observable-baseline
-rules: they must stay unchanged and outside the task commit. Never reset,
-overwrite, discard, clean, or silently stash user changes, and never switch
-branches manually to bypass a blocked `begin`.
+When a separate source worktree is created, pre-existing staged and unstaged
+changes in the launch checkout remain untouched and are excluded from the task.
+For in-place or already-linked sessions, pre-existing unstaged changes may
+remain only under the observable-baseline rules: they must stay unchanged and
+outside the task commit. Never reset, overwrite, discard, clean, or silently
+stash user changes, and never switch branches manually to bypass a blocked
+`begin`.
 
 Session start time is context, not precedence.
 
@@ -309,8 +313,8 @@ and run focused commit, validation, one-shot integration, conflict-resume, and
 routine approval prompts.
 
 The skill must preserve unrelated and dirty user state. It may continue an
-appropriate session in the current checkout, but must not start a duplicate or
-claim that `begin` created a separate task worktree.
+appropriate session, but must not start a duplicate. After creating a managed
+source worktree it must perform all task work from the path printed by `begin`.
 
 It must not call the old `codex-integrator`.
 

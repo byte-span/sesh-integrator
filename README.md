@@ -4,6 +4,7 @@
 
 ```text
 codex-handoff begin
+→ create/reuse an isolated source worktree for Codex CLI
 → Codex changes and commits its source branch
 → codex-handoff validate
 → codex-handoff integrate
@@ -50,7 +51,10 @@ The CLI installer creates an idempotent symlink in `~/.local/bin`, which must be
 ./scripts/install-skill.sh /tmp/codex-handoff-skill
 ```
 
-Finally, copy [GLOBAL_AGENTS_SNIPPET.md](./GLOBAL_AGENTS_SNIPPET.md) into `~/.codex/AGENTS.md`. It scopes automatic handoff to Codex Worktree mode and excludes Local mode, this tool's own repository, read-only tasks, and the integration branch. When Codex mode metadata is unavailable, the policy falls back conservatively to a verifiable linked-Git-worktree check.
+Finally, copy [GLOBAL_AGENTS_SNIPPET.md](./GLOBAL_AGENTS_SNIPPET.md) into
+`~/.codex/AGENTS.md`. It makes the CLI workflow primary, creates an isolated
+source worktree for ordinary checkouts, and excludes this tool's own repository,
+read-only tasks, non-Git directories, and the integration branch.
 
 ## Commands
 
@@ -59,7 +63,7 @@ These are the complete commands implemented by the MVP:
 ```bash
 codex-handoff init
 codex-handoff register [repo-path] [--auto-config] [--setup-command '<json-array>']...
-codex-handoff begin --summary "Implement feature" [--no-auto-branch] [--depends-on <session-id>]...
+codex-handoff begin --summary "Implement feature" [--create-worktree] [--no-auto-branch] [--depends-on <session-id>]...
 codex-handoff commit --message "Implement feature"
 codex-handoff validate
 codex-handoff integrate --summary "Implemented feature and tests"
@@ -88,6 +92,7 @@ Creates, without overwriting an existing configuration:
 ├── cache/
 ├── locks/
 ├── logs/
+├── source-worktrees/
 └── worktrees/
 ```
 
@@ -258,21 +263,21 @@ skipped.
 
 ### `begin`
 
-Automatic workflow invocation is for Codex Worktree mode only. Selecting Local
-mode is an explicit opt-out: Codex should work directly in the current project
-directory without running `begin`, `register`, `validate`, or `integrate`, even
-when that repository is already registered. If the app's mode is unavailable,
-the workflow runs only when the resolved Git directory differs from the resolved
-Git common directory, which identifies a linked worktree rather than the primary
-checkout. This is a workflow trigger rule; the CLI remains available for
-deliberate manual use.
-
-The workflow skill starts from a source worktree whose observable state can be
-safely baselined:
+For a Codex CLI task launched from an ordinary checkout, create the session in
+a separate source worktree:
 
 ```bash
-codex-handoff begin --summary "Implement comment editing"
+codex-handoff begin --create-worktree --summary "Implement comment editing"
 ```
+
+The command creates a unique branch and linked worktree below
+`~/.codex-handoff/source-worktrees/`, records the original launch checkout, and
+prints `Continue task in: <path>`. Run every edit, `commit`, `validate`,
+`integrate`, and `resume` from that printed path. If the current checkout is
+already a linked worktree, the flag reuses it. Dirty and staged state in an
+ordinary launch checkout is neither moved nor modified.
+
+For deliberate in-place use, omit `--create-worktree`.
 
 `begin` first records an observable Git baseline, then runs centrally configured setup commands and creates a unique
 `codex/session-...` branch when the worktree is detached or on the registered
@@ -294,6 +299,10 @@ baseline-dirty path still block with a path-specific reason. Setup-created Git
 changes are detected because setup runs after baseline capture.
 
 Repeat `--depends-on` for explicit dependencies. Pass `--no-auto-branch` only when strict detached/default-branch rejection is desired. `begin` always rejects unregistered worktrees, staged baseline changes, indeterminate new errors, the integration branch, unknown dependencies, and duplicate active sessions.
+
+`--create-worktree` cannot be combined with `--no-auto-branch`. A failed begin
+preserves any newly created source worktree and reports its path rather than
+discarding possible setup-created state.
 
 Sessions created by versions that did not record an observable Git baseline
 fail validation/integration with a migration message asking you to begin a new
@@ -499,6 +508,10 @@ For rollback, stop invoking the new skill, restore the previous global guidance,
 - Skill invocation remains instruction-driven. Source commit creation itself is
   controlled by `codex-handoff commit`; a crashed Codex session must still be
   resumed manually.
+- A running Codex CLI process cannot change its parent shell directory. The
+  agent must honor the `Continue task in:` path for all subsequent tool calls.
+- Managed source worktrees are retained after completion; cleanup is currently
+  manual and must not remove a worktree containing uncommitted state.
 - The tool does not fetch, push, force-push, delete branches, or merge/reset user worktrees. It updates only the configured local target after all checks pass.
 - One preserved `needs_review` merge blocks further integrations until the workflow resolves it and runs `resume`.
 - Dependency checks fail clearly rather than running a background waiter; retry after dependencies succeed.

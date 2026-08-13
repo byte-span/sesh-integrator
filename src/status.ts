@@ -23,6 +23,11 @@ export async function statusCommand(): Promise<void> {
     process.stdout.write(`\n${session.id}  ${state}\n`);
     process.stdout.write(`  repo: ${session.repositoryPath}\n`);
     process.stdout.write(`  worktree: ${session.worktreePath}\n`);
+    if (session.launchWorktreePath) {
+      process.stdout.write(
+        `  launch checkout: ${session.launchWorktreePath} (source worktree managed by codex-handoff)\n`,
+      );
+    }
     process.stdout.write(`  branch: ${session.branch}\n`);
     process.stdout.write(`  target branch: ${session.targetBranch ?? "-"}\n`);
     process.stdout.write(`  started: ${session.startedAt}\n`);
