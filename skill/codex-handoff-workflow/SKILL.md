@@ -27,7 +27,13 @@ Before modifying files:
    codex-handoff register --auto-config
    ```
 
-5. If no appropriate session exists, run:
+5. Before beginning, compare the effective target reported by
+   `codex-handoff status` with repository instructions. When the default branch
+   is stable but agent work must land on another branch such as `dev`, set that
+   repository's `targetBranch` accordingly in
+   `~/.codex-handoff/config.json`. Apply this check to existing registrations
+   too because an omitted target resolves to the registered default branch.
+6. If no appropriate session exists, run:
 
    ```bash
    codex-handoff begin --create-worktree --summary "<concise task summary>"
@@ -38,20 +44,20 @@ Before modifying files:
    Read `Continue task in: <path>` from the output and perform every subsequent
    edit and handoff command from that path. Do not edit the launch checkout.
 
-6. `begin` runs centrally configured setup commands before creating a task
+7. `begin` runs centrally configured setup commands before creating a task
    branch or session. Auto-configured setup failures warn and continue; explicit
    setup failures stop. Do not stop solely for the advisory warning.
-7. If `begin` reports a changed setup result, an indeterminate Git error, or the
+8. If `begin` reports a changed setup result, an indeterminate Git error, or the
    handoff integration branch, stop and explain. A newly created worktree may be
    preserved after failure; do not delete it or its branch automatically.
-8. For an already-linked/in-place source, if `begin` reports staged baseline
+9. For an already-linked/in-place source, if `begin` reports staged baseline
    state, stop. Pre-existing unstaged paths may proceed only under the CLI's
    recorded-baseline diagnostics. Never create or switch a branch manually as a
    workaround. Dirty or staged state in an ordinary launch checkout is left
    untouched and excluded from the new task worktree.
-9. If the user explicitly says this work depends on another handoff session,
-   pass its ID with `--depends-on`.
-10. Do not infer dependencies from start time alone.
+10. If the user explicitly says this work depends on another handoff session,
+    pass its ID with `--depends-on`.
+11. Do not infer dependencies from start time alone.
 
 ## During work
 
