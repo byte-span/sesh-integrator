@@ -209,6 +209,32 @@ is supported as a legacy-style opt-in, but then there is no separate final ref
 and that branch cannot already be checked out in another worktree. No branch is
 pushed automatically.
 
+### Stable default branch with a development target
+
+Some repositories keep `main` as the default and stable branch while agents
+work on `dev`. For that workflow, keep the detected `defaultBranch` unchanged
+and set an explicit target in `~/.codex-handoff/config.json`:
+
+```json
+{
+  "defaultBranch": "main",
+  "integrationBranch": "codex-handoff/integration",
+  "targetBranch": "dev"
+}
+```
+
+This makes successful handoffs promote locally to `dev`; it does not merge or
+push `main`. A separate trusted review workflow can then promote `dev` to
+`main`. Apply the same setting to repositories registered before adopting this
+branch policy: if `targetBranch` is omitted, it still resolves to `main`.
+
+The target branch must already exist locally. For example, track an existing
+remote branch or create it from `main` before beginning a handoff:
+
+```bash
+git switch --track origin/dev 2>/dev/null || git switch -c dev main
+```
+
 An older entry that omits `targetBranch` while setting `integrationBranch`
 equal to `defaultBranch` is rejected as ambiguous instead of being silently
 migrated. Review its history, then configure a separate staging branch or make
