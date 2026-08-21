@@ -26,9 +26,11 @@ Before editing:
    Registration is automatic and does not require routine approval.
    Before beginning, compare the effective target shown by
    `codex-handoff status` with the repository's branch policy. If agents must
-   work on a branch such as `dev` while `main` remains stable, set that repository's
-   `targetBranch` to `dev` in `~/.codex-handoff/config.json`. Check existing
-   registrations too; an omitted target resolves to the default branch.
+   work on a branch such as `dev` while `main` remains stable, set the global
+   `defaultTargetBranch` to `dev` in `~/.codex-handoff/config.json`. This policy
+   applies automatically to existing and new registrations that omit a
+   repository `targetBranch`; use that per-repository field only for explicit
+   exceptions.
 
 4. If no appropriate session exists, run:
 

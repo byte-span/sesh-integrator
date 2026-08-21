@@ -228,18 +228,18 @@ push `main`. A separate trusted review workflow can then promote `dev` to
 `main`. Apply the same setting to repositories registered before adopting this
 branch policy: if `targetBranch` is omitted, it still resolves to `main`.
 
-The target branch must already exist locally. For example, track an existing
-remote branch or create it from `main` before beginning a handoff:
+An explicit per-repository target must already exist locally. For example,
+track an existing remote branch or create it from `main` before beginning a
+handoff:
 
 ```bash
 git switch --track origin/dev 2>/dev/null || git switch -c dev main
 ```
 
-#### Planned automatic policy
+#### Automatic global policy
 
-The per-repository configuration above is the current behavior. A planned
-global `defaultTargetBranch` setting will make the same policy automatic for
-both existing and newly registered repositories. With
+Set the global `defaultTargetBranch` to make the same policy automatic for both
+existing and newly registered repositories. With
 `"defaultTargetBranch": "dev"`, target resolution will use this precedence:
 
 1. an explicit repository `targetBranch` override
@@ -248,18 +248,16 @@ both existing and newly registered repositories. With
 
 Changing the global default will immediately affect existing registrations
 that omit `targetBranch`; it will not overwrite explicit repository overrides.
-Registration and pre-session checks will reuse a local `dev`, track
+Registration and pre-session checks reuse a local `dev`, track
 `origin/dev` when available, or create local `dev` from the registered default
 branch. They must not switch the user's checkout or create a target from an
 unborn default branch. No target branch is pushed automatically.
 
-Until this policy is implemented, environments that require all agent work to
-land on `dev` must set `targetBranch` for each registration as shown above.
-
 An older entry that omits `targetBranch` while setting `integrationBranch`
-equal to `defaultBranch` is rejected as ambiguous instead of being silently
-migrated. Review its history, then configure a separate staging branch or make
-the combined target choice explicit.
+equal to `defaultBranch` or the effective global target is rejected as
+ambiguous instead of being silently migrated. Review its history, then
+configure a separate staging branch or make the combined target choice
+explicit.
 
 `gpgProgram` is optional. When set, `codex-handoff` applies it only to its
 controlled source and integration commit commands. When signing is enabled,

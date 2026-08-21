@@ -20,6 +20,8 @@ export interface RepositoryConfig {
   defaultBranch: string;
   integrationBranch: string;
   targetBranch?: string;
+  /** Runtime-only inherited global policy; never persisted per repository. */
+  globalDefaultTargetBranch?: string;
   gpgProgram?: string;
   setupCommands: Command[];
   setupCommandPolicy?: "advisory" | "required";
@@ -35,6 +37,7 @@ export interface Config {
   lockWaitSeconds: number;
   codexCommand: string;
   conflictResolutionMode?: "current-session" | "nested-codex";
+  defaultTargetBranch?: string;
   repositories: RepositoryConfig[];
 }
 

@@ -211,8 +211,8 @@ be created safely. Never push the created branch automatically.
 
 An existing entry without `targetBranch` remains valid and follows the global
 `defaultTargetBranch` when configured, otherwise `defaultBranch`, except when
-its `integrationBranch` already equals
-`defaultBranch`. That historical state is ambiguous and must be rejected with a
+its `integrationBranch` already equals `defaultBranch` or the effective global
+target. That historical state is ambiguous and must be rejected with a
 migration message rather than guessed.
 
 When `--auto-config` is present, detect setup commands without executing them.

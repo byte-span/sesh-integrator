@@ -1,7 +1,7 @@
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { readLockMetadata } from "./lock.js";
-import { targetBranch } from "./promotion.js";
+import { targetBranch, targetBranchSource } from "./promotion.js";
 import { readConfig, readSessions, runtimePaths } from "./runtime.js";
 
 export async function statusCommand(): Promise<void> {
@@ -11,7 +11,7 @@ export async function statusCommand(): Promise<void> {
   process.stdout.write(`Repositories: ${config.repositories.length}\n`);
   for (const repository of config.repositories) {
     process.stdout.write(
-      `  ${repository.path}: staging ${repository.integrationBranch} -> target ${targetBranch(repository)}${repository.targetBranch ? " (override)" : " (defaultBranch)"}\n`,
+      `  ${repository.path}: staging ${repository.integrationBranch} -> target ${targetBranch(repository)} (${targetBranchSource(repository)})\n`,
     );
   }
   process.stdout.write(`Sessions: ${sessions.length}\n`);

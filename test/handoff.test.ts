@@ -114,6 +114,100 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     );
   });
 
+  it("applies a global target to an existing registration and creates it before begin", async () => {
+    const fixture = await createFixture();
+    const mainBefore = git(fixture.repo, "rev-parse", "main");
+    await updateConfig(fixture, (config) => {
+      config.defaultTargetBranch = "dev";
+    });
+
+    await runCliOk(fixture, fixture.repo, [
+      "begin",
+      "--summary",
+      "global target task",
+    ]);
+    expect(git(fixture.repo, "rev-parse", "dev")).toBe(mainBefore);
+    commitFile(fixture.repo, "global.txt", "global\n", "global target source");
+    await runCliOk(fixture, fixture.repo, [
+      "integrate",
+      "--summary",
+      "global target complete",
+    ]);
+
+    const completed = (await sessions(fixture))[0]!;
+    expect(completed.targetBranch).toBe("dev");
+    expect(git(fixture.repo, "rev-parse", "dev")).toBe(
+      completed.integratedCommit,
+    );
+    expect(git(fixture.repo, "rev-parse", "main")).toBe(mainBefore);
+  });
+
+  it("creates the global target while registering a new repository", async () => {
+    const fixture = await createFixture();
+    const main = git(fixture.repo, "rev-parse", "main");
+    await updateConfig(fixture, (config) => {
+      config.defaultTargetBranch = "dev";
+      config.repositories = [];
+    });
+
+    const result = await runCliOk(fixture, fixture.repo, ["register"]);
+
+    expect(result.stdout).toContain("Target branch: dev");
+    expect(git(fixture.repo, "rev-parse", "dev")).toBe(main);
+    expect(git(fixture.repo, "branch", "--show-current")).toBe("main");
+    const config = JSON.parse(
+      await readFile(join(fixture.runtime, "config.json"), "utf8"),
+    );
+    expect(config.repositories[0].targetBranch).toBeUndefined();
+  });
+
+  it("tracks origin when the global target exists only as a remote branch", async () => {
+    const fixture = await createFixture();
+    const main = git(fixture.repo, "rev-parse", "main");
+    git(fixture.repo, "remote", "add", "origin", join(fixture.root, "remote"));
+    git(fixture.repo, "update-ref", "refs/remotes/origin/dev", main);
+    await updateConfig(fixture, (config) => {
+      config.defaultTargetBranch = "dev";
+      config.repositories = [];
+    });
+
+    await runCliOk(fixture, fixture.repo, ["register"]);
+
+    expect(git(fixture.repo, "rev-parse", "dev")).toBe(main);
+    expect(git(fixture.repo, "branch", "--show-current")).toBe("main");
+    expect(git(fixture.repo, "config", "branch.dev.remote")).toBe("origin");
+    expect(git(fixture.repo, "config", "branch.dev.merge")).toBe(
+      "refs/heads/dev",
+    );
+  });
+
+  it("preserves an explicit repository target over the global default", async () => {
+    const fixture = await createFixture();
+    git(fixture.repo, "branch", "release", "main");
+    await updateConfig(fixture, (config) => {
+      config.defaultTargetBranch = "dev";
+      config.repositories[0].targetBranch = "release";
+    });
+
+    const result = await runCliOk(fixture, fixture.repo, ["status"]);
+
+    expect(result.stdout).toContain("target release (override)");
+    expect(() => git(fixture.repo, "rev-parse", "dev")).toThrow();
+  });
+
+  it("rejects registration while the default branch is unborn", async () => {
+    const fixture = await createFixture();
+    const unborn = join(fixture.root, "unborn");
+    await mkdir(unborn);
+    git(unborn, "init", "-b", "main");
+
+    const result = await runCli(fixture, unborn, ["register"]);
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("unborn default branch");
+    expect(result.stderr).toContain("create its initial commit first");
+  });
+
   it("rejects ambiguous historical configuration instead of guessing", async () => {
     const fixture = await createFixture();
     await updateConfig(fixture, (config) => {
@@ -124,8 +218,8 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     const result = await runCli(fixture, fixture.repo, ["status"]);
 
     expect(result.code).toBe(1);
-    expect(result.stderr).toContain("Ambiguous historical configuration");
-    expect(result.stderr).toContain("integrationBranch equals defaultBranch");
+    expect(result.stderr).toContain("Ambiguous branch configuration");
+    expect(result.stderr).toContain("equals the default or effective target");
   });
 
   it("automatically creates a task branch from a clean detached worktree", async () => {

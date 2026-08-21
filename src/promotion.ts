@@ -11,7 +11,74 @@ import type { RepositoryConfig } from "./types.js";
 export class PromotionBlockedError extends Error {}
 
 export function targetBranch(repository: RepositoryConfig): string {
-  return repository.targetBranch ?? repository.defaultBranch;
+  return (
+    repository.targetBranch ??
+    repository.globalDefaultTargetBranch ??
+    repository.defaultBranch
+  );
+}
+
+export function targetBranchSource(
+  repository: RepositoryConfig,
+): "override" | "global default" | "defaultBranch" {
+  if (repository.targetBranch !== undefined) return "override";
+  if (repository.globalDefaultTargetBranch !== undefined)
+    return "global default";
+  return "defaultBranch";
+}
+
+export async function ensureGlobalTargetBranch(
+  repository: RepositoryConfig,
+): Promise<void> {
+  if (
+    repository.targetBranch !== undefined ||
+    repository.globalDefaultTargetBranch === undefined
+  ) {
+    return;
+  }
+  const branch = targetBranch(repository);
+  const localRef = `refs/heads/${branch}`;
+  if (await refCommit(repository.path, localRef)) return;
+
+  const remoteRef = `refs/remotes/origin/${branch}`;
+  if (await refCommit(repository.path, remoteRef)) {
+    const tracked = await run(
+      "git",
+      ["branch", "--track", branch, `origin/${branch}`],
+      { cwd: repository.path },
+    );
+    if (tracked.code !== 0) {
+      throw new PromotionBlockedError(
+        `Could not create local target branch ${branch} tracking origin/${branch}: ${(tracked.stderr || tracked.stdout).trim()}`,
+      );
+    }
+    return;
+  }
+
+  const defaultCommit = await refCommit(
+    repository.path,
+    `refs/heads/${repository.defaultBranch}`,
+  );
+  if (!defaultCommit) {
+    throw new PromotionBlockedError(
+      `Cannot create target branch ${branch}: default branch ${repository.defaultBranch} has no local commit`,
+    );
+  }
+  const created = await run(
+    "git",
+    [
+      "update-ref",
+      localRef,
+      defaultCommit,
+      "0000000000000000000000000000000000000000",
+    ],
+    { cwd: repository.path },
+  );
+  if (created.code !== 0) {
+    throw new PromotionBlockedError(
+      `Could not create local target branch ${branch} from ${repository.defaultBranch}: ${(created.stderr || created.stdout).trim()}`,
+    );
+  }
 }
 
 export async function promoteValidatedCommit(
