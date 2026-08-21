@@ -12,6 +12,11 @@ Complete personal MVP implementation checklist.
 
 ## Runtime data and registration
 
+- [x] Add an optional global `defaultTargetBranch` with per-repository override precedence
+- [x] Apply the global target dynamically to existing registrations that omit `targetBranch`
+- [x] During registration/readiness, safely track or create the global target without switching or pushing the user checkout
+- [x] Cover existing, new, remote-tracking, unborn, and explicitly overridden repository cases
+
 - [x] Create the separate `~/.codex-handoff/` namespace
 - [x] Implement idempotent `init`, JSON config/state, and atomic writes
 - [x] Implement `register` with real repository/common-dir resolution

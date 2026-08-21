@@ -29,10 +29,10 @@ Before modifying files:
 
 5. Before beginning, compare the effective target reported by
    `codex-handoff status` with repository instructions. When the default branch
-   is stable but agent work must land on another branch such as `dev`, set that
-   repository's `targetBranch` accordingly in
-   `~/.codex-handoff/config.json`. Apply this check to existing registrations
-   too because an omitted target resolves to the registered default branch.
+   is stable but agent work must land on another branch such as `dev`, set the
+   global `defaultTargetBranch` accordingly in `~/.codex-handoff/config.json`.
+   It applies to existing and new registrations that omit `targetBranch`; keep
+   per-repository `targetBranch` values only as explicit exceptions.
 6. If no appropriate session exists, run:
 
    ```bash

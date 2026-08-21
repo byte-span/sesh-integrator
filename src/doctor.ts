@@ -5,9 +5,9 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { collectLegacyFindings } from "./audit.js";
 import { inspectGit, refCommit } from "./git.js";
-import { targetBranch } from "./promotion.js";
+import { targetBranch, targetBranchSource } from "./promotion.js";
 import { run } from "./process.js";
-import { runtimePaths } from "./runtime.js";
+import { applyGlobalTargetPolicy, runtimePaths } from "./runtime.js";
 import type { Config, RepositoryConfig } from "./types.js";
 import { isValidationStepList } from "./validation.js";
 
@@ -60,6 +60,9 @@ export async function doctorCommand(cwd = process.cwd()): Promise<void> {
       repository.postIntegrationCommands ??= [];
     }
     validateConfig(config);
+    for (const repository of config.repositories) {
+      applyGlobalTargetPolicy(config, repository);
+    }
     checks.push(pass("Configuration", paths.config));
   } catch (error) {
     checks.push(fail("Configuration", errorMessage(error)));
@@ -274,7 +277,7 @@ async function branchDestinationCheck(
   if (!stagingHead || stagingHead === targetHead) {
     return pass(
       `Branch destinations (${repository.path})`,
-      `staging ${repository.integrationBranch}; target ${target}${repository.targetBranch ? " (override)" : " (defaultBranch)"}`,
+      `staging ${repository.integrationBranch}; target ${target} (${targetBranchSource(repository)})`,
     );
   }
   const [stagingBehind, targetBehind] = await Promise.all([
@@ -399,6 +402,13 @@ function validateConfig(config: Config): void {
     throw new Error("invalid config.json structure");
   }
   if (
+    config.defaultTargetBranch !== undefined &&
+    (typeof config.defaultTargetBranch !== "string" ||
+      config.defaultTargetBranch.length === 0)
+  ) {
+    throw new Error("invalid defaultTargetBranch");
+  }
+  if (
     config.conflictResolutionMode !== undefined &&
     config.conflictResolutionMode !== "current-session" &&
     config.conflictResolutionMode !== "nested-codex"
@@ -440,10 +450,12 @@ function validateConfig(config: Config): void {
     }
     if (
       repository.targetBranch === undefined &&
-      repository.integrationBranch === repository.defaultBranch
+      (repository.integrationBranch === repository.defaultBranch ||
+        repository.integrationBranch ===
+          (config.defaultTargetBranch ?? repository.defaultBranch))
     ) {
       throw new Error(
-        `ambiguous historical repository entry: integrationBranch equals defaultBranch (${repository.defaultBranch}) while targetBranch is omitted`,
+        `ambiguous repository entry: integrationBranch ${repository.integrationBranch} equals the default or effective target while targetBranch is omitted`,
       );
     }
   }

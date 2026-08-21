@@ -47,6 +47,18 @@ export const defaultConfig = (): Config => ({
   repositories: [],
 });
 
+export function applyGlobalTargetPolicy(
+  config: Config,
+  repository: Config["repositories"][number],
+): void {
+  Object.defineProperty(repository, "globalDefaultTargetBranch", {
+    value: config.defaultTargetBranch,
+    configurable: true,
+    enumerable: false,
+    writable: true,
+  });
+}
+
 export async function ensureRuntime(): Promise<RuntimePaths> {
   const paths = runtimePaths();
   await Promise.all([
@@ -87,11 +99,15 @@ export async function readConfig(): Promise<Config> {
   const value = await readJson<Config>(paths.config);
   if (
     !Array.isArray(value.repositories) ||
-    typeof value.lockWaitSeconds !== "number"
+    typeof value.lockWaitSeconds !== "number" ||
+    (value.defaultTargetBranch !== undefined &&
+      (typeof value.defaultTargetBranch !== "string" ||
+        value.defaultTargetBranch.length === 0))
   ) {
     throw new Error(`Invalid configuration: ${paths.config}`);
   }
   for (const repository of value.repositories) {
+    applyGlobalTargetPolicy(value, repository);
     repository.setupCommands ??= [];
     repository.validationTiers ??= [];
     repository.postIntegrationCommands ??= [];
@@ -116,7 +132,8 @@ export async function readConfig(): Promise<Config> {
       }
     }
     // targetBranch intentionally remains optional for backward compatibility.
-    // Its effective value is the registered defaultBranch.
+    // Its effective value inherits the optional global policy, then falls back
+    // to the registered defaultBranch.
     if (
       !repository.defaultBranch ||
       !repository.integrationBranch ||
@@ -128,10 +145,12 @@ export async function readConfig(): Promise<Config> {
     }
     if (
       repository.targetBranch === undefined &&
-      repository.integrationBranch === repository.defaultBranch
+      (repository.integrationBranch === repository.defaultBranch ||
+        repository.integrationBranch ===
+          (value.defaultTargetBranch ?? repository.defaultBranch))
     ) {
       throw new Error(
-        `Ambiguous historical configuration for ${repository.path}: integrationBranch equals defaultBranch (${repository.defaultBranch}) while targetBranch is omitted. Existing integrationBranch values retain staging meaning; configure a separate staging branch or explicitly set targetBranch after reviewing the history.`,
+        `Ambiguous branch configuration for ${repository.path}: integrationBranch ${repository.integrationBranch} equals the default or effective target while targetBranch is omitted. Existing integrationBranch values retain staging meaning; configure a separate staging branch or explicitly set targetBranch after reviewing the history.`,
       );
     }
   }

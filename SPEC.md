@@ -107,6 +107,7 @@ Example `~/.codex-handoff/config.json`:
   "lockWaitSeconds": 900,
   "codexCommand": "codex",
   "conflictResolutionMode": "current-session",
+  "defaultTargetBranch": "dev",
   "repositories": [
     {
       "path": "/Users/you/Developer/my-app",
@@ -144,6 +145,13 @@ Example `~/.codex-handoff/config.json`:
 
 Commands are argument arrays. Validation lists may also contain explicit
 `{"parallel": [<command>, ...]}` groups whose members run concurrently.
+
+`defaultTargetBranch` is an optional global policy. Target resolution uses an
+explicit repository `targetBranch` first, then `defaultTargetBranch`, then the
+registered `defaultBranch`. Changing the global value therefore migrates all
+existing registrations that omit `targetBranch` without rewriting them, while
+preserving explicit per-repository exceptions. Omitting the global setting
+retains the backward-compatible default-branch behavior.
 
 ## 6. `init`
 
@@ -187,15 +195,24 @@ Add a repository entry using:
 - real repository path
 - registered default branch
 - internal integration branch `codex-handoff/integration`
-- no explicit target override, so the effective target is `defaultBranch`
+- no explicit target override, so the effective target is the global
+  `defaultTargetBranch` when configured, otherwise `defaultBranch`
 - empty validation command arrays
 - empty conflict instructions
 
 If already registered, show current config instead of duplicating it.
 
-An existing entry without `targetBranch` remains valid and defaults to
-`defaultBranch`, except when its `integrationBranch` already equals
-`defaultBranch`. That historical state is ambiguous and must be rejected with a
+When a global `defaultTargetBranch` applies, registration and the pre-session
+readiness check must ensure that target exists locally without switching the
+user's checkout: reuse the local branch, create a tracking branch from the
+matching remote branch, or create it from the registered default branch. Refuse
+with actionable guidance when the default branch is unborn or the target cannot
+be created safely. Never push the created branch automatically.
+
+An existing entry without `targetBranch` remains valid and follows the global
+`defaultTargetBranch` when configured, otherwise `defaultBranch`, except when
+its `integrationBranch` already equals `defaultBranch` or the effective global
+target. That historical state is ambiguous and must be rejected with a
 migration message rather than guessed.
 
 When `--auto-config` is present, detect setup commands without executing them.
@@ -638,9 +655,13 @@ The MVP is ready when disposable repo tests prove:
 21. The bundled workflow and global guidance are CLI-first and create a managed
     source worktree from an ordinary checkout without relying on application
     mode metadata.
-22. The effective target defaults to `defaultBranch` and supports a per-repo override.
+22. Without a global target policy, the effective target defaults to
+    `defaultBranch` and supports a per-repo override.
 23. Success is recorded only after exact validated-commit promotion.
 24. Clean checked-out targets synchronize; dirty, inaccessible, or concurrently
     moved targets preserve `promotion_pending` state.
 25. Historical missing promotions are audited and only explicit safe
     fast-forwards are applied.
+26. A configured global target applies automatically to existing and new
+    registrations without overriding explicit repository targets, switching a
+    user checkout, or pushing a branch.

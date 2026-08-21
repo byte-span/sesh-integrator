@@ -22,6 +22,7 @@ import { acquireRepoLock, releaseRepoLock, type LockHandle } from "./lock.js";
 import { run, runCommandList, runValidation } from "./process.js";
 import {
   DEFAULT_INTEGRATION_BRANCH,
+  applyGlobalTargetPolicy,
   ensureRuntime,
   findLatestSessionForWorktree,
   makeSessionId,
@@ -57,6 +58,7 @@ import {
 } from "./source-state.js";
 import { preflightCommitSigning } from "./signing.js";
 import {
+  ensureGlobalTargetBranch,
   promoteValidatedCommit,
   PromotionBlockedError,
   targetBranch,
@@ -73,12 +75,36 @@ export async function registerCommand(
   autoConfig = false,
   setupCommands: Command[] = [],
 ): Promise<RepositoryConfig> {
-  const context = await inspectGit(pathArgument ?? process.cwd());
+  const registrationPath = pathArgument ?? process.cwd();
+  let context;
+  try {
+    context = await inspectGit(registrationPath);
+  } catch (error) {
+    const [inside, head] = await Promise.all([
+      run("git", ["rev-parse", "--is-inside-work-tree"], {
+        cwd: registrationPath,
+      }),
+      run("git", ["rev-parse", "--verify", "HEAD"], {
+        cwd: registrationPath,
+      }),
+    ]);
+    if (
+      inside.code === 0 &&
+      inside.stdout.trim() === "true" &&
+      head.code !== 0
+    ) {
+      throw new Error(
+        "Cannot register a repository with an unborn default branch; create its initial commit first",
+      );
+    }
+    throw error;
+  }
   const config = await readConfig();
   const existing = config.repositories.find(
     (repo) => repo.gitCommonDir === context.gitCommonDir,
   );
   if (existing) {
+    await ensureGlobalTargetBranch(existing);
     configureExplicitSetup(existing, setupCommands);
     if (autoConfig) {
       await autoConfigureRepository(existing);
@@ -104,6 +130,8 @@ export async function registerCommand(
     postIntegrationCommands: [],
     conflictInstructions: "",
   };
+  applyGlobalTargetPolicy(config, repository);
+  await ensureGlobalTargetBranch(repository);
   if (autoConfig) await autoConfigureRepository(repository);
   config.repositories.push(repository);
   await writeConfig(config);
@@ -214,6 +242,7 @@ export async function beginCommand(
   const launchContext = await inspectGit(process.cwd());
   const config = await readConfig();
   const repository = findRepository(config, launchContext.gitCommonDir);
+  await ensureGlobalTargetBranch(repository);
   if (launchContext.branch === repository.integrationBranch) {
     throw new Error(
       `Cannot begin on integration branch ${launchContext.branch}`,
