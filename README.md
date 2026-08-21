@@ -235,6 +235,27 @@ remote branch or create it from `main` before beginning a handoff:
 git switch --track origin/dev 2>/dev/null || git switch -c dev main
 ```
 
+#### Planned automatic policy
+
+The per-repository configuration above is the current behavior. A planned
+global `defaultTargetBranch` setting will make the same policy automatic for
+both existing and newly registered repositories. With
+`"defaultTargetBranch": "dev"`, target resolution will use this precedence:
+
+1. an explicit repository `targetBranch` override
+2. the global `defaultTargetBranch`
+3. the repository `defaultBranch`
+
+Changing the global default will immediately affect existing registrations
+that omit `targetBranch`; it will not overwrite explicit repository overrides.
+Registration and pre-session checks will reuse a local `dev`, track
+`origin/dev` when available, or create local `dev` from the registered default
+branch. They must not switch the user's checkout or create a target from an
+unborn default branch. No target branch is pushed automatically.
+
+Until this policy is implemented, environments that require all agent work to
+land on `dev` must set `targetBranch` for each registration as shown above.
+
 An older entry that omits `targetBranch` while setting `integrationBranch`
 equal to `defaultBranch` is rejected as ambiguous instead of being silently
 migrated. Review its history, then configure a separate staging branch or make
