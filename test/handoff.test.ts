@@ -142,6 +142,50 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     expect(git(fixture.repo, "rev-parse", "main")).toBe(mainBefore);
   });
 
+  it("pushes the target and opens a configured promotion pull request", async () => {
+    const fixture = await createFixture();
+    const remote = join(fixture.root, "remote.git");
+    git(fixture.root, "init", "--bare", remote);
+    git(fixture.repo, "remote", "add", "origin", remote);
+    git(fixture.repo, "push", "origin", "main");
+    await updateConfig(fixture, (config) => {
+      config.defaultTargetBranch = "dev";
+      config.repositories[0].promotion = {
+        type: "pull-request",
+        productionBranch: "main",
+        reviewers: ["reviewer-one", "reviewer-two"],
+      };
+    });
+    const fake = await createFakeGh(fixture);
+
+    await runCliOkWithEnv(
+      fixture,
+      fixture.repo,
+      ["begin", "--summary", "remote promotion"],
+      fake.env,
+    );
+    commitFile(fixture.repo, "remote.txt", "remote\n", "remote promotion");
+    const result = await runCliOkWithEnv(
+      fixture,
+      fixture.repo,
+      ["integrate", "--summary", "remote promotion complete"],
+      fake.env,
+    );
+
+    expect(result.stdout).toContain(
+      "Pull request: https://github.example/pull/17",
+    );
+    expect(git(remote, "rev-parse", "refs/heads/dev")).toBe(
+      git(fixture.repo, "rev-parse", "dev"),
+    );
+    const calls = await readFile(fake.log, "utf8");
+    expect(calls).toContain("pr list --state open --base main --head dev");
+    expect(calls).toContain("--reviewer reviewer-one,reviewer-two");
+    const completed = (await sessions(fixture))[0]!;
+    expect(completed.pullRequestUrl).toBe("https://github.example/pull/17");
+    expect(completed.remotePromotedAt).toBeTruthy();
+  });
+
   it("creates the global target while registering a new repository", async () => {
     const fixture = await createFixture();
     const main = git(fixture.repo, "rev-parse", "main");
@@ -2693,6 +2737,34 @@ process.stdin.on("end", () => {
   );
   await chmod(signingProgram, 0o755);
   return signingProgram;
+}
+
+async function createFakeGh(
+  fixture: Fixture,
+): Promise<{ env: NodeJS.ProcessEnv; log: string }> {
+  const bin = join(fixture.root, "fake-gh-bin");
+  const log = join(fixture.root, "gh.log");
+  await mkdir(bin, { recursive: true });
+  const executable = join(bin, "gh");
+  await writeFile(
+    executable,
+    `#!/usr/bin/env node
+const fs = require("node:fs");
+const args = process.argv.slice(2);
+fs.appendFileSync(process.env.FAKE_GH_LOG, args.join(" ") + "\\n");
+if (args[0] === "pr" && args[1] === "list") process.stdout.write("[]\\n");
+else if (args[0] === "pr" && args[1] === "create") process.stdout.write("https://github.example/pull/17\\n");
+else process.exit(2);
+`,
+  );
+  await chmod(executable, 0o755);
+  return {
+    log,
+    env: {
+      PATH: `${bin}:${process.env.PATH ?? ""}`,
+      FAKE_GH_LOG: log,
+    },
+  };
 }
 
 async function runCliOk(

@@ -155,3 +155,7 @@ Never:
 - delete branches/worktrees
 - invoke the legacy daemon workflow
 - treat earlier start time as automatic precedence
+
+The `push` boundary applies to agent-issued Git commands. An explicitly
+configured `promotion.type: "pull-request"` authorizes `codex-handoff` itself to
+perform its narrow non-force target push and create or update the configured PR.

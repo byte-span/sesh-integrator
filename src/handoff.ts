@@ -63,6 +63,7 @@ import {
   PromotionBlockedError,
   targetBranch,
 } from "./promotion.js";
+import { promoteByPullRequest } from "./pull-request.js";
 
 export async function initCommand(): Promise<void> {
   const paths = await ensureRuntime();
@@ -128,6 +129,7 @@ export async function registerCommand(
     integrationValidationCommands: [],
     validationTiers: [],
     postIntegrationCommands: [],
+    promotion: { type: "none" },
     conflictInstructions: "",
   };
   applyGlobalTargetPolicy(config, repository);
@@ -584,7 +586,10 @@ export async function integrateCommand(summary: string): Promise<Session> {
   } catch (error) {
     session.waitingForLock = false;
     session.latestError = errorMessage(error);
-    if (integrationStarted && session.status !== "promotion_pending") {
+    if (
+      (integrationStarted || session.recoveryPhase === "pull_request") &&
+      session.status !== "promotion_pending"
+    ) {
       session.status = "needs_review";
     }
     await writeSession(session);
@@ -736,7 +741,9 @@ export async function resumeCommand(): Promise<Session> {
     session.waitingForLock = false;
     await writeSession(session);
     await assertDependencies(session);
-    if (
+    if (session.recoveryPhase === "pull_request") {
+      await completePullRequestPromotion(repository, session);
+    } else if (
       session.recoveryPhase === "promotion" ||
       session.recoveryPhase === "post_integration"
     ) {
@@ -1270,6 +1277,23 @@ async function runPostIntegrationAndPromote(
     }
   } else {
     session.postIntegrationResults = [];
+  }
+  await completePullRequestPromotion(repository, session);
+}
+
+async function completePullRequestPromotion(
+  repository: RepositoryConfig,
+  session: Session,
+): Promise<void> {
+  session.recoveryPhase = "pull_request";
+  await writeSession(session);
+  const pullRequestUrl = await measurePhase("pull_request", async () =>
+    promoteByPullRequest(repository, session),
+  );
+  if (pullRequestUrl) {
+    session.pullRequestUrl = pullRequestUrl;
+    session.remotePromotedAt = new Date().toISOString();
+    process.stdout.write(`Pull request: ${pullRequestUrl}\n`);
   }
   session.status = "succeeded";
   delete session.recoveryPhase;

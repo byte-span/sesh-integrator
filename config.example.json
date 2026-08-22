@@ -9,6 +9,7 @@
       "defaultBranch": "main",
       "integrationBranch": "codex-handoff/integration",
       "targetBranch": "main",
+      "promotion": { "type": "none" },
       "validationCache": "session",
       "sourceValidationCommands": [
         {

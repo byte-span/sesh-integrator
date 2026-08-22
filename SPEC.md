@@ -114,6 +114,12 @@ Example `~/.codex-handoff/config.json`:
       "defaultBranch": "main",
       "integrationBranch": "codex-handoff/integration",
       "targetBranch": "main",
+      "promotion": {
+        "type": "pull-request",
+        "productionBranch": "main",
+        "remote": "origin",
+        "reviewers": ["platform-team"]
+      },
       "gpgProgram": "/Users/you/.local/bin/codex-gpg",
       "setupCommands": [["corepack", "pnpm", "install", "--frozen-lockfile"]],
       "setupCommandPolicy": "advisory",
@@ -152,6 +158,13 @@ registered `defaultBranch`. Changing the global value therefore migrates all
 existing registrations that omit `targetBranch` without rewriting them, while
 preserving explicit per-repository exceptions. Omitting the global setting
 retains the backward-compatible default-branch behavior.
+
+Remote promotion defaults to `{ "type": "none" }`. A repository may opt into
+`pull-request` promotion after successful local promotion and post-integration
+checks. The tool pushes the effective target to `origin` by default, then
+creates or reuses an open PR into `productionBranch` (defaulting to
+`defaultBranch`). Configured reviewers are requested; CODEOWNERS review requests
+remain managed by GitHub.
 
 ## 6. `init`
 
@@ -434,7 +447,8 @@ If merge is clean:
 5. promote the exact validated staging commit to the configured target
 6. run post-integration commands in order from its clean checked-out target worktree
 7. mark the session succeeded only after post-integration checks pass
-8. release the lock and exit 0
+8. when configured, push the target and create or update its promotion PR
+9. release the lock and exit 0
 
 If the staged merge tree is identical to the source-validated tree, reuse only
 matching successful command fingerprints and run every integration-only or

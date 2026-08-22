@@ -20,6 +20,7 @@ export interface RepositoryConfig {
   defaultBranch: string;
   integrationBranch: string;
   targetBranch?: string;
+  promotion?: PromotionConfig;
   /** Runtime-only inherited global policy; never persisted per repository. */
   globalDefaultTargetBranch?: string;
   gpgProgram?: string;
@@ -32,6 +33,15 @@ export interface RepositoryConfig {
   conflictInstructions: string;
   validationCache?: "off" | "session" | "repository";
 }
+
+export type PromotionConfig =
+  | { type: "none" }
+  | {
+      type: "pull-request";
+      productionBranch?: string;
+      remote?: string;
+      reviewers?: string[];
+    };
 
 export interface Config {
   lockWaitSeconds: number;
@@ -73,7 +83,9 @@ export interface Session {
   targetCommitBeforeIntegration?: string;
   promotedCommit?: string;
   promotedAt?: string;
-  recoveryPhase?: "merge" | "post_integration" | "promotion";
+  pullRequestUrl?: string;
+  remotePromotedAt?: string;
+  recoveryPhase?: "merge" | "post_integration" | "promotion" | "pull_request";
   latestError?: string;
   conflictPromptPath?: string;
   conflictIntegrationHead?: string;

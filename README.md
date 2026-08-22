@@ -168,6 +168,7 @@ Edit `~/.codex-handoff/config.json` to add validation and conflict settings. Com
       "defaultBranch": "main",
       "integrationBranch": "codex-handoff/integration",
       "targetBranch": "main",
+      "promotion": { "type": "none" },
       "gpgProgram": "/Users/you/.local/bin/codex-gpg",
       "setupCommands": [["corepack", "pnpm", "install", "--frozen-lockfile"]],
       "setupCommandPolicy": "advisory",
@@ -207,7 +208,32 @@ to the registered `defaultBranch`. Existing `integrationBranch` values keep
 their staging meaning. An explicit `targetBranch` equal to `integrationBranch`
 is supported as a legacy-style opt-in, but then there is no separate final ref
 and that branch cannot already be checked out in another worktree. No branch is
-pushed automatically.
+pushed unless pull-request promotion is explicitly configured.
+
+### Optional pull-request promotion
+
+Remote promotion is disabled by default. To turn a successful local `dev`
+handoff into a review-ready `dev` to `main` PR, configure:
+
+```json
+{
+  "targetBranch": "dev",
+  "promotion": {
+    "type": "pull-request",
+    "productionBranch": "main",
+    "remote": "origin",
+    "reviewers": ["platform-team"]
+  }
+}
+```
+
+After local promotion and post-integration checks pass, `codex-handoff` performs
+a normal non-force push, reuses an existing open PR for the same branch pair or
+creates a ready-for-review PR, and requests configured reviewers. Omit
+`productionBranch` to use `defaultBranch`, omit `remote` to use `origin`, and
+omit `reviewers` when CODEOWNERS or another GitHub policy assigns reviewers.
+The remote step requires authenticated `git` and `gh` access. Failures remain
+resumable with `codex-handoff resume`.
 
 ### Stable default branch with a development target
 
@@ -557,7 +583,7 @@ For rollback, stop invoking the new skill, restore the previous global guidance,
   agent must honor the `Continue task in:` path for all subsequent tool calls.
 - Managed source worktrees are retained after completion; cleanup is currently
   manual and must not remove a worktree containing uncommitted state.
-- The tool does not fetch, push, force-push, delete branches, or merge/reset user worktrees. It updates only the configured local target after all checks pass.
+- The tool does not fetch, force-push, delete branches, or merge/reset user worktrees. It pushes only when a repository explicitly enables pull-request promotion.
 - One preserved `needs_review` merge blocks further integrations until the workflow resolves it and runs `resume`.
 - Dependency checks fail clearly rather than running a background waiter; retry after dependencies succeed.
 - The current-session resolution path is instruction-driven; genuinely ambiguous conflicts or failed validation still require user review.

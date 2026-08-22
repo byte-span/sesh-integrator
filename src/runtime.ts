@@ -13,6 +13,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type {
   Config,
+  RepositoryConfig,
   RuntimePaths,
   Session,
   SessionIndexEntry,
@@ -111,11 +112,13 @@ export async function readConfig(): Promise<Config> {
     repository.setupCommands ??= [];
     repository.validationTiers ??= [];
     repository.postIntegrationCommands ??= [];
+    repository.promotion ??= { type: "none" };
     repository.validationCache ??= "session";
     if (
       !isValidationStepList(repository.sourceValidationCommands) ||
       !isValidationStepList(repository.integrationValidationCommands) ||
-      !["off", "session", "repository"].includes(repository.validationCache)
+      !["off", "session", "repository"].includes(repository.validationCache) ||
+      !isPromotionConfig(repository)
     ) {
       throw new Error(
         `Invalid validation configuration for ${repository.path}`,
@@ -153,9 +156,38 @@ export async function readConfig(): Promise<Config> {
         `Ambiguous branch configuration for ${repository.path}: integrationBranch ${repository.integrationBranch} equals the default or effective target while targetBranch is omitted. Existing integrationBranch values retain staging meaning; configure a separate staging branch or explicitly set targetBranch after reviewing the history.`,
       );
     }
+    if (
+      repository.promotion.type === "pull-request" &&
+      (repository.promotion.productionBranch ?? repository.defaultBranch) ===
+        (repository.targetBranch ??
+          value.defaultTargetBranch ??
+          repository.defaultBranch)
+    ) {
+      throw new Error(
+        `Invalid pull-request promotion for ${repository.path}: target and production branches must differ`,
+      );
+    }
   }
   value.conflictResolutionMode ??= "current-session";
   return value;
+}
+
+function isPromotionConfig(repository: RepositoryConfig): boolean {
+  const promotion = repository.promotion;
+  if (!promotion || promotion.type === "none") return true;
+  return (
+    promotion.type === "pull-request" &&
+    (promotion.productionBranch === undefined ||
+      (typeof promotion.productionBranch === "string" &&
+        promotion.productionBranch.length > 0)) &&
+    (promotion.remote === undefined ||
+      (typeof promotion.remote === "string" && promotion.remote.length > 0)) &&
+    (promotion.reviewers === undefined ||
+      (Array.isArray(promotion.reviewers) &&
+        promotion.reviewers.every(
+          (reviewer) => typeof reviewer === "string" && reviewer.length > 0,
+        )))
+  );
 }
 
 export async function writeConfig(config: Config): Promise<void> {
