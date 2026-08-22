@@ -2,6 +2,7 @@ import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { readLockMetadata } from "./lock.js";
 import { targetBranch, targetBranchSource } from "./promotion.js";
+import { pullRequestPromotion } from "./pull-request.js";
 import { readConfig, readSessions, runtimePaths } from "./runtime.js";
 
 export async function statusCommand(): Promise<void> {
@@ -10,8 +11,9 @@ export async function statusCommand(): Promise<void> {
   process.stdout.write(`Runtime: ${paths.root}\n`);
   process.stdout.write(`Repositories: ${config.repositories.length}\n`);
   for (const repository of config.repositories) {
+    const remote = pullRequestPromotion(repository);
     process.stdout.write(
-      `  ${repository.path}: staging ${repository.integrationBranch} -> target ${targetBranch(repository)} (${targetBranchSource(repository)})\n`,
+      `  ${repository.path}: staging ${repository.integrationBranch} -> target ${targetBranch(repository)} (${targetBranchSource(repository)})${remote ? ` -> PR to ${remote.productionBranch} via ${remote.remote}` : ""}\n`,
     );
   }
   process.stdout.write(`Sessions: ${sessions.length}\n`);
@@ -45,6 +47,8 @@ export async function statusCommand(): Promise<void> {
     process.stdout.write(
       `  promoted: ${session.promotedAt ?? "-"} ${session.promotedCommit ?? ""}\n`,
     );
+    if (session.pullRequestUrl)
+      process.stdout.write(`  pull request: ${session.pullRequestUrl}\n`);
     if (session.recoveryPhase)
       process.stdout.write(`  recovery phase: ${session.recoveryPhase}\n`);
     process.stdout.write(

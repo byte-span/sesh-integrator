@@ -426,6 +426,8 @@ function validateConfig(config: Config): void {
       (repository.targetBranch !== undefined &&
         (typeof repository.targetBranch !== "string" ||
           repository.targetBranch.length === 0)) ||
+      (repository.promotion !== undefined &&
+        !validPromotionConfig(repository.promotion)) ||
       !Array.isArray(repository.setupCommands) ||
       (repository.setupCommandPolicy !== undefined &&
         repository.setupCommandPolicy !== "advisory" &&
@@ -458,7 +460,37 @@ function validateConfig(config: Config): void {
         `ambiguous repository entry: integrationBranch ${repository.integrationBranch} equals the default or effective target while targetBranch is omitted`,
       );
     }
+    if (
+      repository.promotion?.type === "pull-request" &&
+      (repository.promotion.productionBranch ?? repository.defaultBranch) ===
+        (repository.targetBranch ??
+          config.defaultTargetBranch ??
+          repository.defaultBranch)
+    ) {
+      throw new Error(
+        "pull-request promotion target and production branches must differ",
+      );
+    }
   }
+}
+
+function validPromotionConfig(
+  promotion: RepositoryConfig["promotion"],
+): boolean {
+  if (!promotion || promotion.type === "none") return true;
+  return (
+    promotion.type === "pull-request" &&
+    (promotion.productionBranch === undefined ||
+      (typeof promotion.productionBranch === "string" &&
+        promotion.productionBranch.length > 0)) &&
+    (promotion.remote === undefined ||
+      (typeof promotion.remote === "string" && promotion.remote.length > 0)) &&
+    (promotion.reviewers === undefined ||
+      (Array.isArray(promotion.reviewers) &&
+        promotion.reviewers.every(
+          (reviewer) => typeof reviewer === "string" && reviewer.length > 0,
+        )))
+  );
 }
 
 async function allExist(paths: string[]): Promise<boolean> {

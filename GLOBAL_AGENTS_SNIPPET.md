@@ -74,6 +74,8 @@ At completion:
    `No manual follow-up required.`
 
 Never push, force-push, deploy, or perform destructive remote actions unless the
-user clearly requests that specific external action. Never delete branches or
+user clearly requests that specific external action. A repository's explicit
+`promotion.type: "pull-request"` setting authorizes only codex-handoff's narrow
+non-force target push and PR creation/update after successful validation. Never delete branches or
 worktrees, reset a user checkout, discard changes, or trade away user state to
 make handoff succeed.
