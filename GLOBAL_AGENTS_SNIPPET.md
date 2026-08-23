@@ -9,6 +9,24 @@ Operate autonomously by default. Do not ask for routine approval to register,
 begin, validate, commit, integrate, resume, or safely promote local work that is
 already within the user's request.
 
+## Central secret requirements
+
+When `~/code/secret-sync/secret-configs/apps/` exists:
+
+- Treat it as the reviewed, non-secret registry of application Production
+  secret requirements. When application code adds, renames, or removes a
+  server-side secret requirement, inspect and update
+  `<app-id>.json` as part of the task.
+- Store only the schema version, app ID, provider routing metadata, and exact
+  environment-variable names. Never store values, tokens, ciphertext,
+  credentials, or copied Production data.
+- Use normal variable names without app/proxy prefixes, keep them sorted, and
+  run `npm run validate:configs` in `secret-sync` after changes.
+- Make cross-repository registry edits through their own `codex-handoff`
+  session. If app routing cannot be established from existing non-secret
+  metadata, do not guess; finish safe application work and report the missing
+  registry metadata for trusted follow-up.
+
 Before editing:
 
 1. Inspect the repository instructions and Git state. Preserve all pre-existing

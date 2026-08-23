@@ -19,4 +19,16 @@ describe("bundled workflow trigger policy", () => {
       expect(policy).not.toMatch(/Local mode|Worktree mode/);
     }
   });
+
+  it("keeps the optional central secret registry metadata-only", async () => {
+    const guidance = await readFile(
+      join(process.cwd(), "GLOBAL_AGENTS_SNIPPET.md"),
+      "utf8",
+    );
+
+    expect(guidance).toContain("secret-sync/secret-configs/apps/");
+    expect(guidance).toContain("Never store values, tokens, ciphertext");
+    expect(guidance).toContain("npm run validate:configs");
+    expect(guidance).toContain("do not guess");
+  });
 });
