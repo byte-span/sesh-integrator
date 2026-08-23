@@ -408,6 +408,9 @@ function validateConfig(config: Config): void {
   ) {
     throw new Error("invalid defaultTargetBranch");
   }
+  if (!validDefaultPromotionConfig(config.defaultPromotion)) {
+    throw new Error("invalid defaultPromotion");
+  }
   if (
     config.conflictResolutionMode !== undefined &&
     config.conflictResolutionMode !== "current-session" &&
@@ -485,11 +488,28 @@ function validPromotionConfig(
         promotion.productionBranch.length > 0)) &&
     (promotion.remote === undefined ||
       (typeof promotion.remote === "string" && promotion.remote.length > 0)) &&
-    (promotion.reviewers === undefined ||
-      (Array.isArray(promotion.reviewers) &&
-        promotion.reviewers.every(
-          (reviewer) => typeof reviewer === "string" && reviewer.length > 0,
-        )))
+    validParticipantList(promotion.reviewers) &&
+    validParticipantList(promotion.assignees)
+  );
+}
+
+function validDefaultPromotionConfig(
+  promotion: Config["defaultPromotion"],
+): boolean {
+  return (
+    promotion === undefined ||
+    (typeof promotion === "object" &&
+      promotion !== null &&
+      validParticipantList(promotion.reviewers) &&
+      validParticipantList(promotion.assignees))
+  );
+}
+
+function validParticipantList(value: unknown): boolean {
+  return (
+    value === undefined ||
+    (Array.isArray(value) &&
+      value.every((name) => typeof name === "string" && name.length > 0))
   );
 }
 

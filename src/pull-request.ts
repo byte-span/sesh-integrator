@@ -6,6 +6,7 @@ export interface PullRequestPromotion {
   productionBranch: string;
   remote: string;
   reviewers: string[];
+  assignees: string[];
 }
 
 export function pullRequestPromotion(
@@ -18,7 +19,14 @@ export function pullRequestPromotion(
     productionBranch:
       repository.promotion.productionBranch ?? repository.defaultBranch,
     remote: repository.promotion.remote ?? "origin",
-    reviewers: repository.promotion.reviewers ?? [],
+    reviewers:
+      repository.promotion.reviewers ??
+      repository.globalDefaultPromotion?.reviewers ??
+      [],
+    assignees:
+      repository.promotion.assignees ??
+      repository.globalDefaultPromotion?.assignees ??
+      [],
   };
 }
 
@@ -79,6 +87,9 @@ export async function promoteByPullRequest(
     if (promotion.reviewers.length > 0) {
       args.push("--reviewer", promotion.reviewers.join(","));
     }
+    if (promotion.assignees.length > 0) {
+      args.push("--assignee", promotion.assignees.join(","));
+    }
     url = (
       await checked(
         "gh",
@@ -87,13 +98,23 @@ export async function promoteByPullRequest(
         "Could not create promotion pull request",
       )
     ).trim();
-  } else if (promotion.reviewers.length > 0) {
-    await checked(
-      "gh",
-      ["pr", "edit", url, "--add-reviewer", promotion.reviewers.join(",")],
-      repository.path,
-      "Could not request promotion reviewers",
-    );
+  } else {
+    if (promotion.reviewers.length > 0) {
+      await checked(
+        "gh",
+        ["pr", "edit", url, "--add-reviewer", promotion.reviewers.join(",")],
+        repository.path,
+        "Could not request promotion reviewers",
+      );
+    }
+    if (promotion.assignees.length > 0) {
+      await checked(
+        "gh",
+        ["pr", "edit", url, "--add-assignee", promotion.assignees.join(",")],
+        repository.path,
+        "Could not assign promotion pull request",
+      );
+    }
   }
   if (!url) throw new Error("GitHub did not return a pull request URL");
   return url;
