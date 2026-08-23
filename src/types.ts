@@ -23,6 +23,8 @@ export interface RepositoryConfig {
   promotion?: PromotionConfig;
   /** Runtime-only inherited global policy; never persisted per repository. */
   globalDefaultTargetBranch?: string;
+  /** Runtime-only inherited global PR participants; never persisted per repository. */
+  globalDefaultPromotion?: DefaultPromotionConfig;
   gpgProgram?: string;
   setupCommands: Command[];
   setupCommandPolicy?: "advisory" | "required";
@@ -41,13 +43,20 @@ export type PromotionConfig =
       productionBranch?: string;
       remote?: string;
       reviewers?: string[];
+      assignees?: string[];
     };
+
+export interface DefaultPromotionConfig {
+  reviewers?: string[];
+  assignees?: string[];
+}
 
 export interface Config {
   lockWaitSeconds: number;
   codexCommand: string;
   conflictResolutionMode?: "current-session" | "nested-codex";
   defaultTargetBranch?: string;
+  defaultPromotion?: DefaultPromotionConfig;
   repositories: RepositoryConfig[];
 }
 

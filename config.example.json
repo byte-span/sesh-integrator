@@ -2,6 +2,10 @@
   "lockWaitSeconds": 900,
   "codexCommand": "codex",
   "conflictResolutionMode": "current-session",
+  "defaultPromotion": {
+    "reviewers": ["platform-team"],
+    "assignees": ["release-owner"]
+  },
   "repositories": [
     {
       "path": "/Users/you/Developer/my-project",

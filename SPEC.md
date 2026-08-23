@@ -108,6 +108,10 @@ Example `~/.codex-handoff/config.json`:
   "codexCommand": "codex",
   "conflictResolutionMode": "current-session",
   "defaultTargetBranch": "dev",
+  "defaultPromotion": {
+    "reviewers": ["scram-j"],
+    "assignees": ["scram-j"]
+  },
   "repositories": [
     {
       "path": "/Users/you/Developer/my-app",
@@ -118,7 +122,8 @@ Example `~/.codex-handoff/config.json`:
         "type": "pull-request",
         "productionBranch": "main",
         "remote": "origin",
-        "reviewers": ["platform-team"]
+        "reviewers": ["platform-team"],
+        "assignees": ["release-owner"]
       },
       "gpgProgram": "/Users/you/.local/bin/codex-gpg",
       "setupCommands": [["corepack", "pnpm", "install", "--frozen-lockfile"]],
@@ -163,8 +168,11 @@ Remote promotion defaults to `{ "type": "none" }`. A repository may opt into
 `pull-request` promotion after successful local promotion and post-integration
 checks. The tool pushes the effective target to `origin` by default, then
 creates or reuses an open PR into `productionBranch` (defaulting to
-`defaultBranch`). Configured reviewers are requested; CODEOWNERS review requests
-remain managed by GitHub.
+`defaultBranch`). Configured reviewers are requested and configured assignees
+are assigned; CODEOWNERS review requests remain managed by GitHub. Global
+`defaultPromotion.reviewers` and `defaultPromotion.assignees` apply to every
+repository using pull-request promotion. A repository may override either list
+independently, including with an empty list to disable that global default.
 
 ## 6. `init`
 

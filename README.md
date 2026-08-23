@@ -161,6 +161,10 @@ Edit `~/.codex-handoff/config.json` to add validation and conflict settings. Com
   "lockWaitSeconds": 900,
   "codexCommand": "codex",
   "conflictResolutionMode": "current-session",
+  "defaultPromotion": {
+    "reviewers": ["scram-j"],
+    "assignees": ["scram-j"]
+  },
   "repositories": [
     {
       "path": "/Users/you/Developer/my-project",
@@ -222,18 +226,36 @@ handoff into a review-ready `dev` to `main` PR, configure:
     "type": "pull-request",
     "productionBranch": "main",
     "remote": "origin",
-    "reviewers": ["platform-team"]
+    "reviewers": ["platform-team"],
+    "assignees": ["release-owner"]
   }
 }
 ```
 
 After local promotion and post-integration checks pass, `codex-handoff` performs
 a normal non-force push, reuses an existing open PR for the same branch pair or
-creates a ready-for-review PR, and requests configured reviewers. Omit
+creates a ready-for-review PR, requests configured reviewers, and adds configured
+assignees. Omit
 `productionBranch` to use `defaultBranch`, omit `remote` to use `origin`, and
 omit `reviewers` when CODEOWNERS or another GitHub policy assigns reviewers.
 The remote step requires authenticated `git` and `gh` access. Failures remain
 resumable with `codex-handoff resume`.
+
+To apply participants to every repository that already uses pull-request
+promotion, set global defaults once:
+
+```json
+{
+  "defaultPromotion": {
+    "reviewers": ["scram-j"],
+    "assignees": ["scram-j"]
+  }
+}
+```
+
+Per-repository `reviewers` and `assignees` override their corresponding global
+lists. Set either repository list to `[]` to disable that default for one
+repository. These defaults do not enable remote promotion by themselves.
 
 ### Stable default branch with a development target
 

@@ -150,10 +150,13 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     git(fixture.repo, "push", "origin", "main");
     await updateConfig(fixture, (config) => {
       config.defaultTargetBranch = "dev";
+      config.defaultPromotion = {
+        reviewers: ["reviewer-one", "reviewer-two"],
+        assignees: ["assignee-one"],
+      };
       config.repositories[0].promotion = {
         type: "pull-request",
         productionBranch: "main",
-        reviewers: ["reviewer-one", "reviewer-two"],
       };
     });
     const fake = await createFakeGh(fixture);
@@ -181,6 +184,7 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     const calls = await readFile(fake.log, "utf8");
     expect(calls).toContain("pr list --state open --base main --head dev");
     expect(calls).toContain("--reviewer reviewer-one,reviewer-two");
+    expect(calls).toContain("--assignee assignee-one");
     const completed = (await sessions(fixture))[0]!;
     expect(completed.pullRequestUrl).toBe("https://github.example/pull/17");
     expect(completed.remotePromotedAt).toBeTruthy();

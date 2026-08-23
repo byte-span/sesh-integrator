@@ -58,6 +58,12 @@ export function applyGlobalTargetPolicy(
     enumerable: false,
     writable: true,
   });
+  Object.defineProperty(repository, "globalDefaultPromotion", {
+    value: config.defaultPromotion,
+    configurable: true,
+    enumerable: false,
+    writable: true,
+  });
 }
 
 export async function ensureRuntime(): Promise<RuntimePaths> {
@@ -103,7 +109,8 @@ export async function readConfig(): Promise<Config> {
     typeof value.lockWaitSeconds !== "number" ||
     (value.defaultTargetBranch !== undefined &&
       (typeof value.defaultTargetBranch !== "string" ||
-        value.defaultTargetBranch.length === 0))
+        value.defaultTargetBranch.length === 0)) ||
+    !isDefaultPromotionConfig(value.defaultPromotion)
   ) {
     throw new Error(`Invalid configuration: ${paths.config}`);
   }
@@ -182,11 +189,28 @@ function isPromotionConfig(repository: RepositoryConfig): boolean {
         promotion.productionBranch.length > 0)) &&
     (promotion.remote === undefined ||
       (typeof promotion.remote === "string" && promotion.remote.length > 0)) &&
-    (promotion.reviewers === undefined ||
-      (Array.isArray(promotion.reviewers) &&
-        promotion.reviewers.every(
-          (reviewer) => typeof reviewer === "string" && reviewer.length > 0,
-        )))
+    isOptionalParticipantList(promotion.reviewers) &&
+    isOptionalParticipantList(promotion.assignees)
+  );
+}
+
+function isDefaultPromotionConfig(
+  promotion: Config["defaultPromotion"],
+): boolean {
+  return (
+    promotion === undefined ||
+    (typeof promotion === "object" &&
+      promotion !== null &&
+      isOptionalParticipantList(promotion.reviewers) &&
+      isOptionalParticipantList(promotion.assignees))
+  );
+}
+
+function isOptionalParticipantList(value: unknown): boolean {
+  return (
+    value === undefined ||
+    (Array.isArray(value) &&
+      value.every((name) => typeof name === "string" && name.length > 0))
   );
 }
 
