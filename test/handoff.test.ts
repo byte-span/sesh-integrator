@@ -2722,6 +2722,17 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     expect(result.stdout).toContain("NOT READY");
   });
 
+  it("reports the codex-handoff repository as intentionally self-managed", async () => {
+    const fixture = await createFixture();
+
+    const result = await runCli(fixture, process.cwd(), ["doctor"]);
+
+    expect(result.stdout).toContain(
+      "SKIP  Current repository: codex-handoff is intentionally self-managed and excluded from registration",
+    );
+    expect(result.stdout).not.toContain("Current repository: not registered");
+  });
+
   it("benchmarks disposable small, large, conflict, and concurrent scenarios", async () => {
     const fixture = await createFixture();
     const result = await runCli(fixture, fixture.repo, [
