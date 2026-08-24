@@ -12,7 +12,7 @@ import { applyGlobalTargetPolicy, runtimePaths } from "./runtime.js";
 import type { Config, RepositoryConfig } from "./types.js";
 import { isValidationStepList } from "./validation.js";
 
-type CheckState = "PASS" | "WARN" | "FAIL";
+type CheckState = "PASS" | "SKIP" | "WARN" | "FAIL";
 
 interface Check {
   state: CheckState;
@@ -171,6 +171,14 @@ export async function doctorCommand(cwd = process.cwd()): Promise<void> {
 }
 
 async function repositoryChecks(config: Config, cwd: string): Promise<Check[]> {
+  if (await isSelfHostingRepository(cwd)) {
+    return [
+      skip(
+        "Current repository",
+        "codex-handoff is intentionally self-managed and excluded from registration",
+      ),
+    ];
+  }
   if (config.repositories.length === 0) {
     return [
       fail(
@@ -251,6 +259,19 @@ async function repositoryChecks(config: Config, cwd: string): Promise<Check[]> {
     );
   }
   return checks;
+}
+
+async function isSelfHostingRepository(cwd: string): Promise<boolean> {
+  try {
+    const toolRoot = fileURLToPath(new URL("..", import.meta.url));
+    const [current, self] = await Promise.all([
+      realpath((await inspectGit(cwd)).gitCommonDir),
+      realpath((await inspectGit(toolRoot)).gitCommonDir),
+    ]);
+    return current === self;
+  } catch {
+    return false;
+  }
 }
 
 async function pullRequestPromotionCheck(
@@ -594,6 +615,10 @@ async function exists(path: string): Promise<boolean> {
 
 function pass(label: string, detail: string): Check {
   return { state: "PASS", label, detail };
+}
+
+function skip(label: string, detail: string): Check {
+  return { state: "SKIP", label, detail };
 }
 
 function warn(label: string, detail: string): Check {

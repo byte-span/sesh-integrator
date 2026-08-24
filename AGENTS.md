@@ -39,6 +39,21 @@ Codex CLI task starts in an existing checkout
 
 There is no permanent watcher, polling loop, queue daemon, LaunchAgent, or background process.
 
+## Self-hosting workflow
+
+Do not register this repository with `codex-handoff`; it is intentionally
+self-managed to avoid depending on the executable while modifying it.
+
+For changes to this repository, work and commit directly on local `dev`, then
+run the normal validation suite and rebuild `dist`. Push `dev` without force.
+If no open `dev` to `main` pull request exists, open one. If one already exists,
+push the exact completed `dev` commit to a unique remote branch such as
+`codex/handoff-<timestamp-or-task-id>` and open a new pull request from that
+branch to `main`. Never reuse, update, close, merge, delete, or force-push an
+existing pull request or remote branch for a different task.
+
+Do not run parallel code-changing sessions directly on `dev` in this repository.
+
 ## Read First
 
 Before implementing, read:
