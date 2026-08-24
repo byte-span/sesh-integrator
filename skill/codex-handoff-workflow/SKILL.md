@@ -43,6 +43,10 @@ Before modifying files:
    source worktree. From an existing linked worktree it reuses that worktree.
    Read `Continue task in: <path>` from the output and perform every subsequent
    edit and handoff command from that path. Do not edit the launch checkout.
+   An active session launched from that ordinary checkout does not block a new
+   unrelated task: begin another managed worktree. If a lifecycle command from
+   the shared launch checkout reports multiple matches, select the intended one
+   with `--session <session-id>`; do not infer task identity from timing.
 
 7. `begin` runs centrally configured setup commands before creating a task
    branch or session. Auto-configured setup failures warn and continue; explicit

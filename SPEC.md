@@ -321,7 +321,14 @@ Requirements:
   `codex/session-...` branch before the session is recorded
 - `--no-auto-branch` retains strict rejection when explicitly requested
 - branch is not integration branch
-- no active session already attached to this worktree
+- no active session already attached to the selected source worktree
+- active sessions launched earlier from the same ordinary checkout do not block
+  another `--create-worktree` task; each receives a unique branch and worktree
+
+Source lifecycle commands infer the session from the current source worktree for
+backward compatibility. `commit`, `validate`, `integrate`, and `resume` also
+accept `--session <session-id>`. From a shared launch checkout, one matching
+managed session may be inferred; multiple matches require explicit selection.
 
 ## 9. Skill Completion Behavior
 
@@ -381,7 +388,9 @@ for an unchanged manifest/lockfile fingerprint and an extant dependency marker.
 
 ### 10.1 Capture Ready Snapshot
 
-Find the active session for the current worktree.
+Find the active session for the current source worktree, or use the explicitly
+selected session. A command from a launch checkout must reject multiple matching
+sessions unless `--session <session-id>` is supplied.
 
 Capture:
 

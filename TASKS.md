@@ -34,16 +34,17 @@ Complete personal MVP implementation checklist.
 ## Session start
 
 - [x] Implement `begin`
-- [x] Reject staged/indeterminate baseline state, integration worktrees, and duplicate active sessions, with an explicit strict opt-out for detached/default branches
+- [x] Reject staged/indeterminate baseline state, integration worktrees, and duplicate active sessions on the same source worktree, with an explicit strict opt-out for detached/default branches
 - [x] Let the workflow safely auto-create a unique task branch from baseline-safe detached/default-branch worktrees
 - [x] Let Codex CLI create an isolated managed source worktree from an ordinary checkout while preserving launch-checkout state
+- [x] Allow multiple unrelated managed sessions from the same launch checkout and require `--session` only when lifecycle selection is ambiguous
 - [x] Record worktree, branch, start commit, integration HEAD, timestamp, summary, and dependencies
 - [x] Record a pre-setup observable Git baseline and distinguish stable inaccessible paths from genuine task/unrelated changes
 - [x] Reject unknown explicit dependencies
 
 ## One-shot integration
 
-- [x] Find the current worktree session and require a clean unchanged source branch
+- [x] Find the current or explicitly selected source-worktree session and require a clean unchanged source branch
 - [x] Persist the exact ready commit, timestamp, and completion summary before integration
 - [x] Enforce explicit dependency results before and after lock acquisition
 - [x] Acquire an atomic per-repository lock with bounded waiting and owner metadata

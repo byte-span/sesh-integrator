@@ -3,11 +3,22 @@ import { join } from "node:path";
 import { readLockMetadata } from "./lock.js";
 import { targetBranch, targetBranchSource } from "./promotion.js";
 import { pullRequestPromotion } from "./pull-request.js";
-import { readConfig, readSessions, runtimePaths } from "./runtime.js";
+import {
+  readConfig,
+  readSession,
+  readSessions,
+  runtimePaths,
+} from "./runtime.js";
 
-export async function statusCommand(): Promise<void> {
+export async function statusCommand(sessionId?: string): Promise<void> {
   const paths = runtimePaths();
-  const [sessions, config] = await Promise.all([readSessions(), readConfig()]);
+  const [allSessions, config] = await Promise.all([
+    readSessions(),
+    readConfig(),
+  ]);
+  const selected = sessionId ? await readSession(sessionId) : undefined;
+  if (sessionId && !selected) throw new Error(`Unknown session: ${sessionId}`);
+  const sessions = selected ? [selected] : allSessions;
   process.stdout.write(`Runtime: ${paths.root}\n`);
   process.stdout.write(`Repositories: ${config.repositories.length}\n`);
   for (const repository of config.repositories) {
