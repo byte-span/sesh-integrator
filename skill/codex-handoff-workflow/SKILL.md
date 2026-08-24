@@ -134,6 +134,10 @@ If another session is integrating the repository, `codex-handoff integrate` may 
 
 Do not start an alternative merge while waiting.
 
+Never monitor that wait with an unbounded shell polling loop such as
+`while pgrep`. Use the execution tool's session-aware wait operation, or bounded
+retries against a specific process/session identifier with an explicit timeout.
+
 ## Failure
 
 If `integrate` fails:
