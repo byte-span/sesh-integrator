@@ -16,6 +16,7 @@ Complete personal MVP implementation checklist.
 - [x] Apply the global target dynamically to existing registrations that omit `targetBranch`
 - [x] Add opt-in, resumable target-to-production pull-request promotion with configured reviewers
 - [x] Add global default reviewers and assignees with per-repository pull-request overrides
+- [x] Add per-session source-branch PR promotion while preserving shared-target mode
 - [x] During registration/readiness, safely track or create the global target without switching or pushing the user checkout
 - [x] Cover existing, new, remote-tracking, unborn, and explicitly overridden repository cases
 

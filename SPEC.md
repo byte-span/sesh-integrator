@@ -174,6 +174,20 @@ are assigned; CODEOWNERS review requests remain managed by GitHub. Global
 repository using pull-request promotion. A repository may override either list
 independently, including with an empty list to disable that global default.
 
+Pull-request promotion supports two modes. Omitted `mode` and explicit
+`"shared-target"` preserve the original behavior: push the effective target and
+reuse the open PR for that target/base pair. Explicit `"session-branch"` pushes
+the exact session `readyCommit` to its recorded source branch and creates a PR
+from that branch to `productionBranch`. Multiple session PRs may remain open.
+Retries may reuse only a PR with the same head and persisted session marker and
+must refuse an unrelated PR on that head.
+
+Both modes validate Git branch names, configured remote existence, GitHub CLI
+authentication, remote base existence, and distinct base/head commits. Neither
+mode force-pushes, merges, closes, or deletes a remote branch or PR. The session
+persists the PR URL for status and recovery output; doctor reports promotion
+mode and readiness.
+
 ## 6. `init`
 
 Create:

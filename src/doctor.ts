@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { collectLegacyFindings } from "./audit.js";
 import { inspectGit, refCommit } from "./git.js";
 import { targetBranch, targetBranchSource } from "./promotion.js";
+import { pullRequestPromotion } from "./pull-request.js";
 import { run } from "./process.js";
 import { applyGlobalTargetPolicy, runtimePaths } from "./runtime.js";
 import type { Config, RepositoryConfig } from "./types.js";
@@ -200,6 +201,10 @@ async function repositoryChecks(config: Config, cwd: string): Promise<Check[]> {
   for (const repository of repositories) {
     checks.push(await repositoryCheck(repository));
     checks.push(await branchDestinationCheck(repository));
+    const remotePromotion = pullRequestPromotion(repository);
+    if (remotePromotion) {
+      checks.push(await pullRequestPromotionCheck(repository));
+    }
     checks.push(
       repository.setupCommands.length > 0
         ? pass(
@@ -246,6 +251,50 @@ async function repositoryChecks(config: Config, cwd: string): Promise<Check[]> {
     );
   }
   return checks;
+}
+
+async function pullRequestPromotionCheck(
+  repository: RepositoryConfig,
+): Promise<Check> {
+  const promotion = pullRequestPromotion(repository)!;
+  const head =
+    promotion.mode === "session-branch"
+      ? "<per-session source branch>"
+      : targetBranch(repository);
+  for (const branch of [
+    promotion.productionBranch,
+    ...(promotion.mode === "shared-target" ? [head] : []),
+  ]) {
+    const valid = await run("git", ["check-ref-format", "--branch", branch], {
+      cwd: repository.path,
+    });
+    if (valid.code !== 0) {
+      return fail(
+        `Pull-request promotion (${repository.path})`,
+        `invalid branch name ${branch}`,
+      );
+    }
+  }
+  const remote = await run("git", ["remote", "get-url", promotion.remote], {
+    cwd: repository.path,
+  });
+  if (remote.code !== 0) {
+    return fail(
+      `Pull-request promotion (${repository.path})`,
+      `remote ${promotion.remote} is not configured`,
+    );
+  }
+  const auth = await run("gh", ["auth", "status"], { cwd: repository.path });
+  if (auth.code !== 0) {
+    return fail(
+      `Pull-request promotion (${repository.path})`,
+      "GitHub CLI authentication is unavailable; run gh auth login",
+    );
+  }
+  return pass(
+    `Pull-request promotion (${repository.path})`,
+    `${promotion.mode}; ${head} -> ${promotion.productionBranch} via ${promotion.remote}`,
+  );
 }
 
 async function branchDestinationCheck(
@@ -465,6 +514,7 @@ function validateConfig(config: Config): void {
     }
     if (
       repository.promotion?.type === "pull-request" &&
+      repository.promotion.mode !== "session-branch" &&
       (repository.promotion.productionBranch ?? repository.defaultBranch) ===
         (repository.targetBranch ??
           config.defaultTargetBranch ??
@@ -483,6 +533,9 @@ function validPromotionConfig(
   if (!promotion || promotion.type === "none") return true;
   return (
     promotion.type === "pull-request" &&
+    (promotion.mode === undefined ||
+      promotion.mode === "shared-target" ||
+      promotion.mode === "session-branch") &&
     (promotion.productionBranch === undefined ||
       (typeof promotion.productionBranch === "string" &&
         promotion.productionBranch.length > 0)) &&

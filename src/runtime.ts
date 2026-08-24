@@ -165,6 +165,7 @@ export async function readConfig(): Promise<Config> {
     }
     if (
       repository.promotion.type === "pull-request" &&
+      repository.promotion.mode !== "session-branch" &&
       (repository.promotion.productionBranch ?? repository.defaultBranch) ===
         (repository.targetBranch ??
           value.defaultTargetBranch ??
@@ -184,13 +185,32 @@ function isPromotionConfig(repository: RepositoryConfig): boolean {
   if (!promotion || promotion.type === "none") return true;
   return (
     promotion.type === "pull-request" &&
+    (promotion.mode === undefined ||
+      promotion.mode === "shared-target" ||
+      promotion.mode === "session-branch") &&
     (promotion.productionBranch === undefined ||
       (typeof promotion.productionBranch === "string" &&
-        promotion.productionBranch.length > 0)) &&
+        isPlausibleBranchName(promotion.productionBranch))) &&
     (promotion.remote === undefined ||
       (typeof promotion.remote === "string" && promotion.remote.length > 0)) &&
     isOptionalParticipantList(promotion.reviewers) &&
     isOptionalParticipantList(promotion.assignees)
+  );
+}
+
+function isPlausibleBranchName(value: string): boolean {
+  return (
+    value.length > 0 &&
+    !value.startsWith("-") &&
+    !value.startsWith("/") &&
+    !value.endsWith("/") &&
+    !value.endsWith(".") &&
+    !value.includes("..") &&
+    !value.includes("@{") &&
+    !/[\x00-\x20\x7f~^:?*[\\]/.test(value) &&
+    !value
+      .split("/")
+      .some((part) => part.startsWith(".") || part.endsWith(".lock"))
   );
 }
 

@@ -40,6 +40,7 @@ export type PromotionConfig =
   | { type: "none" }
   | {
       type: "pull-request";
+      mode?: "shared-target" | "session-branch";
       productionBranch?: string;
       remote?: string;
       reviewers?: string[];

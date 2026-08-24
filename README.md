@@ -241,6 +241,36 @@ omit `reviewers` when CODEOWNERS or another GitHub policy assigns reviewers.
 The remote step requires authenticated `git` and `gh` access. Failures remain
 resumable with `codex-handoff resume`.
 
+This is the backward-compatible shared-target mode. Its explicit spelling is
+`"mode": "shared-target"`; omitting `mode` behaves identically.
+
+For an independent PR for every completed session, configure
+`"mode": "session-branch"`. That mode pushes the exact recorded source commit
+to the session's source branch and opens a PR from it to the production branch.
+Multiple session PRs may remain open concurrently. A retry reuses only an open
+PR whose head and embedded session marker belong to that same session, and
+never edits another session's PR.
+
+```json
+{
+  "targetBranch": "dev",
+  "promotion": {
+    "type": "pull-request",
+    "mode": "session-branch",
+    "productionBranch": "main",
+    "remote": "origin",
+    "reviewers": ["platform-team"],
+    "assignees": ["release-owner"]
+  }
+}
+```
+
+Both modes use normal non-force pushes and never merge, close, delete, or
+force-update remote branches or PRs. Before pushing, the tool validates branch
+names, the configured remote, `gh` authentication, remote base existence, and
+that base and head commits differ. `status` reports the mode and saved PR URL;
+`doctor` checks remote-promotion readiness.
+
 To apply participants to every repository that already uses pull-request
 promotion, set global defaults once:
 
