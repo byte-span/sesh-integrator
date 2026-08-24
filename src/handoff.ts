@@ -283,9 +283,17 @@ export async function beginCommand(
       sessionId,
     );
     branch = `codex/${sessionId.replaceAll("_", "-")}`;
+    const effectiveTarget = targetBranch(repository);
+    const sourceBase = await refCommit(
+      repository.path,
+      `refs/heads/${effectiveTarget}`,
+    );
+    if (!sourceBase) {
+      throw new Error(`Target branch not found: ${effectiveTarget}`);
+    }
     await mkdir(dirname(worktree), { recursive: true });
     await git(
-      ["worktree", "add", "-b", branch, worktree, launchContext.head],
+      ["worktree", "add", "-b", branch, worktree, sourceBase],
       launchContext.worktreePath,
     );
     context = await inspectGit(worktree);
@@ -675,10 +683,51 @@ export async function resumeCommand(): Promise<Session> {
   const source = await inspectGit(process.cwd());
   const config = await readConfig();
   const repository = findRepository(config, source.gitCommonDir);
-  const session = await findLatestSessionForWorktree(source.worktreePath, [
+  let session = await findLatestSessionForWorktree(source.worktreePath, [
     "needs_review",
     "promotion_pending",
   ]);
+  if (!session || !["needs_review", "promotion_pending"].includes(session.status)) {
+    const orphaned =
+      session ??
+      (await findLatestSessionForWorktree(source.worktreePath, [
+        "active",
+        "ready",
+      ]));
+    if (orphaned) {
+      const integrationWorktree = join(
+        runtimePaths().worktrees,
+        orphaned.repositoryId,
+      );
+      if (await pathExists(integrationWorktree)) {
+        const context = await inspectGit(integrationWorktree);
+        const mergeHead = await run("git", ["rev-parse", "MERGE_HEAD"], {
+          cwd: integrationWorktree,
+        });
+        if (
+          context.gitCommonDir === repository.gitCommonDir &&
+          context.branch === repository.integrationBranch &&
+          mergeHead.code === 0 &&
+          mergeHead.stdout.trim() === source.head
+        ) {
+          orphaned.status = "needs_review";
+          orphaned.readyCommit = source.head;
+          orphaned.readyAt ??= new Date().toISOString();
+          orphaned.completionSummary ??= orphaned.taskSummary;
+          orphaned.targetBranch ??= targetBranch(repository);
+          orphaned.conflictIntegrationHead = context.head;
+          orphaned.awaitingConflictResolution = true;
+          orphaned.latestError =
+            "Recovered a preserved integration merge after interrupted session-state persistence";
+          await writeSession(orphaned);
+          session = orphaned;
+          process.stderr.write(
+            `Recovered resumable merge state for ${orphaned.id} from ${integrationWorktree}.\n`,
+          );
+        }
+      }
+    }
+  }
   if (!session) {
     throw new Error("No resumable integration exists for this worktree");
   }
