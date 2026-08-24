@@ -13,7 +13,7 @@ export async function statusCommand(): Promise<void> {
   for (const repository of config.repositories) {
     const remote = pullRequestPromotion(repository);
     process.stdout.write(
-      `  ${repository.path}: staging ${repository.integrationBranch} -> target ${targetBranch(repository)} (${targetBranchSource(repository)})${remote ? ` -> PR to ${remote.productionBranch} via ${remote.remote}` : ""}\n`,
+      `  ${repository.path}: staging ${repository.integrationBranch} -> target ${targetBranch(repository)} (${targetBranchSource(repository)})${remote ? ` -> PR (${remote.mode}) to ${remote.productionBranch} via ${remote.remote}` : ""}\n`,
     );
   }
   process.stdout.write(`Sessions: ${sessions.length}\n`);

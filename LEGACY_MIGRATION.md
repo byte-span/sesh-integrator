@@ -188,3 +188,15 @@ Because the two systems use different state directories and integration branches
 `codex-handoff` implementation must not automatically uninstall the old system.
 
 It may provide exact recommended commands after auditing, but destructive actions require explicit user action.
+
+## Pull-request promotion modes
+
+Existing `promotion.type: "pull-request"` entries require no migration. An
+omitted `mode` continues to mean `shared-target`, so the configured target PR is
+reused exactly as before.
+
+To adopt independent review per handoff, set `mode` to `session-branch`. New or
+resumed sessions then push their own source branch and use a session-marked PR;
+existing shared-target PRs are not closed, merged, edited, or deleted. Confirm
+the remote base exists and run `codex-handoff doctor` to verify branch syntax,
+remote configuration, and GitHub CLI authentication before first use.

@@ -3,6 +3,7 @@ import { targetBranch } from "./promotion.js";
 import type { RepositoryConfig, Session } from "./types.js";
 
 export interface PullRequestPromotion {
+  mode: "shared-target" | "session-branch";
   productionBranch: string;
   remote: string;
   reviewers: string[];
@@ -16,6 +17,7 @@ export function pullRequestPromotion(
     return undefined;
   }
   return {
+    mode: repository.promotion.mode ?? "shared-target",
     productionBranch:
       repository.promotion.productionBranch ?? repository.defaultBranch,
     remote: repository.promotion.remote ?? "origin",
@@ -36,7 +38,25 @@ export async function promoteByPullRequest(
 ): Promise<string | undefined> {
   const promotion = pullRequestPromotion(repository);
   if (!promotion) return undefined;
-  const head = targetBranch(repository);
+  const head =
+    promotion.mode === "session-branch"
+      ? session.branch
+      : targetBranch(repository);
+  const headCommit =
+    promotion.mode === "session-branch"
+      ? session.readyCommit
+      : session.promotedCommit;
+  if (!headCommit) {
+    throw new Error(
+      `Pull-request promotion is missing the ${promotion.mode === "session-branch" ? "ready" : "promoted"} commit`,
+    );
+  }
+  await validateBranch(repository.path, head, "pull-request head");
+  await validateBranch(
+    repository.path,
+    promotion.productionBranch,
+    "pull-request base",
+  );
   if (head === promotion.productionBranch) {
     throw new Error(
       `Pull-request promotion requires different target and production branches; both resolve to ${head}`,
@@ -45,7 +65,41 @@ export async function promoteByPullRequest(
 
   await checked(
     "git",
-    ["push", promotion.remote, `refs/heads/${head}:refs/heads/${head}`],
+    ["remote", "get-url", promotion.remote],
+    repository.path,
+    `Pull-request promotion remote ${promotion.remote} is not configured`,
+  );
+  await checked(
+    "gh",
+    ["auth", "status"],
+    repository.path,
+    "GitHub authentication is unavailable",
+  );
+  const remoteBase = (
+    await checked(
+      "git",
+      [
+        "ls-remote",
+        "--exit-code",
+        "--heads",
+        promotion.remote,
+        promotion.productionBranch,
+      ],
+      repository.path,
+      `Could not find base branch ${promotion.productionBranch} on ${promotion.remote}`,
+    )
+  )
+    .trim()
+    .split(/\s+/)[0];
+  if (!remoteBase || remoteBase === headCommit) {
+    throw new Error(
+      `Pull-request promotion requires different base and head commits; both resolve to ${headCommit}`,
+    );
+  }
+
+  await checked(
+    "git",
+    ["push", promotion.remote, `${headCommit}:refs/heads/${head}`],
     repository.path,
     `Could not push ${head} to ${promotion.remote}`,
   );
@@ -62,7 +116,7 @@ export async function promoteByPullRequest(
       "--head",
       head,
       "--json",
-      "url",
+      "url,body",
       "--limit",
       "1",
     ],
@@ -70,7 +124,17 @@ export async function promoteByPullRequest(
     "Could not inspect existing pull requests",
   );
   const pullRequests = parsePullRequests(existing);
-  let url = pullRequests[0]?.url;
+  const marker = `codex-handoff-session:${session.id}`;
+  let url =
+    promotion.mode === "session-branch"
+      ? pullRequests.find((pullRequest) => pullRequest.body.includes(marker))
+          ?.url
+      : pullRequests[0]?.url;
+  if (promotion.mode === "session-branch" && pullRequests.length > 0 && !url) {
+    throw new Error(
+      `Open pull request for ${head} does not belong to session ${session.id}; refusing to reuse or modify it`,
+    );
+  }
   if (!url) {
     const args = [
       "pr",
@@ -82,7 +146,7 @@ export async function promoteByPullRequest(
       "--title",
       `Promote ${head} to ${promotion.productionBranch}`,
       "--body",
-      `Automated promotion after codex-handoff session ${session.id}.\n\n${session.completionSummary ?? session.taskSummary}`,
+      `${marker}\n\nAutomated promotion after codex-handoff session ${session.id}.\n\n${session.completionSummary ?? session.taskSummary}`,
     ];
     if (promotion.reviewers.length > 0) {
       args.push("--reviewer", promotion.reviewers.join(","));
@@ -134,7 +198,22 @@ async function checked(
   return result.stdout;
 }
 
-function parsePullRequests(value: string): Array<{ url: string }> {
+async function validateBranch(
+  cwd: string,
+  branch: string,
+  label: string,
+): Promise<void> {
+  await checked(
+    "git",
+    ["check-ref-format", "--branch", branch],
+    cwd,
+    `Invalid ${label} branch ${branch}`,
+  );
+}
+
+function parsePullRequests(
+  value: string,
+): Array<{ url: string; body: string }> {
   try {
     const parsed: unknown = JSON.parse(value);
     if (
@@ -143,10 +222,11 @@ function parsePullRequests(value: string): Array<{ url: string }> {
         (item) =>
           typeof item === "object" &&
           item !== null &&
-          typeof (item as { url?: unknown }).url === "string",
+          typeof (item as { url?: unknown }).url === "string" &&
+          typeof (item as { body?: unknown }).body === "string",
       )
     ) {
-      return parsed as Array<{ url: string }>;
+      return parsed as Array<{ url: string; body: string }>;
     }
   } catch {
     // The actionable error below covers malformed CLI output.

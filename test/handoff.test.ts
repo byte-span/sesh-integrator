@@ -190,6 +190,181 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     expect(completed.remotePromotedAt).toBeTruthy();
   });
 
+  it("opens independent pull requests for concurrent session branches and reuses only the same session PR", async () => {
+    const fixture = await createFixture();
+    const remote = join(fixture.root, "remote.git");
+    git(fixture.root, "init", "--bare", remote);
+    git(fixture.repo, "remote", "add", "origin", remote);
+    git(fixture.repo, "push", "origin", "main");
+    git(fixture.repo, "branch", "dev", "main");
+    await updateConfig(fixture, (config) => {
+      config.repositories[0].targetBranch = "dev";
+      config.repositories[0].promotion = {
+        type: "pull-request",
+        mode: "session-branch",
+        productionBranch: "main",
+        reviewers: ["reviewer-one"],
+        assignees: ["assignee-one"],
+      };
+    });
+    const fake = await createFakeGh(fixture);
+    const first = await addWorktree(fixture, "session-one");
+    const second = await addWorktree(fixture, "session-two");
+
+    await runCliOkWithEnv(
+      fixture,
+      first,
+      ["begin", "--summary", "one"],
+      fake.env,
+    );
+    commitFile(first, "one.txt", "one\n", "session one");
+    await runCliOkWithEnv(
+      fixture,
+      first,
+      ["integrate", "--summary", "one complete"],
+      fake.env,
+    );
+    await runCliOkWithEnv(
+      fixture,
+      second,
+      ["begin", "--summary", "two"],
+      fake.env,
+    );
+    commitFile(second, "two.txt", "two\n", "session two");
+    await runCliOkWithEnv(
+      fixture,
+      second,
+      ["integrate", "--summary", "two complete"],
+      fake.env,
+    );
+
+    const completed = await sessions(fixture);
+    expect(completed.map((session) => session.pullRequestUrl)).toEqual([
+      "https://github.example/pull/17",
+      "https://github.example/pull/18",
+    ]);
+    expect(git(remote, "rev-parse", "refs/heads/session-one")).toBe(
+      completed[0].readyCommit,
+    );
+    expect(git(remote, "rev-parse", "refs/heads/session-two")).toBe(
+      completed[1].readyCommit,
+    );
+    const callsBeforeRetry = await readFile(fake.log, "utf8");
+    expect(callsBeforeRetry).toContain(
+      "pr list --state open --base main --head session-one",
+    );
+    expect(callsBeforeRetry).toContain(
+      "pr list --state open --base main --head session-two",
+    );
+    expect(callsBeforeRetry.match(/pr create/g)).toHaveLength(2);
+    expect(callsBeforeRetry).toContain("--reviewer reviewer-one");
+    expect(callsBeforeRetry).toContain("--assignee assignee-one");
+  });
+
+  it("detects and reuses an existing same-session PR on resume", async () => {
+    const fixture = await createFixture();
+    const remote = join(fixture.root, "remote.git");
+    git(fixture.root, "init", "--bare", remote);
+    git(fixture.repo, "remote", "add", "origin", remote);
+    git(fixture.repo, "push", "origin", "main");
+    git(fixture.repo, "branch", "dev", "main");
+    await updateConfig(fixture, (config) => {
+      config.repositories[0].targetBranch = "dev";
+      config.repositories[0].promotion = {
+        type: "pull-request",
+        mode: "session-branch",
+        productionBranch: "main",
+        reviewers: ["reviewer-one"],
+      };
+    });
+    const fake = await createFakeGh(fixture);
+    await runCliOkWithEnv(
+      fixture,
+      fixture.repo,
+      ["begin", "--summary", "retry"],
+      fake.env,
+    );
+    commitFile(fixture.repo, "retry.txt", "retry\n", "retry source");
+    const failed = await runCli(
+      fixture,
+      fixture.repo,
+      ["integrate", "--summary", "retry complete"],
+      {
+        ...fake.env,
+        FAKE_GH_CREATE_THEN_FAIL: "1",
+      },
+    );
+    expect(failed.code).toBe(1);
+    await runCliOkWithEnv(fixture, fixture.repo, ["resume"], fake.env);
+    const calls = await readFile(fake.log, "utf8");
+    expect(calls.match(/pr create/g)).toHaveLength(1);
+    expect(calls).toContain(
+      "pr edit https://github.example/pull/17 --add-reviewer reviewer-one",
+    );
+    expect((await sessions(fixture))[0].pullRequestUrl).toBe(
+      "https://github.example/pull/17",
+    );
+  });
+
+  it("preserves session PR promotion failures for resume", async () => {
+    const fixture = await createFixture();
+    const remote = join(fixture.root, "remote.git");
+    git(fixture.root, "init", "--bare", remote);
+    git(fixture.repo, "remote", "add", "origin", remote);
+    git(fixture.repo, "push", "origin", "main");
+    git(fixture.repo, "branch", "dev", "main");
+    await updateConfig(fixture, (config) => {
+      config.repositories[0].targetBranch = "dev";
+      config.repositories[0].promotion = {
+        type: "pull-request",
+        mode: "session-branch",
+        productionBranch: "main",
+      };
+    });
+    const fake = await createFakeGh(fixture);
+    await runCliOkWithEnv(
+      fixture,
+      fixture.repo,
+      ["begin", "--summary", "failure"],
+      fake.env,
+    );
+    commitFile(fixture.repo, "failure.txt", "failure\n", "failure source");
+    const failed = await runCli(
+      fixture,
+      fixture.repo,
+      ["integrate", "--summary", "failure complete"],
+      {
+        ...fake.env,
+        FAKE_GH_FAIL_CREATE: "1",
+      },
+    );
+    expect(failed.code).toBe(1);
+    const pending = (await sessions(fixture))[0]!;
+    expect(pending.status).toBe("needs_review");
+    expect(pending.recoveryPhase).toBe("pull_request");
+    expect(pending.latestError).toContain(
+      "Could not create promotion pull request",
+    );
+    await runCliOkWithEnv(fixture, fixture.repo, ["resume"], fake.env);
+    expect((await sessions(fixture))[0].pullRequestUrl).toBe(
+      "https://github.example/pull/17",
+    );
+  });
+
+  it("rejects invalid pull-request promotion modes and branch names", async () => {
+    const fixture = await createFixture();
+    await updateConfig(fixture, (config) => {
+      config.repositories[0].promotion = {
+        type: "pull-request",
+        mode: "per-task",
+        productionBranch: "bad..branch",
+      };
+    });
+    const result = await runCli(fixture, fixture.repo, ["status"]);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("Invalid validation configuration");
+  });
+
   it("creates the global target while registering a new repository", async () => {
     const fixture = await createFixture();
     const main = git(fixture.repo, "rev-parse", "main");
@@ -2750,14 +2925,26 @@ async function createFakeGh(
   const log = join(fixture.root, "gh.log");
   await mkdir(bin, { recursive: true });
   const executable = join(bin, "gh");
+  const state = join(fixture.root, "gh-state.json");
+  await writeFile(state, "[]\n");
   await writeFile(
     executable,
     `#!/usr/bin/env node
 const fs = require("node:fs");
 const args = process.argv.slice(2);
 fs.appendFileSync(process.env.FAKE_GH_LOG, args.join(" ") + "\\n");
-if (args[0] === "pr" && args[1] === "list") process.stdout.write("[]\\n");
-else if (args[0] === "pr" && args[1] === "create") process.stdout.write("https://github.example/pull/17\\n");
+const prs = JSON.parse(fs.readFileSync(process.env.FAKE_GH_STATE, "utf8"));
+const value = (name) => args[args.indexOf(name) + 1];
+if (args[0] === "auth" && args[1] === "status") process.exit(process.env.FAKE_GH_FAIL_AUTH ? 1 : 0);
+if (args[0] === "pr" && args[1] === "list") {
+  process.stdout.write(JSON.stringify(prs.filter((pr) => pr.base === value("--base") && pr.head === value("--head"))) + "\\n");
+} else if (args[0] === "pr" && args[1] === "create") {
+  if (process.env.FAKE_GH_FAIL_CREATE) { process.stderr.write("create failed\\n"); process.exit(1); }
+  const pr = { url: "https://github.example/pull/" + (17 + prs.length), body: value("--body"), base: value("--base"), head: value("--head") };
+  prs.push(pr); fs.writeFileSync(process.env.FAKE_GH_STATE, JSON.stringify(prs));
+  if (process.env.FAKE_GH_CREATE_THEN_FAIL) { process.stderr.write("connection lost after create\\n"); process.exit(1); }
+  process.stdout.write(pr.url + "\\n");
+} else if (args[0] === "pr" && args[1] === "edit") process.exit(process.env.FAKE_GH_FAIL_EDIT ? 1 : 0);
 else process.exit(2);
 `,
   );
@@ -2767,6 +2954,7 @@ else process.exit(2);
     env: {
       PATH: `${bin}:${process.env.PATH ?? ""}`,
       FAKE_GH_LOG: log,
+      FAKE_GH_STATE: state,
     },
   };
 }
