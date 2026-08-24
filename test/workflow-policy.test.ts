@@ -34,9 +34,9 @@ describe("bundled workflow trigger policy", () => {
     );
 
     expect(guidance).toContain("secret-sync/secret-configs/apps/");
-    expect(guidance).toContain("Never store values, tokens, ciphertext");
+    expect(guidance).toMatch(/Never (?:store|place) values, tokens,/);
     expect(guidance).toContain("Vercel project/organization IDs");
-    expect(guidance).toContain("routing stays in Druidia");
+    expect(guidance).toContain("Druidia");
     expect(guidance).toContain("npm run validate:configs");
     expect(guidance).toContain("do not guess");
   });

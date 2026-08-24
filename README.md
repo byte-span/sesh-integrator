@@ -64,11 +64,11 @@ These are the complete commands implemented by the MVP:
 codex-handoff init
 codex-handoff register [repo-path] [--auto-config] [--setup-command '<json-array>']...
 codex-handoff begin --summary "Implement feature" [--create-worktree] [--no-auto-branch] [--depends-on <session-id>]...
-codex-handoff commit --message "Implement feature"
-codex-handoff validate
-codex-handoff integrate --summary "Implemented feature and tests"
-codex-handoff resume
-codex-handoff status
+codex-handoff commit --message "Implement feature" [--session <session-id>]
+codex-handoff validate [--session <session-id>]
+codex-handoff integrate --summary "Implemented feature and tests" [--session <session-id>]
+codex-handoff resume [--session <session-id>]
+codex-handoff status [--session <session-id>]
 codex-handoff reconcile [repo-path] [--apply]
 codex-handoff audit-legacy
 codex-handoff doctor
@@ -400,6 +400,11 @@ prints `Continue task in: <path>`. Run every edit, `commit`, `validate`,
 already a linked worktree, the flag reuses it. Dirty and staged state in an
 ordinary launch checkout is neither moved nor modified.
 
+Starting another `--create-worktree` task from the same ordinary checkout is
+allowed while earlier sessions remain active or recoverable. Each task receives
+a separate branch and source worktree; only integration and promotion are
+serialized by the repository lock.
+
 For deliberate in-place use, omit `--create-worktree`.
 
 `begin` first records an observable Git baseline, then runs centrally configured setup commands and creates a unique
@@ -421,7 +426,7 @@ paths, genuine deletions or modifications, and task commits that absorb a
 baseline-dirty path still block with a path-specific reason. Setup-created Git
 changes are detected because setup runs after baseline capture.
 
-Repeat `--depends-on` for explicit dependencies. Pass `--no-auto-branch` only when strict detached/default-branch rejection is desired. `begin` always rejects unregistered worktrees, staged baseline changes, indeterminate new errors, the integration branch, unknown dependencies, and duplicate active sessions.
+Repeat `--depends-on` for explicit dependencies. Pass `--no-auto-branch` only when strict detached/default-branch rejection is desired. `begin` always rejects unregistered worktrees, staged baseline changes, indeterminate new errors, the integration branch, unknown dependencies, and duplicate active sessions attached to the same source worktree. An active managed session launched from an ordinary checkout does not block another isolated task from that checkout.
 
 `--create-worktree` cannot be combined with `--no-auto-branch`. A failed begin
 preserves any newly created source worktree and reports its path rather than
@@ -430,6 +435,15 @@ discarding possible setup-created state.
 Sessions created by versions that did not record an observable Git baseline
 fail validation/integration with a migration message asking you to begin a new
 session; they are never silently interpreted using weaker cleanliness rules.
+
+### Explicit session selection
+
+Lifecycle commands continue to infer a session when run in its source worktree.
+They may also be run from another checkout of the same repository with
+`--session <session-id>`. A shared launch checkout automatically selects its
+only matching session; when multiple sessions match, the command lists them and
+requires `--session`. `status --session <session-id>` filters the report to one
+session.
 
 ### `integrate`
 
@@ -636,7 +650,7 @@ For rollback, stop invoking the new skill, restore the previous global guidance,
 - Managed source worktrees are retained after completion; cleanup is currently
   manual and must not remove a worktree containing uncommitted state.
 - The tool does not fetch, force-push, delete branches, or merge/reset user worktrees. It pushes only when a repository explicitly enables pull-request promotion.
-- One preserved `needs_review` merge blocks further integrations until the workflow resolves it and runs `resume`.
+- One preserved `needs_review` merge blocks further integrations because the dedicated integration worktree contains its recovery state; unrelated source sessions may continue working and can integrate after it is resumed.
 - Dependency checks fail clearly rather than running a background waiter; retry after dependencies succeed.
 - The current-session resolution path is instruction-driven; genuinely ambiguous conflicts or failed validation still require user review.
 - Optional nested conflict resolution requires a compatible networked `codex exec`; `codexCommand` is a single executable path, not a shell command.

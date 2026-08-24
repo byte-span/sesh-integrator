@@ -256,12 +256,10 @@ export async function beginCommand(
     "promotion_pending",
     "needs_review",
   ];
-  const duplicate =
-    (await findLatestSessionForWorktree(
-      launchContext.worktreePath,
-      activeStatuses,
-    )) ??
-    (await findSessionLaunchedFrom(launchContext.worktreePath, activeStatuses));
+  const duplicate = await findLatestSessionForWorktree(
+    launchContext.worktreePath,
+    activeStatuses,
+  );
   if (duplicate)
     throw new Error(
       `Checkout already has handoff session ${duplicate.id}; continue from ${duplicate.worktreePath}`,
@@ -392,28 +390,80 @@ export async function beginCommand(
   }
 }
 
-async function findSessionLaunchedFrom(
+async function findSessionsLaunchedFrom(
   launchWorktreePath: string,
   statuses: Session["status"][],
-): Promise<Session | undefined> {
-  return (await readSessions())
-    .filter(
-      (session) =>
-        session.launchWorktreePath === launchWorktreePath &&
-        statuses.includes(session.status),
-    )
-    .at(-1);
+): Promise<Session[]> {
+  return (await readSessions()).filter(
+    (session) =>
+      session.launchWorktreePath === launchWorktreePath &&
+      statuses.includes(session.status),
+  );
 }
 
-export async function commitCommand(message: string): Promise<Session> {
-  if (!message.trim()) throw new Error('commit requires --message "..."');
-  const source = await inspectGit(process.cwd());
+async function resolveSourceSession(
+  statuses: Session["status"][],
+  sessionId?: string,
+): Promise<{
+  source: Awaited<ReturnType<typeof inspectGit>>;
+  repository: RepositoryConfig;
+  session: Session;
+}> {
+  const current = await inspectGit(process.cwd());
   const config = await readConfig();
-  const repository = findRepository(config, source.gitCommonDir);
-  const session = await findLatestSessionForWorktree(source.worktreePath, [
-    "active",
-  ]);
-  if (!session) throw new Error("No active session exists for this worktree");
+  const repository = findRepository(config, current.gitCommonDir);
+  if (sessionId) {
+    const session = await readSession(sessionId);
+    if (!session) throw new Error(`Unknown session: ${sessionId}`);
+    if (session.repositoryId !== repoId(repository.gitCommonDir)) {
+      throw new Error(`Session ${sessionId} belongs to a different repository`);
+    }
+    if (!statuses.includes(session.status)) {
+      throw new Error(
+        `Session ${sessionId} is ${session.status}; expected ${statuses.join(" or ")}`,
+      );
+    }
+    return {
+      source: await inspectGit(session.worktreePath),
+      repository,
+      session,
+    };
+  }
+  const attached = await findLatestSessionForWorktree(
+    current.worktreePath,
+    statuses,
+  );
+  if (attached) return { source: current, repository, session: attached };
+  const launched = await findSessionsLaunchedFrom(
+    current.worktreePath,
+    statuses,
+  );
+  if (launched.length === 1) {
+    return {
+      source: await inspectGit(launched[0]!.worktreePath),
+      repository,
+      session: launched[0]!,
+    };
+  }
+  if (launched.length > 1) {
+    throw new Error(
+      `Multiple matching sessions were launched from this checkout: ${launched.map((item) => item.id).join(", ")}. Select one with --session <session-id>`,
+    );
+  }
+  throw new Error(
+    `No ${statuses.join(" or ")} session exists for this worktree`,
+  );
+}
+
+export async function commitCommand(
+  message: string,
+  sessionId?: string,
+): Promise<Session> {
+  if (!message.trim()) throw new Error('commit requires --message "..."');
+  const { source, repository, session } = await resolveSourceSession(
+    ["active"],
+    sessionId,
+  );
   bindPerformanceSession(session.id);
   if (source.branch !== session.branch) {
     throw new Error(
@@ -477,17 +527,16 @@ export async function commitCommand(message: string): Promise<Session> {
   return session;
 }
 
-export async function integrateCommand(summary: string): Promise<Session> {
+export async function integrateCommand(
+  summary: string,
+  sessionId?: string,
+): Promise<Session> {
   if (!summary.trim()) throw new Error('integrate requires --summary "..."');
-  const source = await inspectGit(process.cwd());
   const config = await readConfig();
-  const repository = findRepository(config, source.gitCommonDir);
-  const session = await findLatestSessionForWorktree(source.worktreePath, [
-    "active",
-    "ready",
-  ]);
-  if (!session)
-    throw new Error("No active or ready session exists for this worktree");
+  const { source, repository, session } = await resolveSourceSession(
+    ["active", "ready"],
+    sessionId,
+  );
   bindPerformanceSession(session.id);
   if (!source.branch || source.branch !== session.branch) {
     throw new Error(
@@ -607,14 +656,11 @@ export async function integrateCommand(summary: string): Promise<Session> {
   }
 }
 
-export async function validateCommand(): Promise<Session> {
-  const source = await inspectGit(process.cwd());
-  const config = await readConfig();
-  const repository = findRepository(config, source.gitCommonDir);
-  const session = await findLatestSessionForWorktree(source.worktreePath, [
-    "active",
-  ]);
-  if (!session) throw new Error("No active session exists for this worktree");
+export async function validateCommand(sessionId?: string): Promise<Session> {
+  const { source, repository, session } = await resolveSourceSession(
+    ["active"],
+    sessionId,
+  );
   bindPerformanceSession(session.id);
   if (source.branch !== session.branch) {
     throw new Error(
@@ -679,15 +725,46 @@ export async function validateCommand(): Promise<Session> {
   return session;
 }
 
-export async function resumeCommand(): Promise<Session> {
-  const source = await inspectGit(process.cwd());
+export async function resumeCommand(sessionId?: string): Promise<Session> {
+  const current = await inspectGit(process.cwd());
   const config = await readConfig();
-  const repository = findRepository(config, source.gitCommonDir);
-  let session = await findLatestSessionForWorktree(source.worktreePath, [
-    "needs_review",
-    "promotion_pending",
-  ]);
-  if (!session || !["needs_review", "promotion_pending"].includes(session.status)) {
+  const repository = findRepository(config, current.gitCommonDir);
+  let session = sessionId
+    ? await readSession(sessionId)
+    : await findLatestSessionForWorktree(current.worktreePath, [
+        "needs_review",
+        "promotion_pending",
+      ]);
+  if (sessionId && !session) throw new Error(`Unknown session: ${sessionId}`);
+  if (session && session.repositoryId !== repoId(repository.gitCommonDir))
+    throw new Error(`Session ${session.id} belongs to a different repository`);
+  if (
+    sessionId &&
+    session &&
+    !["needs_review", "promotion_pending", "active", "ready"].includes(
+      session.status,
+    )
+  ) {
+    throw new Error(
+      `Session ${session.id} is not resumable (${session.status})`,
+    );
+  }
+  if (!session && !sessionId) {
+    const launched = await findSessionsLaunchedFrom(current.worktreePath, [
+      "needs_review",
+      "promotion_pending",
+    ]);
+    if (launched.length > 1)
+      throw new Error(
+        `Multiple resumable sessions were launched from this checkout: ${launched.map((item) => item.id).join(", ")}. Select one with --session <session-id>`,
+      );
+    session = launched[0];
+  }
+  const source = session ? await inspectGit(session.worktreePath) : current;
+  if (
+    !session ||
+    !["needs_review", "promotion_pending"].includes(session.status)
+  ) {
     const orphaned =
       session ??
       (await findLatestSessionForWorktree(source.worktreePath, [
@@ -730,6 +807,9 @@ export async function resumeCommand(): Promise<Session> {
   }
   if (!session) {
     throw new Error("No resumable integration exists for this worktree");
+  }
+  if (!["needs_review", "promotion_pending"].includes(session.status)) {
+    throw new Error(`Session ${session.id} has no resumable integration state`);
   }
   bindPerformanceSession(session.id);
   if (!session.readyCommit) {

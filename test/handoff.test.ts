@@ -964,6 +964,59 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     expect(git(fixture.repo, "show", "main:isolated.txt")).toBe("isolated");
   });
 
+  it("allows concurrent managed sessions from one launch checkout and selects ambiguous sessions explicitly", async () => {
+    const fixture = await createFixture();
+
+    await runCliOk(fixture, fixture.repo, [
+      "begin",
+      "--summary",
+      "first isolated task",
+      "--create-worktree",
+    ]);
+    await runCliOk(fixture, fixture.repo, [
+      "begin",
+      "--summary",
+      "second isolated task",
+      "--create-worktree",
+    ]);
+
+    const active = await sessions(fixture);
+    expect(active).toHaveLength(2);
+    expect(new Set(active.map((session) => session.worktreePath)).size).toBe(2);
+    expect(active.every((session) => session.status === "active")).toBe(true);
+    expect(git(fixture.repo, "branch", "--show-current")).toBe("main");
+
+    commitFile(active[0].worktreePath, "first.txt", "first\n", "first task");
+    commitFile(active[1].worktreePath, "second.txt", "second\n", "second task");
+
+    const ambiguous = await runCli(fixture, fixture.repo, ["validate"]);
+    expect(ambiguous.code).toBe(1);
+    expect(ambiguous.stderr).toContain("Multiple matching sessions");
+    expect(ambiguous.stderr).toContain("--session <session-id>");
+
+    await runCliOk(fixture, fixture.repo, [
+      "validate",
+      "--session",
+      active[0].id,
+    ]);
+    const integrated = await runCliOk(fixture, fixture.repo, [
+      "integrate",
+      "--summary",
+      "first complete",
+      "--session",
+      active[0].id,
+    ]);
+    expect(integrated.stdout).toContain(`Promoted ${active[0].id}`);
+
+    const filteredStatus = await runCliOk(fixture, fixture.repo, [
+      "status",
+      "--session",
+      active[1].id,
+    ]);
+    expect(filteredStatus.stdout).toContain(active[1].id);
+    expect(filteredStatus.stdout).not.toContain(active[0].id);
+  });
+
   it("bases a managed source worktree on the effective target instead of a stale launch checkout", async () => {
     const fixture = await createFixture();
     git(fixture.repo, "branch", "dev", "main");

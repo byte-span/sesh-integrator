@@ -47,6 +47,9 @@ export async function run(
       recordOnce();
       reject(error);
     });
+    child.stdin?.on("error", (error: NodeJS.ErrnoException) => {
+      if (error.code !== "EPIPE") reject(error);
+    });
     child.once("close", (code) => {
       recordOnce();
       resolve({ code: code ?? 1, stdout, stderr });

@@ -55,25 +55,26 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
       }
       case "integrate": {
         const options = parseOptions(args, false);
-        await integrateCommand(options.summary);
+        await integrateCommand(options.summary, options.sessionId);
         break;
       }
       case "commit": {
-        await commitCommand(parseCommitOptions(args));
+        const options = parseCommitOptions(args);
+        await commitCommand(options.message, options.sessionId);
         break;
       }
-      case "validate":
-        rejectArguments(args);
-        await validateCommand();
+      case "validate": {
+        await validateCommand(parseSessionOption(args));
         break;
-      case "resume":
-        rejectArguments(args);
-        await resumeCommand();
+      }
+      case "resume": {
+        await resumeCommand(parseSessionOption(args));
         break;
-      case "status":
-        rejectArguments(args);
-        await statusCommand();
+      }
+      case "status": {
+        await statusCommand(parseSessionOption(args));
         break;
+      }
       case "reconcile": {
         const options = parseReconcileOptions(args);
         await reconcileCommand(options.apply, options.path);
@@ -142,11 +143,13 @@ function parseOptions(
   dependsOn: string[];
   autoBranch: boolean;
   createWorktree: boolean;
+  sessionId?: string;
 } {
   let summary = "";
   const dependsOn: string[] = [];
   let autoBranch = true;
   let createWorktree = false;
+  let sessionId: string | undefined;
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
     const value = args[index + 1];
@@ -166,19 +169,33 @@ function parseOptions(
       autoBranch = false;
     } else if (allowDependencies && argument === "--create-worktree") {
       createWorktree = true;
+    } else if (!allowDependencies && argument === "--session" && value) {
+      if (sessionId) throw new Error("--session may be specified only once");
+      sessionId = value;
+      index += 1;
     } else {
       throw new Error(`Unknown or incomplete option: ${argument}`);
     }
   }
-  return { summary, dependsOn, autoBranch, createWorktree };
+  return {
+    summary,
+    dependsOn,
+    autoBranch,
+    createWorktree,
+    ...(sessionId ? { sessionId } : {}),
+  };
 }
 
 function rejectArguments(args: string[]): void {
   if (args.length) throw new Error(`Unexpected arguments: ${args.join(" ")}`);
 }
 
-function parseCommitOptions(args: string[]): string {
+function parseCommitOptions(args: string[]): {
+  message: string;
+  sessionId?: string;
+} {
   let message = "";
+  let sessionId: string | undefined;
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
     const value = args[index + 1];
@@ -189,11 +206,21 @@ function parseCommitOptions(args: string[]): string {
       if (message) throw new Error("commit accepts exactly one message");
       message = value;
       index += 1;
+    } else if (argument === "--session" && value !== undefined) {
+      if (sessionId) throw new Error("--session may be specified only once");
+      sessionId = value;
+      index += 1;
     } else {
       throw new Error(`Unknown or incomplete commit option: ${argument}`);
     }
   }
-  return message;
+  return { message, ...(sessionId ? { sessionId } : {}) };
+}
+
+function parseSessionOption(args: string[]): string | undefined {
+  if (args.length === 0) return undefined;
+  if (args.length === 2 && args[0] === "--session" && args[1]) return args[1];
+  throw new Error("Expected at most one --session <session-id> option");
 }
 
 function parseRegisterOptions(args: string[]): {
@@ -262,7 +289,7 @@ function parseReconcileOptions(args: string[]): {
   return { apply, path };
 }
 
-const helpText = `codex-handoff - one-shot Git integration\n\nUsage:\n  codex-handoff init\n  codex-handoff register [repo-path] [--auto-config] [--setup-command '<json-array>']...\n  codex-handoff begin --summary \"...\" [--create-worktree] [--no-auto-branch] [--depends-on <session-id>]...\n  codex-handoff commit --message \"...\"\n  codex-handoff validate\n  codex-handoff integrate --summary \"...\"\n  codex-handoff resume\n  codex-handoff status\n  codex-handoff reconcile [repo-path] [--apply]\n  codex-handoff audit-legacy\n  codex-handoff doctor\n  codex-handoff benchmark [--runs <n>] [--json] [--check]\n`;
+const helpText = `codex-handoff - one-shot Git integration\n\nUsage:\n  codex-handoff init\n  codex-handoff register [repo-path] [--auto-config] [--setup-command '<json-array>']...\n  codex-handoff begin --summary \"...\" [--create-worktree] [--no-auto-branch] [--depends-on <session-id>]...\n  codex-handoff commit --message \"...\" [--session <session-id>]\n  codex-handoff validate [--session <session-id>]\n  codex-handoff integrate --summary \"...\" [--session <session-id>]\n  codex-handoff resume [--session <session-id>]\n  codex-handoff status [--session <session-id>]\n  codex-handoff reconcile [repo-path] [--apply]\n  codex-handoff audit-legacy\n  codex-handoff doctor\n  codex-handoff benchmark [--runs <n>] [--json] [--check]\n`;
 
 if (isMainModule()) {
   main().catch((error: unknown) => {
