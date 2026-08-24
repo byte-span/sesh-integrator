@@ -3,6 +3,13 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 describe("bundled workflow trigger policy", () => {
+  it("requires scram-j review for codex-handoff self-hosting pull requests", async () => {
+    const policy = await readFile(join(process.cwd(), "AGENTS.md"), "utf8");
+
+    expect(policy).toContain("Every pull request opened for this repository");
+    expect(policy).toContain("--reviewer scram-j");
+  });
+
   it("uses CLI-first managed source worktrees without application mode gates", async () => {
     const [guidance, skill] = await Promise.all([
       readFile(join(process.cwd(), "GLOBAL_AGENTS_SNIPPET.md"), "utf8"),

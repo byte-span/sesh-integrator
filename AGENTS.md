@@ -52,6 +52,10 @@ push the exact completed `dev` commit to a unique remote branch such as
 branch to `main`. Never reuse, update, close, merge, delete, or force-push an
 existing pull request or remote branch for a different task.
 
+Every pull request opened for this repository must request review from
+`scram-j`. Pass `--reviewer scram-j` to `gh pr create`, or immediately add the
+review request with `gh pr edit <pr-url> --add-reviewer scram-j`.
+
 Do not run parallel code-changing sessions directly on `dev` in this repository.
 
 ## Read First
