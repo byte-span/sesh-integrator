@@ -91,10 +91,28 @@ export async function promoteByPullRequest(
   )
     .trim()
     .split(/\s+/)[0];
-  if (!remoteBase || remoteBase === headCommit) {
+  if (!remoteBase) {
     throw new Error(
-      `Pull-request promotion requires different base and head commits; both resolve to ${headCommit}`,
+      `Could not resolve base branch ${promotion.productionBranch} on ${promotion.remote}`,
     );
+  }
+  if (remoteBase === headCommit) {
+    process.stdout.write(
+      `Pull request not required: ${promotion.productionBranch} already equals ${headCommit}.\n`,
+    );
+    return undefined;
+  }
+
+  const alreadySatisfied = await run(
+    "git",
+    ["merge-base", "--is-ancestor", headCommit, remoteBase],
+    { cwd: repository.path },
+  );
+  if (alreadySatisfied.code === 0) {
+    process.stdout.write(
+      `Pull request not required: ${promotion.productionBranch} already contains ${headCommit}.\n`,
+    );
+    return undefined;
   }
 
   await checked(

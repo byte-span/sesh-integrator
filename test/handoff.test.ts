@@ -15,6 +15,7 @@ import { realpath } from "node:fs/promises";
 import { afterEach, describe, expect, it } from "vitest";
 import { withGpgProgram } from "../src/handoff.js";
 import { runSetupWithCache } from "../src/cache.js";
+import { promoteByPullRequest } from "../src/pull-request.js";
 
 interface Fixture {
   root: string;
@@ -961,6 +962,32 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     ]);
     expect(integration.code, integration.stderr).toBe(0);
     expect(git(fixture.repo, "show", "main:isolated.txt")).toBe("isolated");
+  });
+
+  it("bases a managed source worktree on the effective target instead of a stale launch checkout", async () => {
+    const fixture = await createFixture();
+    git(fixture.repo, "branch", "dev", "main");
+    git(fixture.repo, "switch", "dev");
+    commitFile(fixture.repo, "target-only.txt", "target\n", "advance target");
+    const targetHead = git(fixture.repo, "rev-parse", "HEAD");
+    git(fixture.repo, "switch", "main");
+    await updateConfig(fixture, (config) => {
+      config.repositories[0].targetBranch = "dev";
+    });
+
+    await runCliOk(fixture, fixture.repo, [
+      "begin",
+      "--summary",
+      "target based task",
+      "--create-worktree",
+    ]);
+
+    const active = (await sessions(fixture))[0]!;
+    expect(active.startCommit).toBe(targetHead);
+    expect(git(active.worktreePath, "show", "HEAD:target-only.txt")).toBe(
+      "target",
+    );
+    expect(git(fixture.repo, "branch", "--show-current")).toBe("main");
   });
 
   it("preserves dirty launch-checkout state when creating a source worktree", async () => {
@@ -2346,6 +2373,89 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     expect(await readFile(join(integrationPath, "shared.txt"), "utf8")).toBe(
       "first\nsecond\n",
     );
+  });
+
+  it("reconstructs resumable state from an orphaned preserved merge", async () => {
+    const fixture = await createFixture("base\n");
+    const first = await addWorktree(fixture, "orphan-first");
+    const second = await addWorktree(fixture, "orphan-second");
+    await runCliOk(fixture, first, ["begin", "--summary", "first"]);
+    await runCliOk(fixture, second, ["begin", "--summary", "second"]);
+    commitFile(first, "shared.txt", "first\n", "first");
+    commitFile(second, "shared.txt", "second\n", "second");
+    await runCliOk(fixture, first, ["integrate", "--summary", "first done"]);
+    await runCli(fixture, second, ["integrate", "--summary", "second done"]);
+
+    const sessionDirectory = join(fixture.runtime, "sessions");
+    const sessionFiles = await readdir(sessionDirectory);
+    const records = await Promise.all(
+      sessionFiles.map(async (name) => ({
+        name,
+        value: JSON.parse(await readFile(join(sessionDirectory, name), "utf8")),
+      })),
+    );
+    const record = records.find(({ value }) => value.worktreePath === second)!;
+    record.value.status = "ready";
+    delete record.value.awaitingConflictResolution;
+    delete record.value.conflictIntegrationHead;
+    await writeFile(
+      join(sessionDirectory, record.name),
+      `${JSON.stringify(record.value, null, 2)}\n`,
+    );
+    const integrationPath = join(
+      fixture.runtime,
+      "worktrees",
+      record.value.repositoryId,
+    );
+    await writeFile(join(integrationPath, "shared.txt"), "first\nsecond\n");
+    git(integrationPath, "add", "shared.txt");
+
+    const resumed = await runCli(fixture, second, ["resume"]);
+    expect(resumed.code, resumed.stderr).toBe(0);
+    expect(resumed.stderr).toContain("Recovered resumable merge state");
+    expect(
+      (await sessions(fixture)).find(
+        ({ worktreePath }) => worktreePath === second,
+      )?.status,
+    ).toBe("succeeded");
+  });
+
+  it("treats an already-contained pull-request head as satisfied", async () => {
+    const fixture = await createFixture();
+    const remote = join(fixture.root, "remote.git");
+    git(fixture.root, "init", "--bare", remote);
+    git(fixture.repo, "remote", "add", "origin", remote);
+    const head = git(fixture.repo, "rev-parse", "main");
+    git(fixture.repo, "push", "origin", "main");
+    await updateConfig(fixture, (config) => {
+      config.repositories[0].targetBranch = "dev";
+      config.repositories[0].promotion = {
+        type: "pull-request",
+        productionBranch: "main",
+      };
+    });
+    const config = JSON.parse(
+      await readFile(join(fixture.runtime, "config.json"), "utf8"),
+    );
+    const fake = await createFakeGh(fixture);
+    const previousEnvironment = { ...process.env };
+    Object.assign(process.env, fake.env);
+    try {
+      await expect(
+        promoteByPullRequest(config.repositories[0], {
+          id: "contained",
+          branch: "codex/contained",
+          promotedCommit: head,
+          completionSummary: "already shipped",
+        } as any),
+      ).resolves.toBeUndefined();
+      expect(await readFile(fake.log, "utf8")).not.toContain("pr create");
+    } finally {
+      for (const key of Object.keys(process.env)) {
+        if (!(key in previousEnvironment)) delete process.env[key];
+      }
+      Object.assign(process.env, previousEnvironment);
+    }
   });
 
   it("refuses to remove a dead-owner lock over a dirty integration worktree", async () => {
