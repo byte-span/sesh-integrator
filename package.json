@@ -16,6 +16,7 @@
     "scripts/codex-handoff-health-check",
     "scripts/self-hosting-pre-push",
     "scripts/self-hosting-post-merge",
+    "scripts/self-hosting-sync-dev",
     "systemd",
     "scripts/install-gpg-reliability.sh",
     "scripts/test-real-gpg-e2e.sh",

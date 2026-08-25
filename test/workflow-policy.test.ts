@@ -42,7 +42,7 @@ describe("bundled workflow trigger policy", () => {
   });
 
   it("ships managed guidance and bounded self-hosting automation", async () => {
-    const [repositoryGuidance, timer, service, prePush, postMerge] =
+    const [repositoryGuidance, timer, service, prePush, postMerge, syncDev] =
       await Promise.all([
         readFile(join(process.cwd(), "REPOSITORY_AGENTS_SNIPPET.md"), "utf8"),
         readFile(
@@ -61,6 +61,10 @@ describe("bundled workflow trigger policy", () => {
           join(process.cwd(), "scripts", "self-hosting-post-merge"),
           "utf8",
         ),
+        readFile(
+          join(process.cwd(), "scripts", "self-hosting-sync-dev"),
+          "utf8",
+        ),
       ]);
 
     expect(repositoryGuidance).toContain("codex-handoff:managed:start");
@@ -71,5 +75,6 @@ describe("bundled workflow trigger policy", () => {
     expect(service).toContain("TimeoutStartSec=130");
     expect(prePush).toContain("merge-base --is-ancestor origin/main dev");
     expect(postMerge).toContain("merge --ff-only");
+    expect(syncDev).toContain("merge-base --is-ancestor dev origin/main");
   });
 });

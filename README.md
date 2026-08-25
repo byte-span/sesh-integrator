@@ -42,7 +42,7 @@ pnpm build
 codex-handoff init
 ```
 
-The CLI installer creates an idempotent symlink in `~/.local/bin`, which must be on `PATH`. Set `CODEX_HANDOFF_BIN_DIR` to choose another user-writable bin directory. It also installs the machine safeguards: the bundled skill, managed guidance blocks, conservative self-hosting Git hooks, and a bounded six-hourly user systemd health check.
+The CLI installer creates an idempotent symlink in `~/.local/bin`, which must be on `PATH`. Set `CODEX_HANDOFF_BIN_DIR` to choose another user-writable bin directory. It also installs the machine safeguards: the bundled skill, managed guidance blocks, conservative self-hosting Git hooks, and a bounded six-hourly user systemd health check. The health check safely fetches `origin/main` and fast-forwards a clean local `dev` after a remote dev-to-main merge; dirty or divergent state is reported and preserved.
 
 `scripts/install-skill.sh` idempotently installs the supplied skill at `~/.agents/skills/codex-handoff-workflow/`. It accepts an alternate destination for testing:
 

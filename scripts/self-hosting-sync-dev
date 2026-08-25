@@ -1,0 +1,21 @@
+#!/bin/sh
+set -eu
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+project_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
+git -C "$project_dir" fetch --quiet origin main
+
+if git -C "$project_dir" merge-base --is-ancestor origin/main dev; then
+  exit 0
+fi
+if ! git -C "$project_dir" merge-base --is-ancestor dev origin/main; then
+  printf '%s\n' "Local dev and origin/main have diverged; refusing automatic synchronization." >&2
+  exit 1
+fi
+dev_path=$(git -C "$project_dir" worktree list --porcelain | awk '$1 == "worktree" { path=$2 } $1 == "branch" && $2 == "refs/heads/dev" { print path }')
+if [ -n "$dev_path" ]; then
+  [ -z "$(git -C "$dev_path" status --porcelain)" ] || { printf '%s\n' "Local dev worktree is dirty; refusing automatic synchronization." >&2; exit 1; }
+  git -C "$dev_path" merge --ff-only origin/main
+else
+  git -C "$project_dir" branch -f dev origin/main
+fi
