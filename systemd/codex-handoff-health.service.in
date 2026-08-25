@@ -1,0 +1,10 @@
+[Unit]
+Description=Check codex-handoff machine health
+
+[Service]
+Type=oneshot
+Environment=CODEX_HANDOFF_NODE=@NODE_BINARY@
+ExecStart=@HEALTH_CHECK@
+TimeoutStartSec=130
+StandardOutput=journal
+StandardError=journal

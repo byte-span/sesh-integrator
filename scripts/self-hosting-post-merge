@@ -1,0 +1,23 @@
+#!/bin/sh
+set -eu
+
+project_dir=$(git rev-parse --show-toplevel)
+"$project_dir/scripts/install-machine-safeguards.sh" --quiet
+
+[ "$(git symbolic-ref --quiet --short HEAD || true)" = main ] || exit 0
+main_commit=$(git rev-parse main)
+if ! git show-ref --verify --quiet refs/heads/dev; then
+  git branch dev "$main_commit"
+  exit 0
+fi
+if ! git merge-base --is-ancestor dev main; then
+  printf '%s\n' "Local dev is not an ancestor of main; refusing automatic synchronization." >&2
+  exit 1
+fi
+dev_path=$(git worktree list --porcelain | awk '$1 == "worktree" { path=$2 } $1 == "branch" && $2 == "refs/heads/dev" { print path }')
+if [ -n "$dev_path" ]; then
+  [ -z "$(git -C "$dev_path" status --porcelain)" ] || { printf '%s\n' "Local dev worktree is dirty; skipped main -> dev synchronization." >&2; exit 1; }
+  git -C "$dev_path" merge --ff-only "$main_commit"
+else
+  git branch -f dev "$main_commit"
+fi

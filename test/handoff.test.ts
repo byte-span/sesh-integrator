@@ -2640,7 +2640,18 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     await mkdir(join(fixture.auditHome, ".codex"), { recursive: true });
     await writeFile(
       join(fixture.auditHome, ".codex", "AGENTS.md"),
-      await readFile(join(process.cwd(), "GLOBAL_AGENTS_SNIPPET.md"), "utf8"),
+      managedBlock(
+        await readFile(join(process.cwd(), "GLOBAL_AGENTS_SNIPPET.md"), "utf8"),
+      ),
+    );
+    await writeFile(
+      join(fixture.repo, "AGENTS.md"),
+      managedBlock(
+        await readFile(
+          join(process.cwd(), "REPOSITORY_AGENTS_SNIPPET.md"),
+          "utf8",
+        ),
+      ),
     );
     await mkdir(join(fixture.auditHome, "Library", "LaunchAgents"), {
       recursive: true,
@@ -2674,9 +2685,7 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
 
     expect(result.code).toBe(1);
     expect(result.stdout).toContain("FAIL  Global guidance");
-    expect(result.stdout).toContain(
-      "contains a stale detached/default-branch prohibition",
-    );
+    expect(result.stdout).toContain("contains stale wording");
   });
 
   it("auto-configures safe package scripts for an existing registration", async () => {
@@ -3173,6 +3182,13 @@ async function exists(path: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+function managedBlock(contents: string): string {
+  const trimmed = contents.trim();
+  return trimmed.startsWith("<!-- codex-handoff:managed:start -->")
+    ? `${trimmed}\n`
+    : `<!-- codex-handoff:managed:start -->\n${trimmed}\n<!-- codex-handoff:managed:end -->\n`;
 }
 
 async function snapshot(root: string): Promise<Record<string, string>> {

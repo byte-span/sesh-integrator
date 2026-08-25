@@ -1,0 +1,21 @@
+#!/bin/sh
+set -eu
+
+timeout_seconds=${CODEX_HANDOFF_DOCTOR_TIMEOUT_SECONDS:-120}
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+project_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
+node_binary=${CODEX_HANDOFF_NODE:-node}
+set +e
+"$script_dir/self-hosting-sync-dev"
+sync_status=$?
+timeout "$timeout_seconds" "$node_binary" "$project_dir/dist/cli.js" doctor
+status=$?
+set -e
+if [ "$sync_status" -ne 0 ]; then
+  printf '%s\n' "codex-handoff dev synchronization failed (status $sync_status)" >&2
+  exit "$sync_status"
+fi
+if [ "$status" -ne 0 ]; then
+  printf '%s\n' "codex-handoff health check failed (status $status)" >&2
+  exit "$status"
+fi
