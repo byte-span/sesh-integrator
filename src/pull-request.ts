@@ -35,6 +35,7 @@ export function pullRequestPromotion(
 export async function promoteByPullRequest(
   repository: RepositoryConfig,
   session: Session,
+  recoverSharedTarget?: (remoteCommit: string) => Promise<void>,
 ): Promise<string | undefined> {
   const promotion = pullRequestPromotion(repository);
   if (!promotion) return undefined;
@@ -42,7 +43,7 @@ export async function promoteByPullRequest(
     promotion.mode === "session-branch"
       ? session.branch
       : targetBranch(repository);
-  const headCommit =
+  let headCommit =
     promotion.mode === "session-branch"
       ? session.readyCommit
       : session.promotedCommit;
@@ -115,12 +116,80 @@ export async function promoteByPullRequest(
     return undefined;
   }
 
-  await checked(
-    "git",
-    ["push", promotion.remote, `${headCommit}:refs/heads/${head}`],
-    repository.path,
-    `Could not push ${head} to ${promotion.remote}`,
-  );
+  const retryLimit = 3;
+  for (;;) {
+    const pushed = await run(
+      "git",
+      ["push", promotion.remote, `${headCommit}:refs/heads/${head}`],
+      { cwd: repository.path },
+    );
+    if (pushed.code === 0) break;
+    const detail = (pushed.stderr || pushed.stdout).trim();
+    if (promotion.mode !== "shared-target" || !recoverSharedTarget) {
+      throw new Error(
+        `Could not push ${head} to ${promotion.remote}${detail ? `: ${detail}` : ""}`,
+      );
+    }
+    const attempts = session.remoteRecoveryAttempts ?? 0;
+    if (attempts >= retryLimit) {
+      throw new Error(
+        `Remote ${promotion.remote}/${head} kept moving after ${retryLimit} validated recovery attempts; refusing further automatic retries${detail ? `: ${detail}` : ""}`,
+      );
+    }
+    const fetched = await run(
+      "git",
+      ["fetch", "--no-tags", promotion.remote, `refs/heads/${head}`],
+      { cwd: repository.path },
+    );
+    if (fetched.code !== 0) {
+      throw new Error(
+        `Could not fetch moved remote target ${promotion.remote}/${head}: ${(fetched.stderr || fetched.stdout).trim()}`,
+      );
+    }
+    const remoteCommit = (
+      await checked(
+        "git",
+        ["rev-parse", "FETCH_HEAD"],
+        repository.path,
+        `Could not resolve fetched remote target ${promotion.remote}/${head}`,
+      )
+    ).trim();
+    const baseline =
+      session.remoteRecoveryBaseline ?? session.targetCommitBeforeIntegration;
+    if (!baseline)
+      throw new Error("Session is missing target baseline metadata");
+    const advanced = await run(
+      "git",
+      ["merge-base", "--is-ancestor", baseline, remoteCommit],
+      { cwd: repository.path },
+    );
+    if (advanced.code !== 0) {
+      throw new Error(
+        `Remote ${promotion.remote}/${head} at ${remoteCommit} is not descended from the session target baseline ${baseline}; refusing ambiguous recovery`,
+      );
+    }
+    const remoteAlreadyIncluded = await run(
+      "git",
+      ["merge-base", "--is-ancestor", remoteCommit, headCommit],
+      { cwd: repository.path },
+    );
+    if (remoteAlreadyIncluded.code === 0) {
+      throw new Error(
+        `Could not push ${head} to ${promotion.remote}; the remote target did not advance beyond the validated head${detail ? `: ${detail}` : ""}`,
+      );
+    }
+    const remotelySatisfied = await run(
+      "git",
+      ["merge-base", "--is-ancestor", headCommit, remoteCommit],
+      { cwd: repository.path },
+    );
+    if (remotelySatisfied.code === 0) {
+      headCommit = remoteCommit;
+      break;
+    }
+    await recoverSharedTarget(remoteCommit);
+    headCommit = session.promotedCommit!;
+  }
 
   const existing = await checked(
     "gh",

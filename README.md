@@ -240,6 +240,15 @@ omit `reviewers` when CODEOWNERS or another GitHub policy assigns reviewers.
 The remote step requires authenticated `git` and `gh` access. Failures remain
 resumable with `codex-handoff resume`.
 
+In shared-target mode, a non-fast-forward push caused by an advanced remote
+target is recovered automatically. The tool fetches the exact remote target,
+merges it into the validated staging integration, runs full integration
+validation and post-integration checks again, promotes the rebuilt commit
+locally, and retries the normal push. Recovery is limited to three attempts.
+Conflicts are preserved for `codex-handoff resume`; validation failures,
+ambiguous ancestry, and continued remote movement stop safely. The fetched
+commit and attempt count are persisted so interrupted recovery is resumable.
+
 This is the backward-compatible shared-target mode. Its explicit spelling is
 `"mode": "shared-target"`; omitting `mode` behaves identically.
 
@@ -653,7 +662,10 @@ For rollback, stop invoking the new skill, restore the previous global guidance,
   agent must honor the `Continue task in:` path for all subsequent tool calls.
 - Managed source worktrees are retained after completion; cleanup is currently
   manual and must not remove a worktree containing uncommitted state.
-- The tool does not fetch, force-push, delete branches, or merge/reset user worktrees. It pushes only when a repository explicitly enables pull-request promotion.
+- The tool fetches only an explicitly configured shared target during bounded
+  non-fast-forward recovery. It never force-pushes, deletes branches, or
+  merges/resets user worktrees. It pushes only when a repository explicitly
+  enables pull-request promotion.
 - One preserved `needs_review` merge blocks further integrations because the dedicated integration worktree contains its recovery state; unrelated source sessions may continue working and can integrate after it is resumed.
 - Dependency checks fail clearly rather than running a background waiter; retry after dependencies succeed.
 - The current-session resolution path is instruction-driven; genuinely ambiguous conflicts or failed validation still require user review.

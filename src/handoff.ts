@@ -874,6 +874,8 @@ export async function resumeCommand(sessionId?: string): Promise<Session> {
     await assertDependencies(session);
     if (session.recoveryPhase === "pull_request") {
       await completePullRequestPromotion(repository, session);
+    } else if (session.recoveryPhase === "remote_promotion") {
+      await resumeRemotePromotion(repository, session, integrationWorktree);
     } else if (
       session.recoveryPhase === "promotion" ||
       session.recoveryPhase === "post_integration"
@@ -1366,6 +1368,7 @@ async function runPostIntegrationAndPromote(
   session: Session,
   integrationWorktree: string,
   integrationBranchAdvanced = true,
+  includePullRequest = true,
 ): Promise<void> {
   session.recoveryPhase = "promotion";
   await writeSession(session);
@@ -1410,7 +1413,8 @@ async function runPostIntegrationAndPromote(
   } else {
     session.postIntegrationResults = [];
   }
-  await completePullRequestPromotion(repository, session);
+  if (includePullRequest)
+    await completePullRequestPromotion(repository, session);
 }
 
 async function completePullRequestPromotion(
@@ -1420,7 +1424,9 @@ async function completePullRequestPromotion(
   session.recoveryPhase = "pull_request";
   await writeSession(session);
   const pullRequestUrl = await measurePhase("pull_request", async () =>
-    promoteByPullRequest(repository, session),
+    promoteByPullRequest(repository, session, async (remoteCommit) =>
+      recoverMovedRemoteTarget(repository, session, remoteCommit),
+    ),
   );
   if (pullRequestUrl) {
     session.pullRequestUrl = pullRequestUrl;
@@ -1430,6 +1436,133 @@ async function completePullRequestPromotion(
   delete session.recoveryPhase;
   delete session.latestError;
   await writeSession(session);
+}
+
+async function recoverMovedRemoteTarget(
+  repository: RepositoryConfig,
+  session: Session,
+  remoteCommit: string,
+): Promise<void> {
+  const worktree = join(runtimePaths().worktrees, session.repositoryId);
+  if (!(await pathExists(worktree))) {
+    await git(
+      ["worktree", "add", worktree, repository.integrationBranch],
+      repository.path,
+    );
+  }
+  const context = await inspectGit(worktree);
+  if (
+    context.gitCommonDir !== repository.gitCommonDir ||
+    context.branch !== repository.integrationBranch ||
+    context.head !== session.integratedCommit ||
+    (await hasMergeInProgress(worktree)) ||
+    !(await isClean(worktree))
+  ) {
+    throw new Error(
+      `Integration worktree is not in the exact clean validated state ${session.integratedCommit}; refusing remote recovery`,
+    );
+  }
+  session.remoteRecoveryCommit = remoteCommit;
+  if (!session.remoteRecoveryBaseline) {
+    if (!session.targetCommitBeforeIntegration) {
+      throw new Error("Session is missing target baseline metadata");
+    }
+    session.remoteRecoveryBaseline = session.targetCommitBeforeIntegration;
+  }
+  session.remoteRecoveryAttempts = (session.remoteRecoveryAttempts ?? 0) + 1;
+  session.recoveryPhase = "remote_promotion";
+  session.conflictIntegrationHead = context.head;
+  session.awaitingConflictResolution = true;
+  await writeSession(session);
+  const merge = await run(
+    "git",
+    ["merge", "--no-ff", "--no-commit", remoteCommit],
+    { cwd: worktree },
+  );
+  if (merge.code !== 0) {
+    const conflicted = await unmergedFiles(worktree);
+    if (conflicted.length === 0) {
+      throw new Error(
+        `Could not replay validated integration on remote target ${remoteCommit}: ${(merge.stderr || merge.stdout).trim()}`,
+      );
+    }
+    session.status = "needs_review";
+    session.latestError =
+      `Remote target recovery conflicts with ${remoteCommit}: ${conflicted.join(", ")}. ` +
+      `Resolve and stage files in ${worktree}, then run codex-handoff resume from ${session.worktreePath}`;
+    await writeSession(session);
+    throw new Error(session.latestError);
+  }
+  await validateRemoteRecoveryAndContinue(repository, session, worktree);
+}
+
+async function resumeRemotePromotion(
+  repository: RepositoryConfig,
+  session: Session,
+  worktree: string,
+): Promise<void> {
+  const context = await inspectGit(worktree);
+  if (
+    context.gitCommonDir !== repository.gitCommonDir ||
+    context.branch !== repository.integrationBranch ||
+    context.head !== session.conflictIntegrationHead ||
+    !(await hasMergeInProgress(worktree)) ||
+    (await git(["rev-parse", "MERGE_HEAD"], worktree)) !==
+      session.remoteRecoveryCommit
+  ) {
+    throw new Error("Preserved remote target recovery state is ambiguous");
+  }
+  const remaining = await unmergedFiles(worktree);
+  if (remaining.length > 0) {
+    throw new Error(
+      `Resolve and stage all conflicts before resume: ${remaining.join(", ")}`,
+    );
+  }
+  await validateRemoteRecoveryAndContinue(repository, session, worktree);
+  await completePullRequestPromotion(repository, session);
+}
+
+async function validateRemoteRecoveryAndContinue(
+  repository: RepositoryConfig,
+  session: Session,
+  worktree: string,
+): Promise<void> {
+  // A remote replay can change any part of the combined tree, so always run
+  // the repository's full integration validation without session-tier caches.
+  await runSetupWithCache(repository, worktree);
+  await runValidation(repository.integrationValidationCommands, worktree);
+  await assertNoUnstagedChanges(session, worktree);
+  await preflightCommitSigning(
+    repository,
+    worktree,
+    "remote recovery integration commit",
+  );
+  await git(
+    withGpgProgram(repository.gpgProgram, [
+      "commit",
+      "-m",
+      `Replay ${session.id} on remote ${session.targetBranch}`,
+    ]),
+    worktree,
+  );
+  session.integratedCommit = await git(["rev-parse", "HEAD"], worktree);
+  session.integratedAt = new Date().toISOString();
+  if (!session.promotedCommit) {
+    throw new Error(
+      "Remote recovery is missing the previously promoted commit",
+    );
+  }
+  session.targetCommitBeforeIntegration = session.promotedCommit;
+  session.awaitingConflictResolution = false;
+  delete session.conflictIntegrationHead;
+  await writeSession(session);
+  await runPostIntegrationAndPromote(
+    repository,
+    session,
+    worktree,
+    true,
+    false,
+  );
 }
 
 function writeCompletionSummary(session: Session): void {
