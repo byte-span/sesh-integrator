@@ -198,6 +198,151 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     expect(completed.remotePromotedAt).toBeTruthy();
   });
 
+  it("replays and revalidates a shared target after the remote advances", async () => {
+    const fixture = await createFixture();
+    const remote = await configureSharedTargetPromotion(fixture);
+    const fake = await createFakeGh(fixture);
+    const validationLog = join(fixture.root, "remote-recovery-validation.log");
+    await updateConfig(fixture, (config) => {
+      config.repositories[0].integrationValidationCommands = [
+        [
+          process.execPath,
+          "-e",
+          `require("fs").appendFileSync(${JSON.stringify(validationLog)}, "validated\\n")`,
+        ],
+      ];
+    });
+    await runCliOkWithEnv(
+      fixture,
+      fixture.repo,
+      ["begin", "--summary", "recover"],
+      fake.env,
+    );
+    commitFile(fixture.repo, "local.txt", "local\n", "local change");
+    advanceRemote(fixture, remote, "remote.txt", "remote\n");
+
+    await runCliOkWithEnv(
+      fixture,
+      fixture.repo,
+      ["integrate", "--summary", "recovered"],
+      fake.env,
+    );
+
+    const completed = (await sessions(fixture))[0]!;
+    expect(completed.status).toBe("succeeded");
+    expect(completed.remoteRecoveryAttempts).toBe(1);
+    expect(git(remote, "rev-parse", "refs/heads/dev")).toBe(
+      completed.promotedCommit,
+    );
+    expect(await readFile(validationLog, "utf8")).toBe(
+      "validated\nvalidated\n",
+    );
+  });
+
+  it("preserves a resumable conflict while replaying an advanced shared target", async () => {
+    const fixture = await createFixture();
+    const remote = await configureSharedTargetPromotion(fixture);
+    const fake = await createFakeGh(fixture);
+    await runCliOkWithEnv(
+      fixture,
+      fixture.repo,
+      ["begin", "--summary", "conflict"],
+      fake.env,
+    );
+    commitFile(fixture.repo, "shared.txt", "local\n", "local change");
+    advanceRemote(fixture, remote, "shared.txt", "remote\n");
+
+    const result = await runCli(
+      fixture,
+      fixture.repo,
+      ["integrate", "--summary", "conflict"],
+      fake.env,
+    );
+
+    expect(result.code).toBe(1);
+    const pending = (await sessions(fixture))[0]!;
+    expect(pending.status).toBe("needs_review");
+    expect(pending.recoveryPhase).toBe("remote_promotion");
+    expect(pending.remoteRecoveryCommit).toBeTruthy();
+    expect(pending.latestError).toContain("Remote target recovery conflicts");
+    const integrationWorktree = join(
+      fixture.runtime,
+      "worktrees",
+      pending.repositoryId,
+    );
+    await writeFile(join(integrationWorktree, "shared.txt"), "local\nremote\n");
+    git(integrationWorktree, "add", "shared.txt");
+    await runCliOkWithEnv(fixture, fixture.repo, ["resume"], fake.env);
+    expect((await sessions(fixture))[0].status).toBe("succeeded");
+  });
+
+  it("stops shared-target recovery when full validation fails", async () => {
+    const fixture = await createFixture();
+    const remote = await configureSharedTargetPromotion(fixture);
+    const fake = await createFakeGh(fixture);
+    await updateConfig(fixture, (config) => {
+      config.repositories[0].integrationValidationCommands = [
+        [
+          process.execPath,
+          "-e",
+          "process.exit(require('fs').existsSync('remote.txt') ? 9 : 0)",
+        ],
+      ];
+    });
+    await runCliOkWithEnv(
+      fixture,
+      fixture.repo,
+      ["begin", "--summary", "validation"],
+      fake.env,
+    );
+    commitFile(fixture.repo, "local.txt", "local\n", "local change");
+    advanceRemote(fixture, remote, "remote.txt", "remote\n");
+
+    const result = await runCli(
+      fixture,
+      fixture.repo,
+      ["integrate", "--summary", "validation"],
+      fake.env,
+    );
+
+    expect(result.code).toBe(1);
+    const pending = (await sessions(fixture))[0]!;
+    expect(pending.status).toBe("needs_review");
+    expect(pending.recoveryPhase).toBe("remote_promotion");
+    expect(pending.latestError).toContain("Validation failed (9)");
+    expect(git(remote, "rev-parse", "refs/heads/dev")).not.toBe(
+      pending.promotedCommit,
+    );
+  });
+
+  it("stops after bounded retries when the shared remote keeps moving", async () => {
+    const fixture = await createFixture();
+    const remote = await configureSharedTargetPromotion(fixture);
+    const fake = await createFakeGh(fixture);
+    const moving = await createMovingGit(fixture, remote);
+    await runCliOkWithEnv(
+      fixture,
+      fixture.repo,
+      ["begin", "--summary", "moving"],
+      { ...fake.env, ...moving.env },
+    );
+    commitFile(fixture.repo, "local.txt", "local\n", "local change");
+
+    const result = await runCli(
+      fixture,
+      fixture.repo,
+      ["integrate", "--summary", "moving"],
+      { ...fake.env, ...moving.env },
+    );
+
+    expect(result.code).toBe(1);
+    const pending = (await sessions(fixture))[0]!;
+    expect(pending.remoteRecoveryAttempts).toBe(3);
+    expect(pending.latestError).toContain(
+      "kept moving after 3 validated recovery attempts",
+    );
+  });
+
   it("opens independent pull requests for concurrent session branches and reuses only the same session PR", async () => {
     const fixture = await createFixture();
     const remote = join(fixture.root, "remote.git");
@@ -2970,6 +3115,88 @@ async function addWorktree(fixture: Fixture, branch: string): Promise<string> {
   const path = join(fixture.root, branch);
   git(fixture.repo, "worktree", "add", "-b", branch, path, "main");
   return await realpath(path);
+}
+
+async function configureSharedTargetPromotion(
+  fixture: Fixture,
+): Promise<string> {
+  const remote = join(fixture.root, "remote.git");
+  git(fixture.root, "init", "--bare", remote);
+  git(fixture.repo, "remote", "add", "origin", remote);
+  git(fixture.repo, "push", "origin", "main");
+  await updateConfig(fixture, (config) => {
+    config.defaultTargetBranch = "dev";
+    config.repositories[0].promotion = {
+      type: "pull-request",
+      mode: "shared-target",
+      productionBranch: "main",
+    };
+  });
+  return remote;
+}
+
+function advanceRemote(
+  fixture: Fixture,
+  remote: string,
+  name: string,
+  contents: string,
+): void {
+  const clone = join(
+    fixture.root,
+    `remote-writer-${Date.now()}-${Math.random()}`,
+  );
+  git(fixture.root, "clone", remote, clone);
+  git(clone, "config", "user.name", "Remote User");
+  git(clone, "config", "user.email", "remote@example.com");
+  git(clone, "switch", "-c", "dev", "origin/main");
+  commitFile(clone, name, contents, "remote movement");
+  git(clone, "push", "origin", "dev");
+}
+
+async function createMovingGit(
+  fixture: Fixture,
+  remote: string,
+): Promise<{ env: NodeJS.ProcessEnv }> {
+  const bin = join(fixture.root, "moving-git-bin");
+  const writer = join(fixture.root, "moving-writer");
+  await mkdir(bin, { recursive: true });
+  git(fixture.root, "clone", remote, writer);
+  git(writer, "config", "user.name", "Remote User");
+  git(writer, "config", "user.email", "remote@example.com");
+  git(writer, "switch", "-c", "dev", "origin/main");
+  const executable = join(bin, "git");
+  await writeFile(
+    executable,
+    `#!/usr/bin/env node
+const { spawnSync } = require("node:child_process");
+const fs = require("node:fs");
+const args = process.argv.slice(2);
+if (args[0] === "push" && args.some((arg) => arg.includes("refs/heads/dev"))) {
+  const writer = process.env.FAKE_MOVING_WRITER;
+  const countPath = process.env.FAKE_MOVING_COUNT;
+  const count = Number(fs.existsSync(countPath) ? fs.readFileSync(countPath, "utf8") : "0") + 1;
+  fs.writeFileSync(countPath, String(count));
+  spawnSync("/usr/bin/git", ["fetch", "origin", "dev"], { cwd: writer });
+  const synced = spawnSync("/usr/bin/git", ["merge", "--ff-only", "FETCH_HEAD"], { cwd: writer, stdio: "inherit" });
+  if (synced.status !== 0) process.exit(synced.status || 1);
+  fs.writeFileSync(writer + "/movement-" + count + ".txt", String(count) + "\\n");
+  spawnSync("/usr/bin/git", ["add", "."], { cwd: writer });
+  spawnSync("/usr/bin/git", ["commit", "-m", "movement " + count], { cwd: writer });
+  const moved = spawnSync("/usr/bin/git", ["push", "origin", "dev"], { cwd: writer, stdio: "inherit" });
+  if (moved.status !== 0) process.exit(moved.status || 1);
+}
+const result = spawnSync("/usr/bin/git", args, { cwd: process.cwd(), stdio: "inherit" });
+process.exit(result.status == null ? 1 : result.status);
+`,
+  );
+  await chmod(executable, 0o755);
+  return {
+    env: {
+      PATH: `${bin}:${process.env.PATH ?? ""}`,
+      FAKE_MOVING_WRITER: writer,
+      FAKE_MOVING_COUNT: join(fixture.root, "moving-count"),
+    },
+  };
 }
 
 function commitFile(

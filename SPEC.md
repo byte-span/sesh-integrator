@@ -188,6 +188,15 @@ mode force-pushes, merges, closes, or deletes a remote branch or PR. The session
 persists the PR URL for status and recovery output; doctor reports promotion
 mode and readiness.
 
+For shared-target promotion only, a rejected non-force push may recover when
+the fetched remote target is provably descended from the session's recorded
+target baseline. Merge that exact fetched commit into the validated integration
+branch, preserve conflicts for current-session resolution, run full integration
+validation and post-integration checks again, atomically advance the local
+target, and retry the non-force push at most three times. Persist the fetched
+commit, original remote baseline, attempt count, and recovery phase before
+merging so interruption remains resumable.
+
 ## 6. `init`
 
 Create:

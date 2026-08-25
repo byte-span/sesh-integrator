@@ -120,9 +120,13 @@ Before saying the task is complete:
     condition (for example, check out the target branch or save and clean user
     changes in its worktree)
     and run `codex-handoff resume`. Do not reset, clean, or discard user state.
-11. For any other integration failure, report the CLI's recorded error; do not
+11. If shared-target remote recovery reports a conflict, resolve and stage only
+    the preserved integration worktree it names, then run `codex-handoff
+resume`. Do not fetch, merge, push, reset, or retry manually; the CLI owns
+    the exact fetched commit, full revalidation, and bounded non-force retries.
+12. For any other integration failure, report the CLI's recorded error; do not
     describe the session as `needs_review` unless the CLI recorded that status.
-12. Report:
+13. Report:
 
 - session ID
 - source commit

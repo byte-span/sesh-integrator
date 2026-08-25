@@ -95,7 +95,15 @@ export interface Session {
   promotedAt?: string;
   pullRequestUrl?: string;
   remotePromotedAt?: string;
-  recoveryPhase?: "merge" | "post_integration" | "promotion" | "pull_request";
+  remoteRecoveryCommit?: string;
+  remoteRecoveryBaseline?: string;
+  remoteRecoveryAttempts?: number;
+  recoveryPhase?:
+    | "merge"
+    | "post_integration"
+    | "promotion"
+    | "pull_request"
+    | "remote_promotion";
   latestError?: string;
   conflictPromptPath?: string;
   conflictIntegrationHead?: string;
