@@ -9,22 +9,48 @@ Operate autonomously by default. Do not ask for routine approval to register,
 begin, validate, commit, integrate, resume, or safely promote local work that is
 already within the user's request.
 
+## External services and production isolation
+
+- This is an agent-accessible development VM, not a Production administration
+  environment. Never retrieve, store, or request Production secrets,
+  provider-administration credentials, deployment tokens, or Production log
+  access here or through agent-accessible tools and connectors.
+- Projects may use normal external-service SDKs and HTTPS APIs in server-side
+  code. Implement Production integrations against environment-variable names
+  and deployment-provider configuration without obtaining the secret values.
+- Keep privileged integration code out of client bundles. Use publishable keys
+  client-side only when the provider explicitly designs them for public use.
+- Fake, local, or vendor-sandbox credentials may be used when needed. Keep them
+  outside repositories, scope and cap them where possible, and assume agents
+  can read and use them.
+- Never provide Production secrets to tests, previews, or CI jobs that run
+  unreviewed code. Production code must pass trusted review on the protected
+  Production branch before the deployment environment supplies its secrets.
+- Do not print or persist credentials, authorization headers, signed URLs, full
+  environment objects, or sensitive vendor responses. If Production access is
+  required, finish safe code and sandbox work and report the trusted manual
+  follow-up instead of weakening this boundary.
+- A credential gateway is optional. Prefer it only for unusually powerful or
+  shared credentials, or tightly limited access from less-trusted Production
+  workloads.
+
 ## Central secret requirements
 
-When `~/code/secret-sync/secret-configs/apps/` exists:
-
-- Treat it as the reviewed, non-secret registry of application Production
-  secret requirements. When application code adds, renames, or removes a
-  server-side secret requirement, inspect and update
-  `<app-id>.json` as part of the task.
-- Store only the schema version, app ID, provider name, and exact
-  environment-variable names. Never store values, tokens, ciphertext,
-  credentials, Vercel project/organization IDs, or copied Production data;
-  provider routing stays in Druidia's encrypted per-app controls.
-- Use normal variable names without app/proxy prefixes, keep them sorted, and
-  run `npm run validate:configs` in `secret-sync` after changes.
+- The reviewed, non-secret registry is
+  `~/code/secret-sync/secret-configs/apps/<app-id>.json`. When application code
+  adds, renames, or removes a server-side Production secret requirement, inspect
+  and update that app's registry entry as part of the task.
+- Registry files may contain only the schema version, app ID, provider name,
+  optional non-secret Vercel project name, and exact environment-variable
+  names. The project name defaults to the app ID. Never place values, tokens,
+  ciphertext, credentials, Vercel project/organization IDs, or copied
+  Production data there. Druidia uses one encrypted global Vercel token/team
+  default with optional encrypted per-app overrides and resolves only the
+  declared project name.
+- Use normal environment-variable names without app/proxy prefixes. Keep names
+  sorted and run `npm run validate:configs` in `secret-sync` after changes.
 - Make cross-repository registry edits through their own `codex-handoff`
-  session. If the app ID cannot be established from existing non-secret
+  session. If the app ID cannot be established from existing non-secret project
   metadata, do not guess; finish safe application work and report the missing
   registry metadata for trusted follow-up.
 
@@ -32,10 +58,11 @@ Before editing:
 
 1. Inspect the repository instructions and Git state. Preserve all pre-existing
    user changes; never reset, overwrite, discard, clean, or silently stash them.
-2. Inspect `codex-handoff status`. If the current checkout already has an active
-   or recoverable handoff session for the same task, continue that session at
-   its recorded phase instead of beginning another one. If it belongs to a
-   different task, stop and report the mismatch without altering it.
+2. Inspect `codex-handoff status`. Continue an active or recoverable session
+   attached to the current source worktree when it belongs to the same task.
+   An unrelated session launched from the same ordinary checkout does not block
+   a new isolated task; begin another managed worktree. Never replace or
+   overwrite a session for a different task.
 3. If the repository is unregistered, run:
 
    ```bash
@@ -93,8 +120,6 @@ At completion:
    `No manual follow-up required.`
 
 Never push, force-push, deploy, or perform destructive remote actions unless the
-user clearly requests that specific external action. A repository's explicit
-`promotion.type: "pull-request"` setting authorizes only codex-handoff's narrow
-non-force target push and PR creation/update after successful validation. Never delete branches or
+user clearly requests that specific external action. Never delete branches or
 worktrees, reset a user checkout, discard changes, or trade away user state to
 make handoff succeed.
