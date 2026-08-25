@@ -176,8 +176,15 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
       fake.env,
     );
 
+    expect(result.stdout).toContain("Completion summary:");
+    expect(result.stdout).toContain("Source commit:");
+    expect(result.stdout).toContain("Staging integration commit:");
+    expect(result.stdout).toContain("Target promotion: dev at");
     expect(result.stdout).toContain(
       "Pull request: https://github.example/pull/17",
+    );
+    expect(result.stdout).toContain(
+      "Manual follow-up: Review and merge https://github.example/pull/17.",
     );
     expect(git(remote, "rev-parse", "refs/heads/dev")).toBe(
       git(fixture.repo, "rev-parse", "dev"),

@@ -128,9 +128,14 @@ Before saying the task is complete:
 - source commit
 - staging integration commit
 - target branch and promoted commit if successful
+- pull-request URL when one was created or reused
 - `promotion_pending` or `needs_review` details if unsuccessful
 - all required manual follow-up steps, or `No manual follow-up required.` when
   there are none
+
+Requests for concision never override these required completion fields. Use the
+CLI's compact `Completion summary` block as the reporting baseline and do not
+omit a populated pull-request URL.
 
 ## Concurrent integration
 
