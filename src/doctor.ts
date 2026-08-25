@@ -20,6 +20,14 @@ interface Check {
   detail: string;
 }
 
+const MANAGED_START = "<!-- codex-handoff:managed:start -->";
+const MANAGED_END = "<!-- codex-handoff:managed:end -->";
+const STALE_CONCURRENCY_RULES = [
+  /do not begin[^.\n]{0,200}(?:default branch|detached)/i,
+  /(?:an|any|one) active session[^.\n]{0,200}(?:blocks?|prevents?|forbids?)[^.\n]{0,120}(?:new|another|unrelated) (?:task|session)/i,
+  /(?:cannot|must not|do not) (?:start|begin|create)[^.\n]{0,180}(?:while|when)[^.\n]{0,120}(?:active|existing) session/i,
+];
+
 export async function doctorCommand(cwd = process.cwd()): Promise<void> {
   const checks: Check[] = [];
   const major = Number(process.versions.node.split(".")[0]);
@@ -128,17 +136,16 @@ export async function doctorCommand(cwd = process.cwd()): Promise<void> {
     ]);
     const normalizedGuidance = normalizeText(guidance);
     const normalizedBundledGuidance = normalizeText(bundledGuidance);
-    const conflictingBranchRule =
-      /do not begin[^.\n]{0,160}(?:default branch|detached)/i.test(
-        normalizedGuidance,
-      );
+    const managed = managedSection(normalizedGuidance);
+    const expected = managedBlock(normalizedBundledGuidance);
+    const conflictingBranchRule = hasStaleConcurrencyRule(normalizedGuidance);
     checks.push(
       conflictingBranchRule
         ? fail(
             "Global guidance",
-            `${agentsPath} contains a stale detached/default-branch prohibition; synchronize it with ${bundledGuidancePath}`,
+            `${agentsPath} contains stale wording that blocks supported session starts; synchronize it with ${bundledGuidancePath}`,
           )
-        : normalizedGuidance.includes(normalizedBundledGuidance)
+        : managed === expected
           ? pass("Global guidance", agentsPath)
           : fail(
               "Global guidance",
@@ -147,6 +154,29 @@ export async function doctorCommand(cwd = process.cwd()): Promise<void> {
     );
   } catch (error) {
     checks.push(fail("Global guidance", errorMessage(error)));
+  }
+
+  if (config) {
+    const repositoryGuidancePath = fileURLToPath(
+      new URL("../REPOSITORY_AGENTS_SNIPPET.md", import.meta.url),
+    );
+    let expectedRepositoryGuidance = "";
+    try {
+      expectedRepositoryGuidance = managedBlock(
+        normalizeText(await readFile(repositoryGuidancePath, "utf8")),
+      );
+    } catch (error) {
+      checks.push(fail("Repository guidance bundle", errorMessage(error)));
+    }
+    for (const repository of config.repositories) {
+      checks.push(
+        await repositoryGuidanceCheck(
+          repository,
+          expectedRepositoryGuidance,
+          repositoryGuidancePath,
+        ),
+      );
+    }
   }
 
   if (config) checks.push(...(await repositoryChecks(config, cwd)));
@@ -635,4 +665,49 @@ function errorMessage(error: unknown): string {
 
 function normalizeText(value: string): string {
   return value.replaceAll("\r\n", "\n").trim();
+}
+
+function managedBlock(contents: string): string {
+  return contents.startsWith(MANAGED_START)
+    ? contents
+    : `${MANAGED_START}\n${contents}\n${MANAGED_END}`;
+}
+
+function managedSection(contents: string): string | undefined {
+  const start = contents.indexOf(MANAGED_START);
+  const end = contents.indexOf(MANAGED_END);
+  if (start < 0 || end < start) return undefined;
+  return contents.slice(start, end + MANAGED_END.length);
+}
+
+function hasStaleConcurrencyRule(contents: string): boolean {
+  return STALE_CONCURRENCY_RULES.some((pattern) => pattern.test(contents));
+}
+
+async function repositoryGuidanceCheck(
+  repository: RepositoryConfig,
+  expected: string,
+  bundledPath: string,
+): Promise<Check> {
+  const agentsPath = join(repository.path, "AGENTS.md");
+  try {
+    const contents = normalizeText(await readFile(agentsPath, "utf8"));
+    if (hasStaleConcurrencyRule(contents)) {
+      return fail(
+        `Repository guidance (${repository.path})`,
+        `${agentsPath} contains stale wording that blocks unrelated concurrent sessions`,
+      );
+    }
+    return managedSection(contents) === expected
+      ? pass(`Repository guidance (${repository.path})`, agentsPath)
+      : fail(
+          `Repository guidance (${repository.path})`,
+          `${agentsPath} managed section differs from ${bundledPath}; run scripts/sync-managed-guidance.mjs`,
+        );
+  } catch (error) {
+    return fail(
+      `Repository guidance (${repository.path})`,
+      `${errorMessage(error)}; run scripts/sync-managed-guidance.mjs`,
+    );
+  }
 }

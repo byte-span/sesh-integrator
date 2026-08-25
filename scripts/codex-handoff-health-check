@@ -1,0 +1,15 @@
+#!/bin/sh
+set -eu
+
+timeout_seconds=${CODEX_HANDOFF_DOCTOR_TIMEOUT_SECONDS:-120}
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+project_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
+node_binary=${CODEX_HANDOFF_NODE:-node}
+set +e
+timeout "$timeout_seconds" "$node_binary" "$project_dir/dist/cli.js" doctor
+status=$?
+set -e
+if [ "$status" -ne 0 ]; then
+  printf '%s\n' "codex-handoff health check failed (status $status)" >&2
+  exit "$status"
+fi

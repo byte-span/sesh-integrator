@@ -11,12 +11,19 @@
     "skill",
     "scripts/install-cli.sh",
     "scripts/install-skill.sh",
+    "scripts/install-machine-safeguards.sh",
+    "scripts/sync-managed-guidance.mjs",
+    "scripts/codex-handoff-health-check",
+    "scripts/self-hosting-pre-push",
+    "scripts/self-hosting-post-merge",
+    "systemd",
     "scripts/install-gpg-reliability.sh",
     "scripts/test-real-gpg-e2e.sh",
     "scripts/codex-gpg",
     "scripts/codex-gpg-agent",
     "scripts/com.codex.gpg-agent.plist",
-    "GLOBAL_AGENTS_SNIPPET.md"
+    "GLOBAL_AGENTS_SNIPPET.md",
+    "REPOSITORY_AGENTS_SNIPPET.md"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",

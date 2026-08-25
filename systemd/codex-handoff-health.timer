@@ -1,0 +1,11 @@
+[Unit]
+Description=Run bounded codex-handoff health checks
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=6h
+RandomizedDelaySec=10min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

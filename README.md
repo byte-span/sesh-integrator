@@ -40,10 +40,9 @@ pnpm install
 pnpm build
 ./scripts/install-cli.sh
 codex-handoff init
-./scripts/install-skill.sh
 ```
 
-The CLI installer creates an idempotent symlink in `~/.local/bin`, which must be on `PATH`. Set `CODEX_HANDOFF_BIN_DIR` to choose another user-writable bin directory.
+The CLI installer creates an idempotent symlink in `~/.local/bin`, which must be on `PATH`. Set `CODEX_HANDOFF_BIN_DIR` to choose another user-writable bin directory. It also installs the machine safeguards: the bundled skill, managed guidance blocks, conservative self-hosting Git hooks, and a bounded six-hourly user systemd health check.
 
 `scripts/install-skill.sh` idempotently installs the supplied skill at `~/.agents/skills/codex-handoff-workflow/`. It accepts an alternate destination for testing:
 
@@ -51,10 +50,10 @@ The CLI installer creates an idempotent symlink in `~/.local/bin`, which must be
 ./scripts/install-skill.sh /tmp/codex-handoff-skill
 ```
 
-Finally, copy [GLOBAL_AGENTS_SNIPPET.md](./GLOBAL_AGENTS_SNIPPET.md) into
-`~/.codex/AGENTS.md`. It makes the CLI workflow primary, creates an isolated
-source worktree for ordinary checkouts, and excludes this tool's own repository,
-read-only tasks, non-Git directories, and the integration branch.
+Only delimited managed sections are synchronized. Global guidance comes from
+[GLOBAL_AGENTS_SNIPPET.md](./GLOBAL_AGENTS_SNIPPET.md), and every registered
+repository receives [REPOSITORY_AGENTS_SNIPPET.md](./REPOSITORY_AGENTS_SNIPPET.md).
+All surrounding user and project-specific instructions are preserved.
 
 ## Commands
 
@@ -532,7 +531,7 @@ Run one read-only readiness check from the project you intend to use:
 codex-handoff doctor
 ```
 
-It checks Node.js, Git, the configured Codex executable, runtime/config files, the installed workflow skill, synchronized global guidance without stale branch prohibitions, current-project registration, separate staging/target branch ancestry, source and integration validation commands, active locks, and conflicting legacy automation. It prints `READY`, `READY WITH ... WARNINGS`, or `NOT READY` with actionable details. A `NOT READY` result exits nonzero. Warnings cover checks that could not be confirmed safely, such as an unavailable `launchctl` query.
+It checks Node.js, Git, the configured Codex executable, runtime/config files, the installed workflow skill, synchronized managed global and registered-repository guidance without stale concurrency prohibitions, current-project registration, separate staging/target branch ancestry, source and integration validation commands, active locks, and conflicting legacy automation. It prints `READY`, `READY WITH ... WARNINGS`, or `NOT READY` with actionable details. A `NOT READY` result exits nonzero. Warnings cover checks that could not be confirmed safely, such as an unavailable `launchctl` query.
 
 ## Disposable-repository verification
 

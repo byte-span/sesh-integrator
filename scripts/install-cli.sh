@@ -17,3 +17,4 @@ chmod +x "$source_file"
 ln -sfn "$source_file" "$target_file"
 
 printf '%s\n' "Installed codex-handoff at $target_file"
+"$script_dir/install-machine-safeguards.sh"

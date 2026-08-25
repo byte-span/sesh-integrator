@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+
+branch=$(git symbolic-ref --quiet --short HEAD || true)
+[ "$branch" = dev ] || exit 0
+git fetch --quiet origin main
+if ! git merge-base --is-ancestor origin/main dev; then
+  printf '%s\n' "Refusing to push dev: it is behind or diverged from origin/main. Merge origin/main into a clean local dev first." >&2
+  exit 1
+fi
