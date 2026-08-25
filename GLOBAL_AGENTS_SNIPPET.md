@@ -115,9 +115,11 @@ At completion:
    the reported blocking condition without disturbing user state, and run
    `codex-handoff resume`. Do not claim success until promotion and configured
    post-integration checks complete.
-7. Report the session, source commit, integration result, target promotion, and
-   every required manual follow-up step. If none remain, state
-   `No manual follow-up required.`
+7. Report the session, source commit, staging integration commit, target branch
+   and promoted commit, pull-request URL when present, and every required manual
+   follow-up step. Requests for concision never override these required fields.
+   Use the CLI's compact `Completion summary` block as the reporting baseline.
+   If no manual steps remain, state `No manual follow-up required.`
 
 Never push, force-push, deploy, or perform destructive remote actions unless the
 user clearly requests that specific external action. Never delete branches or

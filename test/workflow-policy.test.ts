@@ -27,6 +27,22 @@ describe("bundled workflow trigger policy", () => {
     }
   });
 
+  it("keeps required completion fields even when a concise response is requested", async () => {
+    const [guidance, skill] = await Promise.all([
+      readFile(join(process.cwd(), "GLOBAL_AGENTS_SNIPPET.md"), "utf8"),
+      readFile(
+        join(process.cwd(), "skill", "codex-handoff-workflow", "SKILL.md"),
+        "utf8",
+      ),
+    ]);
+
+    for (const policy of [guidance, skill]) {
+      expect(policy).toContain("Requests for concision never override");
+      expect(policy).toContain("pull-request URL");
+      expect(policy).toContain("Completion summary");
+    }
+  });
+
   it("keeps the optional central secret registry metadata-only", async () => {
     const guidance = await readFile(
       join(process.cwd(), "GLOBAL_AGENTS_SNIPPET.md"),

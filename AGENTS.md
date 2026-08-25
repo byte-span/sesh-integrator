@@ -345,5 +345,7 @@ Do not turn this into a production platform.
 
 ## Completion Reporting
 
-After any code-changing task, list all required manual follow-up steps in the
-final response. If none are required, state `No manual follow-up required.`
+After any code-changing task, report the session, source commit, integration
+commit, target promotion, pull-request URL when present, and all required manual
+follow-up steps. Requests for concision never override these required fields.
+If no manual steps remain, state `No manual follow-up required.`

@@ -629,6 +629,7 @@ export async function integrateCommand(
       process.stdout.write(
         `Promoted ${session.id} directly to ${session.targetBranch} at ${session.promotedCommit}\n`,
       );
+      writeCompletionSummary(session);
       return session;
     }
     await measurePhase("worktree_preparation", async () =>
@@ -639,6 +640,7 @@ export async function integrateCommand(
     process.stdout.write(
       `Promoted ${session.id} to ${session.targetBranch} at ${session.promotedCommit}\n`,
     );
+    writeCompletionSummary(session);
     return session;
   } catch (error) {
     session.waitingForLock = false;
@@ -895,6 +897,7 @@ export async function resumeCommand(sessionId?: string): Promise<Session> {
     process.stdout.write(
       `Promoted ${session.id} to ${session.targetBranch} at ${session.promotedCommit}\n`,
     );
+    writeCompletionSummary(session);
     return session;
   } catch (error) {
     session.waitingForLock = false;
@@ -1422,12 +1425,27 @@ async function completePullRequestPromotion(
   if (pullRequestUrl) {
     session.pullRequestUrl = pullRequestUrl;
     session.remotePromotedAt = new Date().toISOString();
-    process.stdout.write(`Pull request: ${pullRequestUrl}\n`);
   }
   session.status = "succeeded";
   delete session.recoveryPhase;
   delete session.latestError;
   await writeSession(session);
+}
+
+function writeCompletionSummary(session: Session): void {
+  const pullRequest = session.pullRequestUrl ?? "None";
+  const manualFollowUp = session.pullRequestUrl
+    ? `Review and merge ${session.pullRequestUrl}.`
+    : "No manual follow-up required.";
+  process.stdout.write(
+    `Completion summary:\n` +
+      `  Session: ${session.id}\n` +
+      `  Source commit: ${session.readyCommit}\n` +
+      `  Staging integration commit: ${session.integratedCommit}\n` +
+      `  Target promotion: ${session.targetBranch} at ${session.promotedCommit}\n` +
+      `  Pull request: ${pullRequest}\n` +
+      `  Manual follow-up: ${manualFollowUp}\n`,
+  );
 }
 
 async function completePromotion(

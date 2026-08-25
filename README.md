@@ -455,6 +455,11 @@ codex-handoff validate
 codex-handoff integrate --summary "Implemented comment editing and tests"
 ```
 
+On success, the command prints a compact `Completion summary` containing the
+session ID, source commit, staging integration commit, target promotion, pull
+request URL when present, and manual follow-up. This block is intended to be
+copied into the agent's final response without dropping fields for concision.
+
 The ready SHA and timestamp are persisted before dependency or lock checks. Dependencies must already have succeeded. Simultaneous processes wait on an atomic per-repository directory lock, then merge against the current staging branch. Under that lock the CLI records the target's exact expected commit. The mutable source branch name is never merged.
 
 The staging branch starts from, or safely fast-forwards to, the current target.
