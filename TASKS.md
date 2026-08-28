@@ -133,6 +133,7 @@ Complete personal MVP implementation checklist.
 - [x] Reuse exact-tree source validation during integration when fingerprints match
 - [x] Cache advisory setup and validation conservatively by content fingerprints
 - [x] Auto-configure documentation and test validation tiers
+- [x] Infer safe disposable framework preparation before validation without per-repository configuration
 - [x] Support explicit parallel validation command groups
 - [x] Batch Git content hashing and parallelize independent Git metadata probes
 - [x] Index the latest worktree session while retaining JSON session history

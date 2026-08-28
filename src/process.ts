@@ -1,6 +1,10 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { recordSubprocess } from "./performance.js";
+import {
+  detectValidationPreparation,
+  displayPreparationDirectory,
+} from "./preparation.js";
 import type {
   Command,
   CommandExecutionResult,
@@ -81,6 +85,9 @@ export async function runValidation(
     onCommandSuccess?: (command: Command, fingerprint: string) => Promise<void>;
   } = {},
 ): Promise<{ cacheHits: number; executed: number }> {
+  if (commands.length > 0) {
+    await runValidationPreparation(cwd);
+  }
   let cacheHits = 0;
   let executed = 0;
   for (const step of commands) {
@@ -116,6 +123,25 @@ export async function runValidation(
     }
   }
   return { cacheHits, executed };
+}
+
+async function runValidationPreparation(cwd: string): Promise<void> {
+  const preparations = await detectValidationPreparation(cwd);
+  for (const preparation of preparations) {
+    process.stdout.write(
+      `Running inferred validation preparation (${preparation.environment}): ${preparation.command.join(" ")} in ${displayPreparationDirectory(cwd, preparation.cwd)}\n`,
+    );
+    const [command, ...args] = preparation.command;
+    const result = await run(command, args, {
+      cwd: preparation.cwd,
+      echo: true,
+    });
+    if (result.code !== 0) {
+      throw new Error(
+        `Inferred validation preparation failed (${result.code}) for ${preparation.environment}: ${preparation.command.join(" ")}`,
+      );
+    }
+  }
 }
 
 export function commandFingerprint(command: Command): string {

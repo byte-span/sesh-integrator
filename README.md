@@ -363,6 +363,14 @@ the target branch. Configuring these commands therefore requires exactly one
 accessible, clean target checkout. All commands are argument arrays executed
 directly without a shell.
 
+Before any non-empty validation plan, `codex-handoff` infers safe disposable
+framework preparation directly from package manifests, including packages
+nested in a monorepo. It currently recognizes Next.js type generation,
+SvelteKit sync, Nuxt prepare, Astro sync, and React Router type generation. It
+skips preparation already present in a package script and does not infer
+deployment, migration, release, or source-rewriting generators. These defaults
+apply to existing registrations without additional configuration.
+
 Validation tiers are evaluated in configuration order. A tier matches only when
 every changed path matches at least one of its glob patterns; otherwise the
 legacy source/integration lists form the `full` tier. `--auto-config` adds a
