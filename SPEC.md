@@ -387,6 +387,15 @@ normal integration. It never removes a user worktree or pushes.
 
 Auto-configuration may add conservative documentation-only and test-only tiers
 and may group independent inferred checks in explicit parallel groups.
+Before a non-empty validation plan, the tool also inspects package manifests
+throughout the worktree and runs conventionally safe, disposable framework
+preparation when the repository's validation scripts do not already do so.
+Initial conventions cover Next.js type generation, SvelteKit sync, Nuxt
+prepare, Astro sync, and React Router type generation. Detection uses declared
+dependencies and supported versions, works for nested monorepo packages, and
+requires no repository configuration. Preparation failure stops validation;
+deployment, migration, release, and generators that normally rewrite tracked
+source remain excluded.
 Successful validation commands are fingerprinted by exact Git tree, command,
 platform, architecture, and Node version. Session-local reuse is the default;
 repository-wide reuse is an explicit configuration choice. Required setup is
