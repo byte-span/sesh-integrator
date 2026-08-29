@@ -2365,12 +2365,15 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
   it("does not commit a merge when integration validation fails", async () => {
     const fixture = await createFixture();
     const worktree = await addWorktree(fixture, "validation-failure");
+    const later = await addWorktree(fixture, "validation-failure-later");
     await runCliOk(fixture, worktree, [
       "begin",
       "--summary",
       "validation failure",
     ]);
+    await runCliOk(fixture, later, ["begin", "--summary", "later valid task"]);
     commitFile(worktree, "invalid.txt", "invalid\n", "invalid source commit");
+    commitFile(later, "valid.txt", "valid\n", "valid source commit");
     await updateConfig(fixture, (config) => {
       config.repositories[0].integrationValidationCommands = [
         [process.execPath, "-e", "process.exit(7)"],
@@ -2387,8 +2390,24 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     expect(git(fixture.repo, "rev-parse", "codex-handoff/integration")).toBe(
       before,
     );
-    expect((await sessions(fixture))[0]!.status).toBe("needs_review");
+    expect(
+      (await sessions(fixture)).find(
+        (session) => session.worktreePath === worktree,
+      )!.status,
+    ).toBe("needs_review");
     expect(git(worktree, "status", "--porcelain=v1")).toBe("");
+
+    await updateConfig(fixture, (config) => {
+      config.repositories[0].integrationValidationCommands = [];
+    });
+    const completed = await runCli(fixture, later, [
+      "integrate",
+      "--summary",
+      "later valid task complete",
+    ]);
+    expect(completed.code, completed.stderr).toBe(0);
+    expect(completed.stdout).toContain("using isolated worktree");
+    expect(git(fixture.repo, "show", "main:valid.txt")).toBe("valid");
   });
 
   it("runs post-integration commands on the promoted target worktree", async () => {
@@ -2578,6 +2597,41 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     expect(await readFile(join(integrationPath, "shared.txt"), "utf8")).toBe(
       "first\nsecond\n",
     );
+  });
+
+  it("lets a later session integrate while another session preserves conflicts", async () => {
+    const fixture = await createFixture("base\n");
+    const first = await addWorktree(fixture, "blocking-first");
+    const conflicted = await addWorktree(fixture, "blocking-conflict");
+    const later = await addWorktree(fixture, "blocking-later");
+    await runCliOk(fixture, first, ["begin", "--summary", "first"]);
+    await runCliOk(fixture, conflicted, ["begin", "--summary", "conflict"]);
+    await runCliOk(fixture, later, ["begin", "--summary", "later"]);
+    commitFile(first, "shared.txt", "first\n", "first");
+    commitFile(conflicted, "shared.txt", "conflicted\n", "conflicted");
+    commitFile(later, "later.txt", "later\n", "later");
+    await runCliOk(fixture, first, ["integrate", "--summary", "first done"]);
+    const blocked = await runCli(fixture, conflicted, [
+      "integrate",
+      "--summary",
+      "conflict pending",
+    ]);
+    expect(blocked.code).toBe(1);
+
+    const completed = await runCli(fixture, later, [
+      "integrate",
+      "--summary",
+      "later done",
+    ]);
+
+    expect(completed.code, completed.stderr).toBe(0);
+    expect(completed.stdout).toContain("using isolated worktree");
+    expect(git(fixture.repo, "show", "main:later.txt")).toBe("later");
+    const pending = (await sessions(fixture)).find(
+      (session) => session.worktreePath === conflicted,
+    )!;
+    expect(pending.status).toBe("needs_review");
+    expect(pending.awaitingConflictResolution).toBe(true);
   });
 
   it("reconstructs resumable state from an orphaned preserved merge", async () => {
