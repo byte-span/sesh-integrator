@@ -63,6 +63,12 @@ Each finished session starts its own one-shot integration process.
 
 A per-repository lock serializes simultaneous completions.
 
+If an earlier integration preserves conflicts or failed validation in the
+canonical integration worktree, later sessions use detached session-owned
+integration worktrees. A validated isolated result advances the staging ref
+with an expected-old check, so preserved review state does not monopolize the
+repository.
+
 This means the system has no idle background process and no polling state to maintain.
 
 ## 4. Locations

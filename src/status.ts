@@ -63,7 +63,7 @@ export async function statusCommand(sessionId?: string): Promise<void> {
     if (session.recoveryPhase)
       process.stdout.write(`  recovery phase: ${session.recoveryPhase}\n`);
     process.stdout.write(
-      `  integration worktree: ${join(paths.worktrees, session.repositoryId)}\n`,
+      `  integration worktree: ${session.integrationWorktreePath ?? join(paths.worktrees, session.repositoryId)}\n`,
     );
     if (session.latestError)
       process.stdout.write(`  latest error: ${session.latestError}\n`);

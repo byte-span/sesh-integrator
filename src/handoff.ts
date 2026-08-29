@@ -593,7 +593,7 @@ export async function integrateCommand(
   );
 
   await assertDependencies(session);
-  const integrationWorktree = join(
+  let integrationWorktree = join(
     runtimePaths().worktrees,
     session.repositoryId,
   );
@@ -615,6 +615,11 @@ export async function integrateCommand(
     await assertDependencies(session);
     await measurePhase("target_baseline", async () =>
       captureTargetExpectation(repository, session),
+    );
+    integrationWorktree = await selectIntegrationWorktree(
+      repository,
+      session,
+      integrationWorktree,
     );
     if (
       await measurePhase("direct_integration", async () =>
@@ -853,10 +858,9 @@ export async function resumeCommand(sessionId?: string): Promise<Session> {
     "resume",
   );
 
-  const integrationWorktree = join(
-    runtimePaths().worktrees,
-    session.repositoryId,
-  );
+  const integrationWorktree =
+    session.integrationWorktreePath ??
+    join(runtimePaths().worktrees, session.repositoryId);
   session.waitingForLock = true;
   await writeSession(session);
   let lock: LockHandle | undefined;
@@ -912,6 +916,39 @@ export async function resumeCommand(sessionId?: string): Promise<Session> {
   }
 }
 
+async function selectIntegrationWorktree(
+  repository: RepositoryConfig,
+  session: Session,
+  canonicalPath: string,
+): Promise<string> {
+  if (session.integrationWorktreePath) return session.integrationWorktreePath;
+  if (await pathExists(canonicalPath)) {
+    const context = await inspectGit(canonicalPath);
+    if (
+      context.gitCommonDir === repository.gitCommonDir &&
+      context.branch === repository.integrationBranch &&
+      ((await hasMergeInProgress(canonicalPath)) ||
+        !(await isClean(canonicalPath)))
+    ) {
+      const isolatedPath = join(
+        runtimePaths().worktrees,
+        `${session.repositoryId}-${session.id}`,
+      );
+      session.integrationWorktreePath = isolatedPath;
+      session.integrationWorktreeDetached = true;
+      await writeSession(session);
+      process.stdout.write(
+        `Shared integration worktree contains preserved review state; using isolated worktree ${isolatedPath}\n`,
+      );
+      return isolatedPath;
+    }
+  }
+  session.integrationWorktreePath = canonicalPath;
+  session.integrationWorktreeDetached = false;
+  await writeSession(session);
+  return canonicalPath;
+}
+
 async function prepareIntegrationWorktree(
   repository: RepositoryConfig,
   session: Session,
@@ -924,11 +961,14 @@ async function prepareIntegrationWorktree(
         `Integration worktree belongs to a different repository: ${path}`,
       );
     }
-    if (context.branch !== repository.integrationBranch) {
+    if (
+      context.branch !== repository.integrationBranch &&
+      !(session.integrationWorktreeDetached && context.branch === null)
+    ) {
       throw new Error(
         `Integration worktree is on ${
           context.branch ?? "detached HEAD"
-        }, expected ${repository.integrationBranch}`,
+        }, expected ${session.integrationWorktreeDetached ? "a detached integration checkout" : repository.integrationBranch}`,
       );
     }
     if (await hasMergeInProgress(path)) {
@@ -942,6 +982,15 @@ async function prepareIntegrationWorktree(
   }
   const branchRef = `refs/heads/${repository.integrationBranch}`;
   const existing = await refCommit(repository.path, branchRef);
+  if (session.integrationWorktreeDetached) {
+    const base = existing ?? session.targetCommitBeforeIntegration;
+    if (!base) throw new Error("Session is missing an integration baseline");
+    await git(["worktree", "add", "--detach", path, base], repository.path);
+    session.conflictIntegrationHead = base;
+    await writeSession(session);
+    await assertIntegrationWorktreeReady(session, path);
+    return;
+  }
   if (existing) {
     await git(
       ["worktree", "add", path, repository.integrationBranch],
@@ -1046,7 +1095,10 @@ async function assertResumableConflict(
       `Integration worktree belongs to a different repository: ${worktree}`,
     );
   }
-  if (context.branch !== repository.integrationBranch) {
+  if (
+    context.branch !== repository.integrationBranch &&
+    !(session.integrationWorktreeDetached && context.branch === null)
+  ) {
     throw new Error(
       `Integration worktree is on ${context.branch ?? "detached HEAD"}, expected ${repository.integrationBranch}`,
     );
@@ -1089,7 +1141,10 @@ async function assertResumableCommitFailure(
       `Integration worktree belongs to a different repository: ${worktree}`,
     );
   }
-  if (context.branch !== repository.integrationBranch) {
+  if (
+    context.branch !== repository.integrationBranch &&
+    !(session.integrationWorktreeDetached && context.branch === null)
+  ) {
     throw new Error(
       `Integration worktree is on ${context.branch ?? "detached HEAD"}, expected ${repository.integrationBranch}`,
     );
@@ -1185,6 +1240,26 @@ async function validateCommitAndFinish(
     );
   }
   session.integratedCommit = await git(["rev-parse", "HEAD"], worktree);
+  if (session.integrationWorktreeDetached) {
+    const expected = session.conflictIntegrationHead;
+    if (!expected)
+      throw new Error("Detached integration is missing its staging baseline");
+    const update = await run(
+      "git",
+      [
+        "update-ref",
+        `refs/heads/${repository.integrationBranch}`,
+        session.integratedCommit,
+        expected,
+      ],
+      { cwd: repository.path },
+    );
+    if (update.code !== 0) {
+      throw new Error(
+        `Integration branch advanced while ${session.id} was pending; its validated commit is preserved at ${session.integratedCommit}. Resume after reconciling the newer staging history.`,
+      );
+    }
+  }
   session.integratedAt = new Date().toISOString();
   session.waitingForLock = false;
   session.awaitingConflictResolution = false;

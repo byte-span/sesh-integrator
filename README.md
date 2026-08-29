@@ -523,7 +523,7 @@ commit against the recorded expected target SHA. It does not rebuild from a
 source branch that may have advanced. Post-integration failures are likewise
 resumable and rerun their configured checks from the promoted target worktree.
 
-Validation failure or unresolved conflict leaves the integration worktree intact, records `needs_review`, releases the one-shot lock, and exits nonzero. A failed post-integration command also records `needs_review`, but preserves the already-promoted target commit; its command, exit code, stdout, and stderr remain in the session record for diagnosis. If post-integration commands are configured and the target is not checked out in exactly one clean accessible worktree, promotion remains pending. Post-integration commands are skipped when the ready commit was already present and the staging branch did not advance. The source worktree is never modified.
+Validation failure or unresolved conflict leaves that session's integration worktree intact, records `needs_review`, releases the one-shot lock, and exits nonzero. Later sessions use detached session-owned integration worktrees when the canonical worktree contains preserved review state, and atomically advance staging only after validation. A failed post-integration command also records `needs_review`, but preserves the already-promoted target commit; its command, exit code, stdout, and stderr remain in the session record for diagnosis. If post-integration commands are configured and the target is not checked out in exactly one clean accessible worktree, promotion remains pending. Post-integration commands are skipped when the ready commit was already present and the staging branch did not advance. The source worktree is never modified.
 
 ### `status`
 
@@ -674,7 +674,7 @@ For rollback, stop invoking the new skill, restore the previous global guidance,
   non-fast-forward recovery. It never force-pushes, deletes branches, or
   merges/resets user worktrees. It pushes only when a repository explicitly
   enables pull-request promotion.
-- One preserved `needs_review` merge blocks further integrations because the dedicated integration worktree contains its recovery state; unrelated source sessions may continue working and can integrate after it is resumed.
+- A preserved session whose staging baseline is overtaken by a later successful integration requires reconciliation before that older session can promote its validated result.
 - Dependency checks fail clearly rather than running a background waiter; retry after dependencies succeed.
 - The current-session resolution path is instruction-driven; genuinely ambiguous conflicts or failed validation still require user review.
 - Optional nested conflict resolution requires a compatible networked `codex exec`; `codexCommand` is a single executable path, not a shell command.

@@ -107,6 +107,8 @@ export interface Session {
   latestError?: string;
   conflictPromptPath?: string;
   conflictIntegrationHead?: string;
+  integrationWorktreePath?: string;
+  integrationWorktreeDetached?: boolean;
   awaitingConflictResolution?: boolean;
   waitingForLock?: boolean;
   postIntegrationResults?: CommandExecutionResult[];
