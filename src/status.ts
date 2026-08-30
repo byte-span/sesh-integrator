@@ -60,6 +60,11 @@ export async function statusCommand(sessionId?: string): Promise<void> {
     );
     if (session.pullRequestUrl)
       process.stdout.write(`  pull request: ${session.pullRequestUrl}\n`);
+    process.stdout.write(
+      `  external rollout: ${session.rolloutDisposition ?? "unclassified"}\n`,
+    );
+    for (const followUp of session.rolloutFollowUps ?? [])
+      process.stdout.write(`  rollout follow-up: ${followUp}\n`);
     if (session.recoveryPhase)
       process.stdout.write(`  recovery phase: ${session.recoveryPhase}\n`);
     process.stdout.write(

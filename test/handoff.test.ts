@@ -44,6 +44,58 @@ afterEach(async () => {
 });
 
 describe.sequential("codex-handoff disposable repository workflow", () => {
+  it("requires and reports a technology-neutral external rollout classification", async () => {
+    const fixture = await createFixture();
+    await runCliOk(fixture, fixture.repo, [
+      "begin",
+      "--summary",
+      "external state contract",
+    ]);
+    commitFile(fixture.repo, "rollout.txt", "rollout\n", "rollout contract");
+
+    const missing = await runCli(
+      fixture,
+      fixture.repo,
+      ["integrate", "--summary", "missing classification"],
+      { CODEX_HANDOFF_TEST_REQUIRE_ROLLOUT: "1" },
+    );
+    expect(missing.code).toBe(1);
+    expect(missing.stderr).toContain("integrate requires --rollout");
+
+    const manualWithoutStep = await runCli(fixture, fixture.repo, [
+      "integrate",
+      "--summary",
+      "missing manual step",
+      "--rollout",
+      "manual",
+    ]);
+    expect(manualWithoutStep.code).toBe(1);
+    expect(manualWithoutStep.stderr).toContain(
+      "manual rollout requires at least one --follow-up",
+    );
+
+    const completed = await runCliOk(fixture, fixture.repo, [
+      "integrate",
+      "--summary",
+      "classified rollout",
+      "--rollout",
+      "manual",
+      "--follow-up",
+      "Apply the pending external-state change through the trusted workflow.",
+    ]);
+    expect(completed.stdout).toContain(
+      "External rollout: Manual action required.",
+    );
+    expect(completed.stdout).toContain(
+      "Manual follow-up: Apply the pending external-state change through the trusted workflow.",
+    );
+    const [session] = await sessions(fixture);
+    expect(session.rolloutDisposition).toBe("manual");
+    expect(session.rolloutFollowUps).toEqual([
+      "Apply the pending external-state change through the trusted workflow.",
+    ]);
+  });
+
   it("caches only fingerprinted advisory setup with an extant marker", async () => {
     const root = await mkdtemp(join(tmpdir(), "codex-handoff-setup-cache-"));
     temporaryRoots.push(root);
@@ -3284,8 +3336,14 @@ async function runCli(
   args: string[],
   extraEnv: NodeJS.ProcessEnv = {},
 ): Promise<CliResult> {
+  const effectiveArgs =
+    args[0] === "integrate" &&
+    !args.includes("--rollout") &&
+    extraEnv.CODEX_HANDOFF_TEST_REQUIRE_ROLLOUT !== "1"
+      ? [...args, "--rollout", "none"]
+      : args;
   return await new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [cli, ...args], {
+    const child = spawn(process.execPath, [cli, ...effectiveArgs], {
       cwd,
       env: {
         ...process.env,

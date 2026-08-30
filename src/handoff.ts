@@ -47,6 +47,7 @@ import type {
   Config,
   GitPathObservation,
   RepositoryConfig,
+  RolloutDisposition,
   Session,
   SessionIndexEntry,
 } from "./types.js";
@@ -529,9 +530,22 @@ export async function commitCommand(
 
 export async function integrateCommand(
   summary: string,
+  rolloutDisposition: RolloutDisposition | undefined,
+  rolloutFollowUps: string[],
   sessionId?: string,
 ): Promise<Session> {
   if (!summary.trim()) throw new Error('integrate requires --summary "..."');
+  if (!rolloutDisposition) {
+    throw new Error(
+      "integrate requires --rollout none|applied|automated|manual; source promotion does not imply external-state application",
+    );
+  }
+  if (rolloutDisposition === "manual" && rolloutFollowUps.length === 0) {
+    throw new Error('manual rollout requires at least one --follow-up "..."');
+  }
+  if (rolloutDisposition !== "manual" && rolloutFollowUps.length > 0) {
+    throw new Error("--follow-up is valid only with --rollout manual");
+  }
   const config = await readConfig();
   const { source, repository, session } = await resolveSourceSession(
     ["active", "ready"],
@@ -561,6 +575,8 @@ export async function integrateCommand(
     session.readyCommit = source.head;
     session.readyAt = new Date().toISOString();
     session.completionSummary = summary.trim();
+    session.rolloutDisposition = rolloutDisposition;
+    session.rolloutFollowUps = rolloutFollowUps;
     delete session.latestError;
     await writeSession(session);
   } else {
@@ -572,6 +588,19 @@ export async function integrateCommand(
     if (session.completionSummary !== summary.trim()) {
       process.stdout.write(
         `Keeping originally persisted completion summary for retry.\n`,
+      );
+    }
+    if (!session.rolloutDisposition) {
+      session.rolloutDisposition = rolloutDisposition;
+      session.rolloutFollowUps = rolloutFollowUps;
+      await writeSession(session);
+    } else if (
+      session.rolloutDisposition !== rolloutDisposition ||
+      JSON.stringify(session.rolloutFollowUps ?? []) !==
+        JSON.stringify(rolloutFollowUps)
+    ) {
+      process.stdout.write(
+        `Keeping originally persisted rollout classification for retry.\n`,
       );
     }
   }
@@ -1642,9 +1671,15 @@ async function validateRemoteRecoveryAndContinue(
 
 function writeCompletionSummary(session: Session): void {
   const pullRequest = session.pullRequestUrl ?? "None";
-  const manualFollowUp = session.pullRequestUrl
-    ? `Review and merge ${session.pullRequestUrl}.`
-    : "No manual follow-up required.";
+  const manualFollowUps = [
+    ...(session.pullRequestUrl
+      ? [`Review and merge ${session.pullRequestUrl}.`]
+      : []),
+    ...(session.rolloutDisposition === "manual"
+      ? (session.rolloutFollowUps ?? [])
+      : []),
+  ];
+  const rollout = formatRolloutDisposition(session.rolloutDisposition);
   process.stdout.write(
     `Completion summary:\n` +
       `  Session: ${session.id}\n` +
@@ -1652,8 +1687,30 @@ function writeCompletionSummary(session: Session): void {
       `  Staging integration commit: ${session.integratedCommit}\n` +
       `  Target promotion: ${session.targetBranch} at ${session.promotedCommit}\n` +
       `  Pull request: ${pullRequest}\n` +
-      `  Manual follow-up: ${manualFollowUp}\n`,
+      `  External rollout: ${rollout}\n` +
+      (manualFollowUps.length
+        ? manualFollowUps
+            .map((item) => `  Manual follow-up: ${item}\n`)
+            .join("")
+        : `  Manual follow-up: No manual follow-up required.\n`),
   );
+}
+
+function formatRolloutDisposition(
+  disposition: RolloutDisposition | undefined,
+): string {
+  switch (disposition) {
+    case "none":
+      return "None required.";
+    case "applied":
+      return "Already applied.";
+    case "automated":
+      return "Applied by trusted automation.";
+    case "manual":
+      return "Manual action required.";
+    default:
+      return "Unclassified.";
+  }
 }
 
 async function completePromotion(

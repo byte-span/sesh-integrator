@@ -106,7 +106,11 @@ At completion:
    ```
 
 3. Run `codex-handoff validate`; do not integrate if validation fails.
-4. Run `codex-handoff integrate --summary "<concise completion summary>"`.
+4. Run `codex-handoff integrate --summary "<concise completion summary>"
+--rollout <none|applied|automated|manual>`. Every integration must classify
+   external-state rollout. `manual` also requires one or more explicit
+   `--follow-up "<required action>"` arguments. Source promotion never implies
+   external state was applied.
 5. For a resumable conflict, resolve and stage the preserved integration
    worktree without committing there, then run `codex-handoff resume` from the
    original source checkout. Preserve compatible intent and continue

@@ -94,7 +94,7 @@ run_round() {
   sandbox-exec -f "$profile" env CODEX_HANDOFF_HOME="$runtime" \
     node "$cli" validate
   sandbox-exec -f "$profile" env CODEX_HANDOFF_HOME="$runtime" \
-    node "$cli" integrate --summary "Real signed integration $round"
+    node "$cli" integrate --summary "Real signed integration $round" --rollout none
   local integration_commit
   integration_commit=$(git -C "$repo" rev-parse codex-handoff/integration)
   local target_commit
