@@ -47,6 +47,7 @@ Complete personal MVP implementation checklist.
 
 - [x] Find the current or explicitly selected source-worktree session and require a clean unchanged source branch
 - [x] Persist the exact ready commit, timestamp, and completion summary before integration
+- [x] Require a technology-neutral external-state rollout classification and explicit manual follow-up
 - [x] Enforce explicit dependency results before and after lock acquisition
 - [x] Acquire an atomic per-repository lock with bounded waiting and owner metadata
 - [x] Refresh integration state after lock acquisition

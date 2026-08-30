@@ -372,7 +372,7 @@ Before integration, the skill:
 
 ```bash
 codex-handoff validate
-codex-handoff integrate --summary "Implemented edit flow and tests"
+codex-handoff integrate --summary "Implemented edit flow and tests" --rollout none
 ```
 
 The CLI itself should not broadly stage arbitrary user files.
@@ -421,6 +421,8 @@ Capture:
 - ready commit = current HEAD
 - ready time
 - completion summary
+- external-state rollout classification (`none`, `applied`, `automated`, or
+  `manual`) and explicit follow-up actions for `manual`
 
 Persist this before attempting integration.
 

@@ -64,6 +64,8 @@ export interface Config {
 export type SessionStatus =
   "active" | "ready" | "promotion_pending" | "succeeded" | "needs_review";
 
+export type RolloutDisposition = "none" | "applied" | "automated" | "manual";
+
 export interface Session {
   id: string;
   status: SessionStatus;
@@ -81,6 +83,8 @@ export interface Session {
   readyCommit?: string;
   readyAt?: string;
   completionSummary?: string;
+  rolloutDisposition?: RolloutDisposition;
+  rolloutFollowUps?: string[];
   validationTier?: string;
   changedPaths?: string[];
   sourceValidatedAt?: string;

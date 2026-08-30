@@ -16,6 +16,7 @@ import { statusCommand } from "./status.js";
 import { reconcileCommand } from "./reconcile.js";
 import { benchmarkCommand } from "./benchmark.js";
 import { finishPerformance, startPerformance } from "./performance.js";
+import type { RolloutDisposition } from "./types.js";
 
 export async function main(argv = process.argv.slice(2)): Promise<void> {
   const [command, ...args] = argv;
@@ -55,7 +56,12 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
       }
       case "integrate": {
         const options = parseOptions(args, false);
-        await integrateCommand(options.summary, options.sessionId);
+        await integrateCommand(
+          options.summary,
+          options.rolloutDisposition,
+          options.rolloutFollowUps,
+          options.sessionId,
+        );
         break;
       }
       case "commit": {
@@ -144,12 +150,16 @@ function parseOptions(
   autoBranch: boolean;
   createWorktree: boolean;
   sessionId?: string;
+  rolloutDisposition?: RolloutDisposition;
+  rolloutFollowUps: string[];
 } {
   let summary = "";
   const dependsOn: string[] = [];
   let autoBranch = true;
   let createWorktree = false;
   let sessionId: string | undefined;
+  let rolloutDisposition: RolloutDisposition | undefined;
+  const rolloutFollowUps: string[] = [];
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
     const value = args[index + 1];
@@ -173,6 +183,19 @@ function parseOptions(
       if (sessionId) throw new Error("--session may be specified only once");
       sessionId = value;
       index += 1;
+    } else if (!allowDependencies && argument === "--rollout" && value) {
+      if (rolloutDisposition)
+        throw new Error("--rollout may be specified only once");
+      if (!["none", "applied", "automated", "manual"].includes(value))
+        throw new Error(
+          "--rollout must be none, applied, automated, or manual",
+        );
+      rolloutDisposition = value as RolloutDisposition;
+      index += 1;
+    } else if (!allowDependencies && argument === "--follow-up" && value) {
+      if (!value.trim()) throw new Error("--follow-up must not be empty");
+      rolloutFollowUps.push(value.trim());
+      index += 1;
     } else {
       throw new Error(`Unknown or incomplete option: ${argument}`);
     }
@@ -182,6 +205,8 @@ function parseOptions(
     dependsOn,
     autoBranch,
     createWorktree,
+    rolloutFollowUps,
+    ...(rolloutDisposition ? { rolloutDisposition } : {}),
     ...(sessionId ? { sessionId } : {}),
   };
 }
@@ -289,7 +314,22 @@ function parseReconcileOptions(args: string[]): {
   return { apply, path };
 }
 
-const helpText = `codex-handoff - one-shot Git integration\n\nUsage:\n  codex-handoff init\n  codex-handoff register [repo-path] [--auto-config] [--setup-command '<json-array>']...\n  codex-handoff begin --summary \"...\" [--create-worktree] [--no-auto-branch] [--depends-on <session-id>]...\n  codex-handoff commit --message \"...\" [--session <session-id>]\n  codex-handoff validate [--session <session-id>]\n  codex-handoff integrate --summary \"...\" [--session <session-id>]\n  codex-handoff resume [--session <session-id>]\n  codex-handoff status [--session <session-id>]\n  codex-handoff reconcile [repo-path] [--apply]\n  codex-handoff audit-legacy\n  codex-handoff doctor\n  codex-handoff benchmark [--runs <n>] [--json] [--check]\n`;
+const helpText = `codex-handoff - one-shot Git integration
+
+Usage:
+  codex-handoff init
+  codex-handoff register [repo-path] [--auto-config] [--setup-command '<json-array>']...
+  codex-handoff begin --summary "..." [--create-worktree] [--no-auto-branch] [--depends-on <session-id>]...
+  codex-handoff commit --message "..." [--session <session-id>]
+  codex-handoff validate [--session <session-id>]
+  codex-handoff integrate --summary "..." --rollout <none|applied|automated|manual> [--follow-up "..."]... [--session <session-id>]
+  codex-handoff resume [--session <session-id>]
+  codex-handoff status [--session <session-id>]
+  codex-handoff reconcile [repo-path] [--apply]
+  codex-handoff audit-legacy
+  codex-handoff doctor
+  codex-handoff benchmark [--runs <n>] [--json] [--check]
+`;
 
 if (isMainModule()) {
   main().catch((error: unknown) => {

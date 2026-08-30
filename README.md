@@ -65,7 +65,7 @@ codex-handoff register [repo-path] [--auto-config] [--setup-command '<json-array
 codex-handoff begin --summary "Implement feature" [--create-worktree] [--no-auto-branch] [--depends-on <session-id>]...
 codex-handoff commit --message "Implement feature" [--session <session-id>]
 codex-handoff validate [--session <session-id>]
-codex-handoff integrate --summary "Implemented feature and tests" [--session <session-id>]
+codex-handoff integrate --summary "Implemented feature and tests" --rollout <none|applied|automated|manual> [--follow-up "..."]... [--session <session-id>]
 codex-handoff resume [--session <session-id>]
 codex-handoff status [--session <session-id>]
 codex-handoff reconcile [repo-path] [--apply]
@@ -469,8 +469,14 @@ tiered validation:
 ```bash
 codex-handoff commit --message "Implement comment editing"
 codex-handoff validate
-codex-handoff integrate --summary "Implemented comment editing and tests"
+codex-handoff integrate --summary "Implemented comment editing and tests" --rollout none
 ```
+
+Every integration must classify external-state rollout as `none`, `applied`,
+`automated`, or `manual`. Manual rollout requires at least one explicit
+`--follow-up`. This technology-neutral contract covers any change whose effect
+depends on another system; promoting source never implies that external state
+was applied.
 
 On success, the command prints a compact `Completion summary` containing the
 session ID, source commit, staging integration commit, target promotion, pull
@@ -634,7 +640,7 @@ echo demo > demo.txt
 git add demo.txt
 codex-handoff commit --message "Add demo"
 codex-handoff validate
-codex-handoff integrate --summary "Added disposable demo"
+codex-handoff integrate --summary "Added disposable demo" --rollout none
 git -C "$trial_dir/repo" log --oneline --graph codex-handoff/integration
 git -C "$trial_dir/repo" log --oneline --graph main
 ```

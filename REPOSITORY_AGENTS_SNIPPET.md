@@ -13,4 +13,8 @@ session. Perform edits and lifecycle commands from the reported `Continue task
 in:` path. Finish with a focused `codex-handoff commit`, then
 `codex-handoff validate` and `codex-handoff integrate`; resume recoverable
 conflicts or pending promotion without destructive cleanup.
+
+Every integration must classify external-state rollout with `--rollout
+none|applied|automated|manual`. Manual rollout requires explicit `--follow-up`
+actions. Never assume source promotion applied changes in another system.
 <!-- codex-handoff:managed:end -->

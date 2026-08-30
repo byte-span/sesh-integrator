@@ -102,7 +102,9 @@ Before saying the task is complete:
 7. Run:
 
    ```bash
-   codex-handoff integrate --summary "<concise completion summary>"
+   codex-handoff integrate --summary "<concise completion summary>" \
+     --rollout <none|applied|automated|manual> \
+     [--follow-up "<required manual action>"]...
    ```
 
 8. If `integrate` reports a resumable merge conflict:
@@ -126,7 +128,13 @@ resume`. Do not fetch, merge, push, reset, or retry manually; the CLI owns
     the exact fetched commit, full revalidation, and bounded non-force retries.
 12. For any other integration failure, report the CLI's recorded error; do not
     describe the session as `needs_review` unless the CLI recorded that status.
-13. Report:
+13. Classify external-state rollout for every integration. `none` means no
+    external state is affected; `applied` means it is already applied;
+    `automated` means trusted automation will apply it; and `manual` requires
+    one or more explicit `--follow-up` actions. Source promotion never implies
+    that migrations, infrastructure, configuration, secrets, jobs, backfills,
+    or deployment state were applied.
+14. Report:
 
 - session ID
 - source commit

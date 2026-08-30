@@ -91,7 +91,7 @@ Implement:
 codex-handoff init
 codex-handoff register [repo-path]
 codex-handoff begin [--summary "..."] [--depends-on <session-id>]
-codex-handoff integrate [--summary "..."]
+codex-handoff integrate --summary "..." --rollout <none|applied|automated|manual> [--follow-up "..."]...
 codex-handoff status
 codex-handoff audit-legacy
 codex-handoff doctor
@@ -199,7 +199,7 @@ The Codex CLI workflow is responsible for validating and creating a focused
 source-branch commit before invoking:
 
 ```bash
-codex-handoff integrate --summary "<completion summary>"
+codex-handoff integrate --summary "<completion summary>" --rollout <none|applied|automated|manual> [--follow-up "<required action>"]...
 ```
 
 `integrate` must:
@@ -207,7 +207,8 @@ codex-handoff integrate --summary "<completion summary>"
 1. Find the active session for the current worktree.
 2. Require a clean source worktree.
 3. Capture the exact current commit as `readyCommit`.
-4. Record ready timestamp and completion summary.
+4. Record ready timestamp, completion summary, and the mandatory external-state
+   rollout classification. Manual rollout requires explicit follow-up actions.
 5. Acquire a per-repository lock.
 6. Wait if another `codex-handoff` process is integrating the same repo.
 7. Create/reuse a dedicated integration worktree.
