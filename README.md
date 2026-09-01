@@ -405,6 +405,32 @@ Commands within a group run concurrently; groups and ordinary commands still
 run in order and any failed member stops validation. Auto-configuration groups
 independent inferred checks and adds documentation-only and test-only tiers.
 
+Commands that share finite infrastructure can declare opaque resource keys and
+failure behavior without naming a framework or service in codex-handoff:
+
+```json
+{
+  "command": ["tool", "check"],
+  "resources": {
+    "shared": ["environment:read"],
+    "exclusive": ["fixture:mutable"]
+  },
+  "failure": {
+    "classification": "transient",
+    "maxAttempts": 3,
+    "initialBackoffMs": 250,
+    "maxBackoffMs": 2000
+  }
+}
+```
+
+Shared holders may overlap; exclusive holders serialize with both shared and
+exclusive holders for the same key, including validations in other repositories
+and sessions. Multiple keys are acquired in sorted order. Unrelated keys remain
+concurrent. Commands default to deterministic failure and one attempt. A command
+declared transient uses bounded exponential backoff; omitted retry values default
+to three attempts, 250 ms initial backoff, and a 2 s cap.
+
 `validationCache` defaults to `session`: successful commands are reusable only
 for the same Git tree, command fingerprint, platform, architecture, and Node
 version in that handoff. Set it to `repository` for content-addressed reuse
@@ -532,7 +558,7 @@ codex-handoff resume
 ```
 
 Do not run it from the integration worktree. It resumes only the matching
-`needs_review` or `promotion_pending` session and refuses changed source snapshots, mismatched merge
+`needs_review`, `validation_pending`, or `promotion_pending` session and refuses changed source snapshots, mismatched merge
 commits, unresolved files, or a moved integration branch. It also retries an
 unchanged clean merge after validation or commit creation failed, but only when
 the staged tree exactly matches Git's reconstructed merge tree.
@@ -542,7 +568,13 @@ commit against the recorded expected target SHA. It does not rebuild from a
 source branch that may have advanced. Post-integration failures are likewise
 resumable and rerun their configured checks from the promoted target worktree.
 
-Validation failure or unresolved conflict leaves that session's integration worktree intact, records `needs_review`, releases the one-shot lock, and exits nonzero. Later sessions use detached session-owned integration worktrees when the canonical worktree contains preserved review state, and atomically advance staging only after validation. A failed post-integration command also records `needs_review`, but preserves the already-promoted target commit; its command, exit code, stdout, and stderr remain in the session record for diagnosis. If post-integration commands are configured and the target is not checked out in exactly one clean accessible worktree, promotion remains pending. Post-integration commands are skipped when the ready commit was already present and the staging branch did not advance. The source worktree is never modified.
+A deterministic validation failure or unresolved conflict leaves that session's integration worktree intact, records `needs_review`, releases the one-shot lock, and exits nonzero. Later sessions use detached session-owned integration worktrees when the canonical worktree contains preserved review state, and atomically advance staging only after validation. A failed post-integration command also records `needs_review`, but preserves the already-promoted target commit; its command, exit code, stdout, and stderr remain in the session record for diagnosis. If post-integration commands are configured and the target is not checked out in exactly one clean accessible worktree, promotion remains pending. Post-integration commands are skipped when the ready commit was already present and the staging branch did not advance. The source worktree is never modified.
+
+An exhausted transient integration validation instead records
+`validation_pending`, including its command, classification, attempt limit,
+resource keys, and failure time. `resume` verifies the preserved clean merge,
+reacquires its resources, and retries validation. Deterministic failures retain
+the `needs_review` behavior.
 
 ### `status`
 

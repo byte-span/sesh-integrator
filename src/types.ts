@@ -1,10 +1,26 @@
 export type Command = [string, ...string[]];
 
-export interface ParallelCommandGroup {
-  parallel: Command[];
+export interface ValidationCommandSpec {
+  command: Command;
+  resources?: {
+    shared?: string[];
+    exclusive?: string[];
+  };
+  failure?: {
+    classification: "transient" | "deterministic";
+    maxAttempts?: number;
+    initialBackoffMs?: number;
+    maxBackoffMs?: number;
+  };
 }
 
-export type ValidationStep = Command | ParallelCommandGroup;
+export type ValidationCommand = Command | ValidationCommandSpec;
+
+export interface ParallelCommandGroup {
+  parallel: ValidationCommand[];
+}
+
+export type ValidationStep = ValidationCommand | ParallelCommandGroup;
 
 export interface ValidationTier {
   name: string;
@@ -62,7 +78,12 @@ export interface Config {
 }
 
 export type SessionStatus =
-  "active" | "ready" | "promotion_pending" | "succeeded" | "needs_review";
+  | "active"
+  | "ready"
+  | "validation_pending"
+  | "promotion_pending"
+  | "succeeded"
+  | "needs_review";
 
 export type RolloutDisposition = "none" | "applied" | "automated" | "manual";
 
@@ -91,6 +112,7 @@ export interface Session {
   sourceValidatedCommit?: string;
   sourceValidatedTree?: string;
   validationCacheEntries?: ValidationCacheEntry[];
+  validationFailure?: ValidationFailureRecord;
   integratedCommit?: string;
   integratedAt?: string;
   targetBranch?: string;
@@ -117,6 +139,19 @@ export interface Session {
   waitingForLock?: boolean;
   postIntegrationResults?: CommandExecutionResult[];
   gitBaseline?: GitObservation;
+}
+
+export interface ValidationFailureRecord {
+  phase: "source" | "integration";
+  command: Command;
+  classification: "transient" | "deterministic";
+  attempts: number;
+  maxAttempts: number;
+  exhausted: boolean;
+  sharedResources: string[];
+  exclusiveResources: string[];
+  failedAt: string;
+  message: string;
 }
 
 export interface GitCommandObservation extends CommandResult {

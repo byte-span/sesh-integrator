@@ -136,6 +136,8 @@ Complete personal MVP implementation checklist.
 - [x] Auto-configure documentation and test validation tiers
 - [x] Infer safe disposable framework preparation before validation without per-repository configuration
 - [x] Support explicit parallel validation command groups
+- [x] Coordinate generic shared/exclusive validation resources across sessions
+- [x] Retry declared transient validation failures with bounded backoff and resumable exhaustion
 - [x] Batch Git content hashing and parallelize independent Git metadata probes
 - [x] Index the latest worktree session while retaining JSON session history
 - [x] Persist phased per-session timing, subprocess, tier, path, and cache metrics

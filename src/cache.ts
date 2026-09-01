@@ -11,6 +11,7 @@ import type {
   ValidationCacheEntry,
   ValidationStep,
 } from "./types.js";
+import { validationCommandValue } from "./validation.js";
 
 export async function runSetupWithCache(
   repository: RepositoryConfig,
@@ -158,9 +159,11 @@ async function setupMarkerExists(cwd: string): Promise<boolean> {
 }
 
 function flattenSteps(steps: ValidationStep[]): Command[] {
-  return steps.flatMap((step) =>
-    Array.isArray(step) ? [step] : step.parallel,
-  );
+  return steps.flatMap((step) => {
+    const entries =
+      Array.isArray(step) || "command" in step ? [step] : step.parallel;
+    return entries.map(validationCommandValue);
+  });
 }
 
 function repositoryValidationPath(fingerprint: string): string {

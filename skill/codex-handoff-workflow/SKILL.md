@@ -117,6 +117,9 @@ Before saying the task is complete:
 9. If a clean merge was preserved after validation or commit creation failed,
    run `codex-handoff resume` from the original source worktree. The CLI must
    verify that its exact staged merge tree is unchanged before retrying.
+   An exhausted transient validation is recorded as `validation_pending`; it is
+   resumable by the same command and does not require reclassifying it as
+   `needs_review`.
 10. If validation succeeded but target promotion reports
     `promotion_pending`, preserve the staging commit. Correct only the reported
     condition (for example, check out the target branch or save and clean user

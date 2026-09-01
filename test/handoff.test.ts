@@ -2486,6 +2486,61 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     expect(git(fixture.repo, "show", "main:valid.txt")).toBe("valid");
   });
 
+  it("preserves exhausted transient validation for resume", async () => {
+    const fixture = await createFixture();
+    const worktree = await addWorktree(fixture, "transient-validation");
+    const attempts = join(fixture.root, "transient-attempts.log");
+    const recovery = join(fixture.root, "transient-recovered");
+    await runCliOk(fixture, worktree, [
+      "begin",
+      "--summary",
+      "transient validation",
+    ]);
+    commitFile(worktree, "transient.txt", "transient\n", "transient source");
+    await updateConfig(fixture, (config) => {
+      config.repositories[0].integrationValidationCommands = [
+        {
+          command: [
+            process.execPath,
+            "-e",
+            `const fs=require('fs');fs.appendFileSync(${JSON.stringify(attempts)},'attempt\\n');if(!fs.existsSync(${JSON.stringify(recovery)}))process.exit(75)`,
+          ],
+          resources: { exclusive: ["generic:integration-fixture"] },
+          failure: {
+            classification: "transient",
+            maxAttempts: 2,
+            initialBackoffMs: 10,
+            maxBackoffMs: 10,
+          },
+        },
+      ];
+    });
+
+    const failed = await runCli(fixture, worktree, [
+      "integrate",
+      "--summary",
+      "transient validation complete",
+    ]);
+    expect(failed.code).toBe(1);
+    let [pending] = await sessions(fixture);
+    expect(pending.status).toBe("validation_pending");
+    expect(pending.validationFailure).toMatchObject({
+      classification: "transient",
+      attempts: 2,
+      exhausted: true,
+      exclusiveResources: ["generic:integration-fixture"],
+    });
+    expect((await readFile(attempts, "utf8")).trim().split("\n")).toHaveLength(
+      2,
+    );
+
+    await writeFile(recovery, "ready\n");
+    await runCliOk(fixture, worktree, ["resume"]);
+    [pending] = await sessions(fixture);
+    expect(pending.status).toBe("succeeded");
+    expect(pending.validationFailure).toBeUndefined();
+  });
+
   it("runs post-integration commands on the promoted target worktree", async () => {
     const fixture = await createFixture();
     const worktree = await addWorktree(fixture, "post-integration");

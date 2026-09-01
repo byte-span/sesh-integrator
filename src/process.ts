@@ -2,6 +2,10 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { recordSubprocess } from "./performance.js";
 import {
+  acquireValidationResources,
+  releaseValidationResources,
+} from "./resource-lock.js";
+import {
   detectValidationPreparation,
   displayPreparationDirectory,
 } from "./preparation.js";
@@ -10,7 +14,16 @@ import type {
   CommandExecutionResult,
   CommandResult,
   ValidationStep,
+  ValidationCommand,
+  ValidationFailureRecord,
 } from "./types.js";
+import { validationCommandValue } from "./validation.js";
+
+export class ValidationFailure extends Error {
+  constructor(readonly record: ValidationFailureRecord) {
+    super(record.message);
+  }
+}
 
 export async function run(
   command: string,
@@ -83,6 +96,9 @@ export async function runValidation(
   options: {
     cachedFingerprints?: Set<string>;
     onCommandSuccess?: (command: Command, fingerprint: string) => Promise<void>;
+    sessionId?: string;
+    resourceWaitSeconds?: number;
+    phase?: "source" | "integration";
   } = {},
 ): Promise<{ cacheHits: number; executed: number }> {
   if (commands.length > 0) {
@@ -91,8 +107,10 @@ export async function runValidation(
   let cacheHits = 0;
   let executed = 0;
   for (const step of commands) {
-    const group = Array.isArray(step) ? [step] : step.parallel;
-    const runnable = group.filter((command) => {
+    const group =
+      Array.isArray(step) || "command" in step ? [step] : step.parallel;
+    const runnable = group.filter((entry) => {
+      const command = validationCommandValue(entry);
       const fingerprint = commandFingerprint(command);
       if (options.cachedFingerprints?.has(fingerprint)) {
         process.stdout.write(`Using cached validation: ${command.join(" ")}\n`);
@@ -102,27 +120,94 @@ export async function runValidation(
       return true;
     });
     const results = await Promise.all(
-      runnable.map(async (command) => {
+      runnable.map(async (entry) => {
+        const command = validationCommandValue(entry);
         process.stdout.write(`Running validation: ${command.join(" ")}\n`);
-        const result = await run(command[0], command.slice(1), {
-          cwd,
-          echo: true,
-        });
-        return { command, result };
+        await runValidationCommand(entry, cwd, options);
+        return { command };
       }),
     );
     executed += results.length;
-    const failed = results.find(({ result }) => result.code !== 0);
-    if (failed) {
-      throw new Error(
-        `Validation failed (${failed.result.code}): ${failed.command.join(" ")}`,
-      );
-    }
     for (const { command } of results) {
       await options.onCommandSuccess?.(command, commandFingerprint(command));
     }
   }
   return { cacheHits, executed };
+}
+
+async function runValidationCommand(
+  entry: ValidationCommand,
+  cwd: string,
+  options: {
+    sessionId?: string;
+    resourceWaitSeconds?: number;
+    phase?: "source" | "integration";
+  },
+): Promise<void> {
+  const command = validationCommandValue(entry);
+  const spec = Array.isArray(entry) ? undefined : entry;
+  const classification = spec?.failure?.classification ?? "deterministic";
+  const maxAttempts =
+    classification === "transient" ? (spec?.failure?.maxAttempts ?? 3) : 1;
+  const initialBackoffMs = spec?.failure?.initialBackoffMs ?? 250;
+  const maxBackoffMs = spec?.failure?.maxBackoffMs ?? 2_000;
+  const sharedResources = [...new Set(spec?.resources?.shared ?? [])].sort();
+  const exclusiveResources = [
+    ...new Set(spec?.resources?.exclusive ?? []),
+  ].sort();
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    let handle;
+    try {
+      handle = await acquireValidationResources(
+        sharedResources,
+        exclusiveResources,
+        options.sessionId ?? `process-${process.pid}`,
+        options.resourceWaitSeconds ?? 900,
+      );
+      const result = await run(command[0], command.slice(1), {
+        cwd,
+        echo: true,
+      });
+      if (result.code === 0) return;
+      const message = `Validation failed (${result.code}): ${command.join(" ")}`;
+      if (classification === "deterministic" || attempt === maxAttempts) {
+        throw failure(message, attempt);
+      }
+    } catch (error) {
+      if (error instanceof ValidationFailure) throw error;
+      if (classification === "deterministic" || attempt === maxAttempts) {
+        throw failure(
+          error instanceof Error ? error.message : String(error),
+          attempt,
+        );
+      }
+    } finally {
+      if (handle) await releaseValidationResources(handle);
+    }
+    const backoff = Math.min(
+      maxBackoffMs,
+      initialBackoffMs * 2 ** (attempt - 1),
+    );
+    process.stderr.write(
+      `Transient validation failure; retrying ${command.join(" ")} in ${backoff}ms (attempt ${attempt + 1}/${maxAttempts})\n`,
+    );
+    await new Promise((resolve) => setTimeout(resolve, backoff));
+  }
+
+  function failure(message: string, attempts: number): ValidationFailure {
+    return new ValidationFailure({
+      phase: options.phase ?? "source",
+      command,
+      classification,
+      attempts,
+      maxAttempts,
+      exhausted: classification === "transient" && attempts >= maxAttempts,
+      sharedResources,
+      exclusiveResources,
+      failedAt: new Date().toISOString(),
+      message,
+    });
+  }
 }
 
 async function runValidationPreparation(cwd: string): Promise<void> {
