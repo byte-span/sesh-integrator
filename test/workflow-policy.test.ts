@@ -43,6 +43,23 @@ describe("bundled workflow trigger policy", () => {
     }
   });
 
+  it("lets the agent retry plausibly transient validation failures", async () => {
+    const policies = await Promise.all([
+      readFile(join(process.cwd(), "GLOBAL_AGENTS_SNIPPET.md"), "utf8"),
+      readFile(join(process.cwd(), "REPOSITORY_AGENTS_SNIPPET.md"), "utf8"),
+      readFile(
+        join(process.cwd(), "skill", "codex-handoff-workflow", "SKILL.md"),
+        "utf8",
+      ),
+    ]);
+
+    for (const policy of policies) {
+      expect(policy).toMatch(/retry-safe/i);
+      expect(policy).toMatch(/three\s+total\s+attempts/i);
+      expect(policy).toMatch(/deterministic\s+(?:error|failure)/i);
+    }
+  });
+
   it("keeps the optional central secret registry metadata-only", async () => {
     const guidance = await readFile(
       join(process.cwd(), "GLOBAL_AGENTS_SNIPPET.md"),

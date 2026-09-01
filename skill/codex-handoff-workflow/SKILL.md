@@ -95,10 +95,16 @@ Before saying the task is complete:
    path's disk contents were verified.
 5. Run `codex-handoff validate`. It chooses configured validation commands from
    the exact committed diff; do not manually substitute a cheaper tier.
-6. If validation fails, stop. Do not integrate. If validation succeeds while
-   warning that a baseline-inaccessible tracked path is preserved and excluded,
-   continue to `integrate`; do not independently reject that path or inspect the
-   integration worktree before the CLI does.
+6. If validation fails, inspect the failure before stopping. When the failure
+   is plausibly retry-safe—such as a timeout, temporary service/network error,
+   port or lock contention, startup race, or flaky test—rerun the unchanged
+   `codex-handoff validate` command, for at most three total attempts. Do not
+   edit code merely to make a retry pass. Stop after repeated failure or a
+   clearly deterministic error, and never integrate without successful
+   validation. If validation succeeds while warning that a
+   baseline-inaccessible tracked path is preserved and excluded, continue to
+   `integrate`; do not independently reject that path or inspect the integration
+   worktree before the CLI does.
 7. Run:
 
    ```bash

@@ -105,7 +105,12 @@ At completion:
    codex-handoff commit --message "<focused commit message>"
    ```
 
-3. Run `codex-handoff validate`; do not integrate if validation fails.
+3. Run `codex-handoff validate`. If it fails for a plausibly retry-safe reason
+   such as a timeout, temporary service/network error, contention, startup race,
+   or flaky test, rerun the unchanged validation for at most three total
+   attempts. Stop after repeated failure or a clearly deterministic error; do
+   not integrate without successful validation or edit code merely to make a
+   retry pass.
 4. Run `codex-handoff integrate --summary "<concise completion summary>"
 --rollout <none|applied|automated|manual>`. Every integration must classify
    external-state rollout. `manual` also requires one or more explicit
