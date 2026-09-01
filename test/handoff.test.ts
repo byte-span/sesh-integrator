@@ -1,4 +1,5 @@
 import { execFileSync, spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   chmod,
   mkdir,
@@ -2611,6 +2612,150 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     );
   });
 
+  it("reconstructs and snapshots a clean snapshotless legacy bundle from the current target", async () => {
+    const fixture = await createFixture();
+    const worktree = await addWorktree(fixture, "legacy-empty-clean");
+    const allowValidation = join(fixture.root, "allow-legacy-validation");
+    await runCliOk(fixture, worktree, [
+      "begin",
+      "--summary",
+      "snapshotless clean recovery",
+    ]);
+    commitFile(worktree, "source.txt", "source\n", "legacy source");
+    await updateConfig(fixture, (config) => {
+      config.repositories[0].integrationValidationCommands = [
+        [
+          process.execPath,
+          "-e",
+          `if(!require('fs').existsSync(${JSON.stringify(allowValidation)}))process.exit(31)`,
+        ],
+      ];
+    });
+    expect(
+      (
+        await runCli(fixture, worktree, [
+          "integrate",
+          "--summary",
+          "legacy clean failed validation",
+        ])
+      ).code,
+    ).toBe(1);
+    await makeRecoveryBundleSnapshotless(fixture, worktree);
+    commitFile(fixture.repo, "target.txt", "advanced\n", "advance target");
+    const advancedTarget = git(fixture.repo, "rev-parse", "main");
+    await writeFile(allowValidation, "yes\n");
+
+    await runCliOk(fixture, worktree, ["resume"]);
+
+    const recovered = (await sessions(fixture)).find(
+      (item) => item.worktreePath === worktree,
+    )!;
+    expect(recovered.status).toBe("succeeded");
+    expect(recovered.targetCommitBeforeIntegration).toBe(advancedTarget);
+    expect(git(fixture.repo, "show", "main:source.txt")).toBe("source");
+    expect(git(fixture.repo, "show", "main:target.txt")).toBe("advanced");
+    const manifest = JSON.parse(
+      await readFile(
+        join(recovered.recoveryBundle.path, "manifest.json"),
+        "utf8",
+      ),
+    );
+    expect(
+      manifest.snapshots.some((item: any) => item.kind === "merged-tree"),
+    ).toBe(true);
+    expect(
+      manifest.snapshots.some((item: any) => item.kind === "staging-commit"),
+    ).toBe(true);
+  });
+
+  it("materializes snapshotless legacy conflicts and accepts staged resolution on repeated resume", async () => {
+    const fixture = await createFixture("base\n");
+    const worktree = await addWorktree(fixture, "legacy-empty-conflict");
+    const allowValidation = join(fixture.root, "allow-conflict-validation");
+    await runCliOk(fixture, worktree, [
+      "begin",
+      "--summary",
+      "snapshotless conflict recovery",
+    ]);
+    commitFile(worktree, "shared.txt", "source\n", "legacy conflict source");
+    await updateConfig(fixture, (config) => {
+      config.repositories[0].integrationValidationCommands = [
+        [
+          process.execPath,
+          "-e",
+          `if(!require('fs').existsSync(${JSON.stringify(allowValidation)}))process.exit(32)`,
+        ],
+      ];
+    });
+    expect(
+      (
+        await runCli(fixture, worktree, [
+          "integrate",
+          "--summary",
+          "legacy conflict failed validation",
+        ])
+      ).code,
+    ).toBe(1);
+    await makeRecoveryBundleSnapshotless(fixture, worktree);
+    commitFile(
+      fixture.repo,
+      "shared.txt",
+      "target\n",
+      "concurrent target advancement",
+    );
+
+    const firstResume = await runCli(fixture, worktree, ["resume"]);
+    expect(firstResume.code).toBe(1);
+    expect(firstResume.stderr).toContain(
+      "Resolve and stage all conflicts before resume",
+    );
+    expect(firstResume.stderr).not.toContain("original conflict index");
+    let pending = (await sessions(fixture)).find(
+      (item) => item.worktreePath === worktree,
+    )!;
+    let recoveryPath = pending.integrationWorktreePath;
+    expect(git(recoveryPath, "diff", "--name-only", "--diff-filter=U")).toBe(
+      "shared.txt",
+    );
+    let manifest = JSON.parse(
+      await readFile(
+        join(pending.recoveryBundle.path, "manifest.json"),
+        "utf8",
+      ),
+    );
+    expect(manifest.snapshots.map((item: any) => item.kind)).toContain(
+      "conflict-index",
+    );
+
+    const secondResume = await runCli(fixture, worktree, ["resume"]);
+    expect(secondResume.code).toBe(1);
+    expect(secondResume.stderr).not.toContain("original conflict index");
+    pending = (await sessions(fixture)).find(
+      (item) => item.worktreePath === worktree,
+    )!;
+    recoveryPath = pending.integrationWorktreePath;
+    await writeFile(join(recoveryPath, "shared.txt"), "target\nsource\n");
+    git(recoveryPath, "add", "shared.txt");
+    await writeFile(allowValidation, "yes\n");
+
+    await runCliOk(fixture, worktree, ["resume"]);
+
+    const recovered = (await sessions(fixture)).find(
+      (item) => item.worktreePath === worktree,
+    )!;
+    expect(recovered.status).toBe("succeeded");
+    expect(git(fixture.repo, "show", "main:shared.txt")).toBe("target\nsource");
+    manifest = JSON.parse(
+      await readFile(
+        join(recovered.recoveryBundle.path, "manifest.json"),
+        "utf8",
+      ),
+    );
+    expect(manifest.snapshots.map((item: any) => item.kind)).toContain(
+      "merged-tree",
+    );
+  });
+
   it("refuses resume when failure injection corrupts a recovery manifest", async () => {
     const fixture = await createFixture();
     const worktree = await addWorktree(fixture, "bundle-corruption");
@@ -2815,8 +2960,11 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
       "Resolve and stage all conflicts before resume",
     );
 
-    await writeFile(join(integrationPath, "shared.txt"), "first\nsecond\n");
-    git(integrationPath, "add", "shared.txt");
+    const reconstructedPath = (await sessions(fixture)).find(
+      (session) => session.worktreePath === second,
+    )!.integrationWorktreePath;
+    await writeFile(join(reconstructedPath, "shared.txt"), "first\nsecond\n");
+    git(reconstructedPath, "add", "shared.txt");
     const resumed = await runCli(fixture, second, ["resume"]);
     expect(resumed.code, resumed.stderr).toBe(0);
     const completed = (await sessions(fixture)).find(
@@ -2824,9 +2972,12 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     )!;
     expect(completed.status).toBe("succeeded");
     expect(completed.awaitingConflictResolution).toBe(false);
-    expect(await readFile(join(integrationPath, "shared.txt"), "utf8")).toBe(
-      "first\nsecond\n",
-    );
+    expect(
+      await readFile(
+        join(completed.integrationWorktreePath, "shared.txt"),
+        "utf8",
+      ),
+    ).toBe("first\nsecond\n");
   });
 
   it("lets a later session integrate while another session preserves conflicts", async () => {
@@ -3697,6 +3848,46 @@ async function sessions(fixture: Fixture): Promise<any[]> {
       ),
   );
   return values.sort((a, b) => a.startedAt.localeCompare(b.startedAt));
+}
+
+async function makeRecoveryBundleSnapshotless(
+  fixture: Fixture,
+  worktree: string,
+): Promise<void> {
+  const directory = join(fixture.runtime, "sessions");
+  const names = (await readdir(directory)).filter((name) =>
+    name.endsWith(".json"),
+  );
+  for (const name of names) {
+    const sessionPath = join(directory, name);
+    const session = JSON.parse(await readFile(sessionPath, "utf8"));
+    if (session.worktreePath !== worktree) continue;
+    const manifestPath = join(session.recoveryBundle.path, "manifest.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+    manifest.snapshots = [];
+    delete manifest.previousManifestHash;
+    const snapshotRefs = git(
+      fixture.repo,
+      "for-each-ref",
+      "--format=%(refname)",
+      `refs/codex-handoff/recovery/${session.id}/${session.recoveryBundle.attemptId}`,
+    )
+      .split("\n")
+      .filter((ref) => /\/(?:index|tree|validation|staging)-\d+$/.test(ref));
+    for (const ref of snapshotRefs) git(fixture.repo, "update-ref", "-d", ref);
+    const serialized = `${JSON.stringify(manifest, null, 2)}\n`;
+    await writeFile(manifestPath, serialized);
+    session.recoveryBundle.manifestHash = createHash("sha256")
+      .update(serialized)
+      .digest("hex");
+    const integrationPath = session.integrationWorktreePath;
+    if (integrationPath && (await exists(integrationPath))) {
+      git(fixture.repo, "worktree", "remove", "--force", integrationPath);
+    }
+    await writeFile(sessionPath, `${JSON.stringify(session, null, 2)}\n`);
+    return;
+  }
+  throw new Error(`Session not found for ${worktree}`);
 }
 
 async function updateConfig(
