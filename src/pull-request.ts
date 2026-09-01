@@ -165,7 +165,7 @@ export async function promoteByPullRequest(
     );
     if (advanced.code !== 0) {
       throw new Error(
-        `Remote ${promotion.remote}/${head} at ${remoteCommit} is not descended from the session target baseline ${baseline}; refusing ambiguous recovery`,
+        `Remote ${promotion.remote}/${head} history was replaced: ${remoteCommit} is not descended from the locked baseline ${baseline}. Refusing recovery because force-pushed or rewritten history requires manual inspection; no force push was attempted`,
       );
     }
     const remoteAlreadyIncluded = await run(

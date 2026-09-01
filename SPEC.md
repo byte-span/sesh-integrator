@@ -203,6 +203,13 @@ target, and retry the non-force push at most three times. Persist the fetched
 commit, original remote baseline, attempt count, and recovery phase before
 merging so interruption remains resumable.
 
+Fetch the shared remote target under the repository lock immediately before
+recording the integration baseline. Fast-forward local target state to a normal
+remote advancement before merging the session. Treat a fetched tip that has
+replaced or diverged from the locked baseline as rewritten history and stop
+without pushing. Hosting branch protection must prohibit force pushes and
+deletion and require fast-forward-compatible shared-target updates.
+
 ## 6. `init`
 
 Create:
