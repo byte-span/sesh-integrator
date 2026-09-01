@@ -243,6 +243,7 @@ export async function reconstructRecoveryWorktree(
   const snapshot = [...manifest.snapshots]
     .reverse()
     .find((item) => item.kind === "merged-tree" && item.object);
+  const reconstructingSnapshotlessBundle = manifest.snapshots.length === 0;
   const snapshotBase = snapshot?.object
     ? await git(["rev-parse", `${snapshot.object}^1`], repository.path)
     : manifest.baseCommit;
@@ -250,11 +251,42 @@ export async function reconstructRecoveryWorktree(
     // Verify the durable object before considering live staging reconciliation.
     await git(["rev-parse", `${snapshot.object}^{tree}`], repository.path);
   }
-  const currentStaging =
+  let currentStaging =
     (await refCommit(
       repository.path,
       `refs/heads/${repository.integrationBranch}`,
     )) ?? manifest.baseCommit;
+  if (reconstructingSnapshotlessBundle) {
+    const currentTarget = session.targetBranch
+      ? await refCommit(repository.path, `refs/heads/${session.targetBranch}`)
+      : null;
+    if (!currentTarget)
+      throw new Error(
+        "Cannot reconstruct snapshotless recovery without the current target ref",
+      );
+    if (currentStaging !== currentTarget) {
+      const stagingBehindTarget = await run(
+        "git",
+        ["merge-base", "--is-ancestor", currentStaging, currentTarget],
+        { cwd: repository.path },
+      );
+      if (stagingBehindTarget.code !== 0)
+        throw new Error(
+          "Current staging is not an ancestor of the current target while reconstructing snapshotless recovery",
+        );
+      await git(
+        [
+          "update-ref",
+          `refs/heads/${repository.integrationBranch}`,
+          currentTarget,
+          currentStaging,
+        ],
+        repository.path,
+      );
+      currentStaging = currentTarget;
+    }
+    session.targetCommitBeforeIntegration = currentTarget;
+  }
   const path = join(
     runtimePaths().recoveryWorktrees,
     session.id,
@@ -266,7 +298,7 @@ export async function reconstructRecoveryWorktree(
     ["worktree", "add", "--detach", path, currentStaging],
     repository.path,
   );
-  if (currentStaging !== snapshotBase) {
+  if (snapshot?.object && currentStaging !== snapshotBase) {
     const currentTarget = session.targetBranch
       ? await refCommit(repository.path, `refs/heads/${session.targetBranch}`)
       : null;
@@ -321,14 +353,25 @@ export async function reconstructRecoveryWorktree(
       ["merge", "--no-ff", "--no-commit", manifest.sourceCommit],
       { cwd: path },
     );
-    if (merge.code !== 0)
-      throw new Error(
-        "Resolve and stage all conflicts before resume; the durable bundle contains the original conflict index",
+    if (merge.code !== 0) {
+      const unresolved = await run(
+        "git",
+        ["diff", "--name-only", "--diff-filter=U"],
+        { cwd: path },
       );
+      if (!unresolved.stdout.trim())
+        throw new Error(
+          `Recovery merge failed without reported conflicts: ${(merge.stderr || merge.stdout).trim()}`,
+        );
+      session.awaitingConflictResolution = true;
+    }
   }
   session.integrationWorktreePath = path;
   session.integrationWorktreeDetached = true;
   session.conflictIntegrationHead = currentStaging;
+  if (reconstructingSnapshotlessBundle) {
+    await snapshotRecoveryState(repository, session, path);
+  }
   return path;
 }
 
