@@ -89,11 +89,22 @@ Creates, without overwriting an existing configuration:
 ├── indexes/
 ├── performance/
 ├── cache/
+├── recovery-bundles/
+├── recovery-worktrees/
 ├── locks/
 ├── logs/
 ├── source-worktrees/
 └── worktrees/
 ```
+
+Integration recovery is durable and session-isolated. Before any integration
+attempt mutates staging or target refs, the CLI writes a hash-verified manifest
+under `recovery-bundles/` and immutable Git refs under
+`refs/codex-handoff/recovery/`. Failed attempts remain recoverable even when a
+newer session advances staging or the shared integration worktree disappears.
+`resume` rebuilds a fresh detached worktree from the bundle and reconciles it
+under the repository lock. Bundles are archived only after successful
+promotion; failed bundles are not age-cleaned.
 
 Set `CODEX_HANDOFF_HOME` to use a different runtime root, including in tests.
 

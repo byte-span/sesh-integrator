@@ -120,6 +120,11 @@ Before saying the task is complete:
    An exhausted transient validation is recorded as `validation_pending`; it is
    resumable by the same command and does not require reclassifying it as
    `needs_review`.
+   Resume treats the durable recovery bundle as authoritative and reconstructs
+   a fresh, hash-verified recovery worktree. Do not move, edit, or delete files
+   under `~/.codex-handoff/recovery-bundles/` or refs under
+   `refs/codex-handoff/recovery/`; the previously shared integration worktree
+   may no longer be the worktree reported after resume.
 10. If validation succeeded but target promotion reports
     `promotion_pending`, preserve the staging commit. Correct only the reported
     condition (for example, check out the target branch or save and clean user

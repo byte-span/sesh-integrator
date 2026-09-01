@@ -85,6 +85,22 @@ Runtime data:
 ~/.codex-handoff/
 ```
 
+Every integration attempt first creates a session-isolated recovery bundle in
+`recovery-bundles/<session>/<attempt>/` and write-once Git refs below
+`refs/codex-handoff/recovery/<session>/<attempt>/`. The manifest is hash chained
+and records the base, exact source, target baseline, rollout contract, conflict
+index snapshots, merged trees, validation outcomes, and validated staging
+commit. Resume verifies these objects and reconstructs a fresh detached
+`recovery-worktrees/<session>/<attempt>/` checkout; the shared integration
+worktree and current source branch are never recovery authorities.
+
+Open bundles are never removed by routine cleanup. Successful promotion marks
+the bundle archived while retaining its immutable refs and evidence. Older
+session files without bundle metadata are migrated on first resume by capturing
+their preserved state before reconstruction. Explicit archival/deletion policy
+may be added separately; age alone must never make a failed session
+unrecoverable.
+
 User skill:
 
 ```text
@@ -252,6 +268,8 @@ Create:
 ├── indexes/
 ├── performance/
 ├── cache/
+├── recovery-bundles/
+├── recovery-worktrees/
 ├── locks/
 ├── logs/
 ├── source-worktrees/

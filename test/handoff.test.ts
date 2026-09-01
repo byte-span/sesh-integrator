@@ -2541,6 +2541,105 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     expect(pending.validationFailure).toBeUndefined();
   });
 
+  it("recovers an older failed session from its bundle after a newer integration", async () => {
+    const fixture = await createFixture();
+    const older = await addWorktree(fixture, "bundle-older");
+    const newer = await addWorktree(fixture, "bundle-newer");
+    const allowValidation = join(fixture.root, "allow-validation");
+    await runCliOk(fixture, older, [
+      "begin",
+      "--summary",
+      "older bundled task",
+    ]);
+    await runCliOk(fixture, newer, ["begin", "--summary", "newer task"]);
+    commitFile(older, "older.txt", "older\n", "older source");
+    commitFile(newer, "newer.txt", "newer\n", "newer source");
+    await updateConfig(fixture, (config) => {
+      config.repositories[0].integrationValidationCommands = [
+        [
+          process.execPath,
+          "-e",
+          `if(!require('fs').existsSync(${JSON.stringify(allowValidation)}))process.exit(19)`,
+        ],
+      ];
+    });
+
+    const failed = await runCli(fixture, older, [
+      "integrate",
+      "--summary",
+      "older attempted",
+    ]);
+    expect(failed.code).toBe(1);
+    let olderSession = (await sessions(fixture)).find(
+      (item) => item.worktreePath === older,
+    )!;
+    expect(olderSession.recoveryBundle.state).toBe("open");
+    expect(olderSession.recoveryBundle.manifestHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(
+      git(
+        fixture.repo,
+        "show-ref",
+        olderSession.recoveryBundle
+          ? `refs/codex-handoff/recovery/${olderSession.id}/${olderSession.recoveryBundle.attemptId}/source`
+          : "missing",
+      ),
+    ).toContain(olderSession.readyCommit);
+
+    await writeFile(allowValidation, "yes\n");
+    await runCliOk(fixture, newer, [
+      "integrate",
+      "--summary",
+      "newer complete",
+    ]);
+    const oldSharedPath = join(
+      fixture.runtime,
+      "worktrees",
+      olderSession.repositoryId,
+    );
+    git(fixture.repo, "worktree", "remove", "--force", oldSharedPath);
+
+    await runCliOk(fixture, older, ["resume"]);
+    olderSession = (await sessions(fixture)).find(
+      (item) => item.worktreePath === older,
+    )!;
+    expect(olderSession.status).toBe("succeeded");
+    expect(olderSession.recoveryBundle.state).toBe("archived");
+    expect(git(fixture.repo, "show", "main:older.txt")).toBe("older");
+    expect(git(fixture.repo, "show", "main:newer.txt")).toBe("newer");
+    expect(olderSession.integrationWorktreePath).toContain(
+      "recovery-worktrees",
+    );
+  });
+
+  it("refuses resume when failure injection corrupts a recovery manifest", async () => {
+    const fixture = await createFixture();
+    const worktree = await addWorktree(fixture, "bundle-corruption");
+    await runCliOk(fixture, worktree, [
+      "begin",
+      "--summary",
+      "bundle integrity",
+    ]);
+    commitFile(worktree, "integrity.txt", "integrity\n", "integrity source");
+    await updateConfig(fixture, (config) => {
+      config.repositories[0].integrationValidationCommands = [
+        [process.execPath, "-e", "process.exit(23)"],
+      ];
+    });
+    const failed = await runCli(fixture, worktree, [
+      "integrate",
+      "--summary",
+      "inject failure",
+    ]);
+    expect(failed.code).toBe(1);
+    const [session] = await sessions(fixture);
+    const manifestPath = join(session.recoveryBundle.path, "manifest.json");
+    await writeFile(manifestPath, `${await readFile(manifestPath, "utf8")} `);
+    const resumed = await runCli(fixture, worktree, ["resume"]);
+    expect(resumed.code).toBe(1);
+    expect(resumed.stderr).toContain("Recovery manifest hash mismatch");
+    expect((await sessions(fixture))[0].status).not.toBe("succeeded");
+  });
+
   it("runs post-integration commands on the promoted target worktree", async () => {
     const fixture = await createFixture();
     const worktree = await addWorktree(fixture, "post-integration");

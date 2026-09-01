@@ -45,6 +45,11 @@ Complete personal MVP implementation checklist.
 
 ## One-shot integration
 
+- [x] Create durable session-isolated recovery bundles before shared mutation
+- [x] Persist immutable base/source/target/tree/staging refs, conflict index state, validation results, and rollout metadata
+- [x] Reconstruct and hash-verify fresh recovery worktrees on resume
+- [x] Migrate legacy resumable sessions and archive bundles only after success
+
 - [x] Find the current or explicitly selected source-worktree session and require a clean unchanged source branch
 - [x] Persist the exact ready commit, timestamp, and completion summary before integration
 - [x] Require a technology-neutral external-state rollout classification and explicit manual follow-up
@@ -112,6 +117,9 @@ Complete personal MVP implementation checklist.
 - [x] Make CLI-first invocation create/reuse a source worktree without relying on application mode labels
 
 ## Disposable verification
+
+- [x] Recover an older failed session after a newer integration and removal of the shared worktree
+- [x] Exercise durable validation-failure snapshots and concurrent staging reconciliation
 
 - [x] Begin metadata and exact clean merge
 - [x] Concurrent finish serialization and refreshed integration state

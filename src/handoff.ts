@@ -70,6 +70,14 @@ import {
   targetBranch,
 } from "./promotion.js";
 import { promoteByPullRequest, pullRequestPromotion } from "./pull-request.js";
+import {
+  archiveRecoveryBundle,
+  ensureRecoveryBundle,
+  reconstructRecoveryWorktree,
+  recordStagingCommitRecovery,
+  recordValidationRecovery,
+  snapshotRecoveryState,
+} from "./recovery.js";
 
 export async function initCommand(): Promise<void> {
   const paths = await ensureRuntime();
@@ -648,6 +656,16 @@ export async function integrateCommand(
     session.waitingForLock = false;
     await writeSession(session);
     await assertDependencies(session);
+    session.targetBranch ??= targetBranch(repository);
+    if (!session.targetCommitBeforeIntegration) {
+      const initialTarget = await refCommit(
+        repository.path,
+        `refs/heads/${session.targetBranch}`,
+      );
+      if (initialTarget) session.targetCommitBeforeIntegration = initialTarget;
+    }
+    await ensureRecoveryBundle(repository, session);
+    await writeSession(session);
     await measurePhase("target_baseline", async () =>
       captureTargetExpectation(repository, session, true),
     );
@@ -923,7 +941,7 @@ export async function resumeCommand(sessionId?: string): Promise<Session> {
     "resume",
   );
 
-  const integrationWorktree =
+  let integrationWorktree =
     session.integrationWorktreePath ??
     join(runtimePaths().worktrees, session.repositoryId);
   session.waitingForLock = true;
@@ -941,6 +959,22 @@ export async function resumeCommand(sessionId?: string): Promise<Session> {
     session.waitingForLock = false;
     await writeSession(session);
     await assertDependencies(session);
+    if (!session.recoveryBundle) {
+      // Migration for sessions created by runtimes predating durable bundles.
+      await ensureRecoveryBundle(repository, session);
+      await writeSession(session);
+    }
+    const legacyIntegrationWorktree =
+      session.integrationWorktreePath ??
+      join(runtimePaths().worktrees, session.repositoryId);
+    integrationWorktree = await reconstructRecoveryWorktree(
+      repository,
+      session,
+      session.awaitingConflictResolution
+        ? legacyIntegrationWorktree
+        : undefined,
+    );
+    await writeSession(session);
     if (session.recoveryPhase === "pull_request") {
       await completePullRequestPromotion(repository, session);
     } else if (session.recoveryPhase === "remote_promotion") {
@@ -1125,6 +1159,7 @@ async function mergeAndValidate(
     session.conflictPromptPath = promptPath;
     session.conflictIntegrationHead = integrationHead;
     session.awaitingConflictResolution = true;
+    await snapshotRecoveryState(repository, session, worktree);
     await writeSession(session);
     if (config.conflictResolutionMode === "nested-codex") {
       const codexHome = await prepareCodexResolverHome();
@@ -1152,7 +1187,7 @@ async function mergeAndValidate(
     if (remaining.length > 0)
       throw new Error(`Unresolved conflicts remain: ${remaining.join(", ")}`);
   }
-
+  await snapshotRecoveryState(repository, session, worktree);
   await validateCommitAndFinish(repository, session, worktree);
 }
 
@@ -1279,17 +1314,31 @@ async function validateCommitAndFinish(
     validation.integrationCommands,
   );
   const successfulCommands: Command[] = [];
-  const result = await measurePhase("integration_validation", async () =>
-    runValidation(validation.integrationCommands, worktree, {
-      cachedFingerprints,
-      sessionId: session.id,
-      resourceWaitSeconds: (await readConfig()).lockWaitSeconds,
-      phase: "integration",
-      onCommandSuccess: async (command) => {
-        successfulCommands.push(command);
-      },
-    }),
-  );
+  let result;
+  try {
+    result = await measurePhase("integration_validation", async () =>
+      runValidation(validation.integrationCommands, worktree, {
+        cachedFingerprints,
+        sessionId: session.id,
+        resourceWaitSeconds: (await readConfig()).lockWaitSeconds,
+        phase: "integration",
+        onCommandSuccess: async (command) => {
+          successfulCommands.push(command);
+        },
+      }),
+    );
+    await recordValidationRecovery(repository, session, worktree, "passed");
+  } catch (error) {
+    if (error instanceof ValidationFailure)
+      await recordValidationRecovery(
+        repository,
+        session,
+        worktree,
+        "failed",
+        error.record,
+      );
+    throw error;
+  }
   await assertNoUnstagedChanges(session, worktree);
   for (const command of successfulCommands) {
     await recordValidationCache(repository, session, tree, command);
@@ -1316,6 +1365,11 @@ async function validateCommitAndFinish(
     );
   }
   session.integratedCommit = await git(["rev-parse", "HEAD"], worktree);
+  await recordStagingCommitRecovery(
+    repository,
+    session,
+    session.integratedCommit,
+  );
   if (session.integrationWorktreeDetached) {
     const expected = session.conflictIntegrationHead;
     if (!expected)
@@ -1458,6 +1512,7 @@ async function tryDirectIntegration(
     repository.path,
   );
   session.integratedCommit = integratedCommit;
+  await recordStagingCommitRecovery(repository, session, integratedCommit);
   session.integratedAt = new Date().toISOString();
   session.waitingForLock = false;
   session.awaitingConflictResolution = false;
@@ -1646,6 +1701,7 @@ async function completePullRequestPromotion(
     session.remotePromotedAt = new Date().toISOString();
   }
   session.status = "succeeded";
+  await archiveRecoveryBundle(session);
   delete session.recoveryPhase;
   delete session.latestError;
   await writeSession(session);

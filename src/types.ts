@@ -139,6 +139,48 @@ export interface Session {
   waitingForLock?: boolean;
   postIntegrationResults?: CommandExecutionResult[];
   gitBaseline?: GitObservation;
+  recoveryBundle?: RecoveryBundlePointer;
+}
+
+export interface RecoveryBundlePointer {
+  version: 1;
+  attemptId: string;
+  path: string;
+  manifestHash: string;
+  state: "open" | "archived";
+  createdAt: string;
+  archivedAt?: string;
+}
+
+export interface RecoverySnapshot {
+  kind: "conflict-index" | "merged-tree" | "staging-commit" | "validation";
+  sequence: number;
+  createdAt: string;
+  ref?: string;
+  object?: string;
+  indexFile?: string;
+  indexHash?: string;
+  validation?: {
+    outcome: "passed" | "failed";
+    tree: string;
+    failure?: ValidationFailureRecord;
+  };
+}
+
+export interface RecoveryBundleManifest {
+  version: 1;
+  sessionId: string;
+  attemptId: string;
+  repositoryId: string;
+  createdAt: string;
+  baseCommit: string;
+  sourceCommit: string;
+  targetCommit: string;
+  refs: { base: string; source: string; target: string; rollout: string };
+  rollout: { disposition: RolloutDisposition; followUps: string[] };
+  snapshots: RecoverySnapshot[];
+  archivedAt?: string;
+  previousManifestHash?: string;
 }
 
 export interface ValidationFailureRecord {
@@ -205,6 +247,8 @@ export interface RuntimePaths {
   indexes: string;
   performance: string;
   cache: string;
+  recoveryBundles: string;
+  recoveryWorktrees: string;
 }
 
 export interface ValidationCacheEntry {
