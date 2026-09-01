@@ -249,6 +249,19 @@ Conflicts are preserved for `codex-handoff resume`; validation failures,
 ambiguous ancestry, and continued remote movement stop safely. The fetched
 commit and attempt count are persisted so interrupted recovery is resumable.
 
+The shared target is fetched while holding the repository integration lock,
+immediately before the integration baseline is recorded. A normal remote
+fast-forward is incorporated into that baseline. If the remote moves again,
+the exact combined result is rebuilt and fully revalidated before each bounded
+non-force push retry. A remote tip that is not descended from the locked
+baseline is treated as replaced history and stops with a diagnostic; the tool
+never force-pushes through it.
+
+Protect shared target branches on the hosting provider: prohibit force pushes
+and branch deletion, and require updates to remain fast-forward-compatible.
+These settings are part of the reliability contract for automatic shared-target
+promotion; rewritten history always requires manual inspection.
+
 This is the backward-compatible shared-target mode. Its explicit spelling is
 `"mode": "shared-target"`; omitting `mode` behaves identically.
 

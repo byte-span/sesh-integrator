@@ -250,7 +250,7 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     expect(completed.remotePromotedAt).toBeTruthy();
   });
 
-  it("replays and revalidates a shared target after the remote advances", async () => {
+  it("fetches a fast-forwarded shared target before choosing the integration baseline", async () => {
     const fixture = await createFixture();
     const remote = await configureSharedTargetPromotion(fixture);
     const fake = await createFakeGh(fixture);
@@ -282,16 +282,14 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
 
     const completed = (await sessions(fixture))[0]!;
     expect(completed.status).toBe("succeeded");
-    expect(completed.remoteRecoveryAttempts).toBe(1);
+    expect(completed.remoteRecoveryAttempts).toBe(0);
     expect(git(remote, "rev-parse", "refs/heads/dev")).toBe(
       completed.promotedCommit,
     );
-    expect(await readFile(validationLog, "utf8")).toBe(
-      "validated\nvalidated\n",
-    );
+    expect(await readFile(validationLog, "utf8")).toBe("validated\n");
   });
 
-  it("preserves a resumable conflict while replaying an advanced shared target", async () => {
+  it("preserves a resumable conflict against the freshly fetched shared target", async () => {
     const fixture = await createFixture();
     const remote = await configureSharedTargetPromotion(fixture);
     const fake = await createFakeGh(fixture);
@@ -314,9 +312,7 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     expect(result.code).toBe(1);
     const pending = (await sessions(fixture))[0]!;
     expect(pending.status).toBe("needs_review");
-    expect(pending.recoveryPhase).toBe("remote_promotion");
-    expect(pending.remoteRecoveryCommit).toBeTruthy();
-    expect(pending.latestError).toContain("Remote target recovery conflicts");
+    expect(pending.latestError).toContain("Merge conflict requires resolution");
     const integrationWorktree = join(
       fixture.runtime,
       "worktrees",
@@ -360,7 +356,6 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     expect(result.code).toBe(1);
     const pending = (await sessions(fixture))[0]!;
     expect(pending.status).toBe("needs_review");
-    expect(pending.recoveryPhase).toBe("remote_promotion");
     expect(pending.latestError).toContain("Validation failed (9)");
     expect(git(remote, "rev-parse", "refs/heads/dev")).not.toBe(
       pending.promotedCommit,
@@ -393,6 +388,35 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     expect(pending.latestError).toContain(
       "kept moving after 3 validated recovery attempts",
     );
+  });
+
+  it("stops explicitly when shared-target history was rewritten", async () => {
+    const fixture = await createFixture();
+    const remote = await configureSharedTargetPromotion(fixture);
+    const fake = await createFakeGh(fixture);
+    await runCliOkWithEnv(
+      fixture,
+      fixture.repo,
+      ["begin", "--summary", "rewritten"],
+      fake.env,
+    );
+    commitFile(fixture.repo, "local.txt", "local\n", "local change");
+    replaceRemoteHistory(fixture, remote);
+
+    const result = await runCli(
+      fixture,
+      fixture.repo,
+      ["integrate", "--summary", "rewritten"],
+      fake.env,
+    );
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("history was replaced or diverged");
+    expect(result.stderr).toContain(
+      "Refusing to establish an integration baseline",
+    );
+    const pending = (await sessions(fixture))[0]!;
+    expect(pending.promotedCommit).toBeUndefined();
   });
 
   it("opens independent pull requests for concurrent session branches and reuses only the same session PR", async () => {
@@ -3257,6 +3281,16 @@ function advanceRemote(
   git(clone, "switch", "-c", "dev", "origin/main");
   commitFile(clone, name, contents, "remote movement");
   git(clone, "push", "origin", "dev");
+}
+
+function replaceRemoteHistory(fixture: Fixture, remote: string): void {
+  const writer = join(fixture.root, `rewritten-${Date.now()}`);
+  git(fixture.root, "clone", remote, writer);
+  git(writer, "config", "user.name", "Remote User");
+  git(writer, "config", "user.email", "remote@example.com");
+  git(writer, "switch", "--orphan", "replacement");
+  commitFile(writer, "replacement.txt", "replacement\n", "replace history");
+  git(writer, "push", "--force", "origin", "HEAD:dev");
 }
 
 async function createMovingGit(

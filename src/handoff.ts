@@ -64,7 +64,7 @@ import {
   PromotionBlockedError,
   targetBranch,
 } from "./promotion.js";
-import { promoteByPullRequest } from "./pull-request.js";
+import { promoteByPullRequest, pullRequestPromotion } from "./pull-request.js";
 
 export async function initCommand(): Promise<void> {
   const paths = await ensureRuntime();
@@ -643,7 +643,7 @@ export async function integrateCommand(
     await writeSession(session);
     await assertDependencies(session);
     await measurePhase("target_baseline", async () =>
-      captureTargetExpectation(repository, session),
+      captureTargetExpectation(repository, session, true),
     );
     integrationWorktree = await selectIntegrationWorktree(
       repository,
@@ -1422,9 +1422,10 @@ async function tryDirectIntegration(
 async function captureTargetExpectation(
   repository: RepositoryConfig,
   session: Session,
+  refreshSharedRemote = false,
 ): Promise<void> {
   const branch = targetBranch(repository);
-  const commit =
+  let commit =
     (await refCommit(repository.path, `refs/heads/${branch}`)) ??
     (branch === repository.integrationBranch
       ? await refCommit(
@@ -1433,9 +1434,70 @@ async function captureTargetExpectation(
         )
       : null);
   if (!commit) throw new Error(`Target branch not found: ${branch}`);
+  const promotion = pullRequestPromotion(repository);
+  if (refreshSharedRemote && promotion?.mode === "shared-target") {
+    const remote = await fetchSharedTarget(
+      repository,
+      promotion.remote,
+      branch,
+    );
+    if (remote) {
+      const localContainsRemote = await run(
+        "git",
+        ["merge-base", "--is-ancestor", remote, commit],
+        { cwd: repository.path },
+      );
+      if (localContainsRemote.code !== 0) {
+        const remoteContainsLocal = await run(
+          "git",
+          ["merge-base", "--is-ancestor", commit, remote],
+          { cwd: repository.path },
+        );
+        if (remoteContainsLocal.code !== 0) {
+          throw new Error(
+            `Remote ${promotion.remote}/${branch} history was replaced or diverged: fetched ${remote}, local target ${commit}. Refusing to establish an integration baseline; inspect the remote history manually`,
+          );
+        }
+        await promoteValidatedCommit(repository, remote, commit);
+        commit = remote;
+      }
+      session.remoteRecoveryBaseline = remote;
+      session.remoteRecoveryAttempts = 0;
+    }
+  }
   session.targetBranch = branch;
   session.targetCommitBeforeIntegration = commit;
   await writeSession(session);
+}
+
+async function fetchSharedTarget(
+  repository: RepositoryConfig,
+  remote: string,
+  branch: string,
+): Promise<string | undefined> {
+  const advertised = await run(
+    "git",
+    ["ls-remote", "--exit-code", "--heads", remote, branch],
+    { cwd: repository.path },
+  );
+  if (advertised.code === 2) return undefined;
+  if (advertised.code !== 0) {
+    throw new Error(
+      `Could not inspect shared target ${remote}/${branch}: ${(advertised.stderr || advertised.stdout).trim()}`,
+    );
+  }
+  const fetched = await run(
+    "git",
+    ["fetch", "--no-tags", remote, `refs/heads/${branch}`],
+    { cwd: repository.path },
+  );
+  if (fetched.code !== 0) {
+    throw new Error(
+      `Could not fetch shared target ${remote}/${branch}: ${(fetched.stderr || fetched.stdout).trim()}`,
+    );
+  }
+  const commit = await git(["rev-parse", "FETCH_HEAD"], repository.path);
+  return commit;
 }
 
 async function alignIntegrationBranchWithTarget(
