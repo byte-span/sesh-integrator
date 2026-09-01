@@ -1,5 +1,7 @@
 import type {
+  Command,
   RepositoryConfig,
+  ValidationCommand,
   ValidationStep,
   ValidationTier,
 } from "./types.js";
@@ -16,7 +18,7 @@ export function isValidationStepList(value: unknown): boolean {
   return (
     Array.isArray(value) &&
     value.every((step) => {
-      if (isCommand(step)) return true;
+      if (isValidationCommand(step)) return true;
       if (typeof step !== "object" || step === null || !("parallel" in step)) {
         return false;
       }
@@ -24,7 +26,7 @@ export function isValidationStepList(value: unknown): boolean {
       return (
         Array.isArray(parallel) &&
         parallel.length > 0 &&
-        parallel.every(isCommand)
+        parallel.every(isValidationCommand)
       );
     })
   );
@@ -93,10 +95,65 @@ function matchesPath(pattern: string, path: string): boolean {
   return new RegExp(`${expression}$`).test(normalizedPath);
 }
 
-function isCommand(value: unknown): boolean {
+export function validationCommandValue(value: ValidationCommand): Command {
+  return Array.isArray(value) ? value : value.command;
+}
+
+function isValidationCommand(value: unknown): boolean {
+  if (isCommand(value)) return true;
+  if (typeof value !== "object" || value === null || !("command" in value)) {
+    return false;
+  }
+  const spec = value as Record<string, unknown>;
+  if (!isCommand(spec.command)) return false;
+  if (spec.resources !== undefined && !isResources(spec.resources))
+    return false;
+  if (spec.failure !== undefined && !isFailurePolicy(spec.failure))
+    return false;
+  return true;
+}
+
+function isCommand(value: unknown): value is Command {
   return (
     Array.isArray(value) &&
     value.length > 0 &&
     value.every((part) => typeof part === "string" && part.length > 0)
   );
+}
+
+function isResources(value: unknown): boolean {
+  if (typeof value !== "object" || value === null) return false;
+  const resources = value as { shared?: unknown; exclusive?: unknown };
+  return (
+    isKeyList(resources.shared) &&
+    isKeyList(resources.exclusive) &&
+    !((resources.shared as string[] | undefined) ?? []).some((key) =>
+      ((resources.exclusive as string[] | undefined) ?? []).includes(key),
+    )
+  );
+}
+
+function isKeyList(value: unknown): value is string[] {
+  return (
+    value === undefined ||
+    (Array.isArray(value) &&
+      value.every((key) => typeof key === "string" && key.trim().length > 0))
+  );
+}
+
+function isFailurePolicy(value: unknown): boolean {
+  if (typeof value !== "object" || value === null) return false;
+  const policy = value as Record<string, unknown>;
+  if (!["transient", "deterministic"].includes(String(policy.classification)))
+    return false;
+  for (const key of ["maxAttempts", "initialBackoffMs", "maxBackoffMs"]) {
+    const item = policy[key];
+    if (
+      item !== undefined &&
+      (!Number.isInteger(item) ||
+        Number(item) < (key === "maxAttempts" ? 1 : 0))
+    )
+      return false;
+  }
+  return true;
 }

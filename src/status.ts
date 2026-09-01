@@ -70,8 +70,20 @@ export async function statusCommand(sessionId?: string): Promise<void> {
     process.stdout.write(
       `  integration worktree: ${session.integrationWorktreePath ?? join(paths.worktrees, session.repositoryId)}\n`,
     );
+    process.stdout.write(
+      `  recovery bundle: ${session.recoveryBundle ? `${session.recoveryBundle.state} ${session.recoveryBundle.path} (${session.recoveryBundle.manifestHash})` : "legacy/not yet created"}\n`,
+    );
     if (session.latestError)
       process.stdout.write(`  latest error: ${session.latestError}\n`);
+    if (session.validationFailure) {
+      const failure = session.validationFailure;
+      process.stdout.write(
+        `  validation failure: ${failure.classification}, attempt ${failure.attempts}/${failure.maxAttempts}${failure.exhausted ? " (exhausted; resumable)" : ""}\n`,
+      );
+      process.stdout.write(
+        `  validation command: ${failure.command.join(" ")}\n`,
+      );
+    }
     if (session.awaitingConflictResolution) {
       process.stdout.write(
         `  resumable conflict: yes (run codex-handoff resume after resolving and staging)\n`,

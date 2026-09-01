@@ -85,6 +85,22 @@ Runtime data:
 ~/.codex-handoff/
 ```
 
+Every integration attempt first creates a session-isolated recovery bundle in
+`recovery-bundles/<session>/<attempt>/` and write-once Git refs below
+`refs/codex-handoff/recovery/<session>/<attempt>/`. The manifest is hash chained
+and records the base, exact source, target baseline, rollout contract, conflict
+index snapshots, merged trees, validation outcomes, and validated staging
+commit. Resume verifies these objects and reconstructs a fresh detached
+`recovery-worktrees/<session>/<attempt>/` checkout; the shared integration
+worktree and current source branch are never recovery authorities.
+
+Open bundles are never removed by routine cleanup. Successful promotion marks
+the bundle archived while retaining its immutable refs and evidence. Older
+session files without bundle metadata are migrated on first resume by capturing
+their preserved state before reconstruction. Explicit archival/deletion policy
+may be added separately; age alone must never make a failed session
+unrecoverable.
+
 User skill:
 
 ```text
@@ -162,6 +178,35 @@ Example `~/.codex-handoff/config.json`:
 
 Commands are argument arrays. Validation lists may also contain explicit
 `{"parallel": [<command>, ...]}` groups whose members run concurrently.
+Any validation command may instead use a declarative object:
+
+```json
+{
+  "command": ["tool", "check"],
+  "resources": {
+    "shared": ["service:read-only"],
+    "exclusive": ["workspace:mutable-fixture"]
+  },
+  "failure": {
+    "classification": "transient",
+    "maxAttempts": 3,
+    "initialBackoffMs": 250,
+    "maxBackoffMs": 2000
+  }
+}
+```
+
+Resource keys are opaque, tool-agnostic strings. Commands holding compatible
+shared leases may overlap; an exclusive lease conflicts with every lease for
+the same key. Keys are acquired in sorted order and held only for that command,
+so conflicting source and integration validations serialize across repositories
+and sessions without serializing unrelated work.
+
+Failures default to deterministic and run once. Explicitly transient failures
+retry with bounded exponential backoff (three attempts by default). Exhausted
+integration failures preserve the exact merge and command metadata in
+`validation_pending`; `resume` reacquires resources and reruns the unchanged
+validation instead of immediately converting the session to `needs_review`.
 
 `defaultTargetBranch` is an optional global policy. Target resolution uses an
 explicit repository `targetBranch` first, then `defaultTargetBranch`, then the
@@ -223,6 +268,8 @@ Create:
 ├── indexes/
 ├── performance/
 ├── cache/
+├── recovery-bundles/
+├── recovery-worktrees/
 ├── locks/
 ├── logs/
 ├── source-worktrees/
@@ -591,7 +638,8 @@ After resolution:
 If unresolved or validation fails:
 
 - preserve integration worktree
-- mark `needs_review`
+- mark deterministic failures `needs_review`
+- preserve exhausted transient failures as resumable `validation_pending`
 - keep enough state/logs to diagnose
 - release lock only after state is persisted
 - exit non-zero
@@ -743,3 +791,7 @@ The MVP is ready when disposable repo tests prove:
 26. A configured global target applies automatically to existing and new
     registrations without overriding explicit repository targets, switching a
     user checkout, or pushing a branch.
+27. Shared/exclusive validation resources serialize only conflicting commands
+    across concurrent sessions.
+28. Transient validation failures use bounded retry, preserve exhausted state,
+    and resume against the unchanged integration snapshot.

@@ -45,6 +45,11 @@ Complete personal MVP implementation checklist.
 
 ## One-shot integration
 
+- [x] Create durable session-isolated recovery bundles before shared mutation
+- [x] Persist immutable base/source/target/tree/staging refs, conflict index state, validation results, and rollout metadata
+- [x] Reconstruct and hash-verify fresh recovery worktrees on resume
+- [x] Migrate legacy resumable sessions and archive bundles only after success
+
 - [x] Find the current or explicitly selected source-worktree session and require a clean unchanged source branch
 - [x] Persist the exact ready commit, timestamp, and completion summary before integration
 - [x] Require a technology-neutral external-state rollout classification and explicit manual follow-up
@@ -113,6 +118,9 @@ Complete personal MVP implementation checklist.
 
 ## Disposable verification
 
+- [x] Recover an older failed session after a newer integration and removal of the shared worktree
+- [x] Exercise durable validation-failure snapshots and concurrent staging reconciliation
+
 - [x] Begin metadata and exact clean merge
 - [x] Concurrent finish serialization and refreshed integration state
 - [x] Fake-Codex conflict resolution with timing/later-integration context
@@ -136,6 +144,8 @@ Complete personal MVP implementation checklist.
 - [x] Auto-configure documentation and test validation tiers
 - [x] Infer safe disposable framework preparation before validation without per-repository configuration
 - [x] Support explicit parallel validation command groups
+- [x] Coordinate generic shared/exclusive validation resources across sessions
+- [x] Retry declared transient validation failures with bounded backoff and resumable exhaustion
 - [x] Batch Git content hashing and parallelize independent Git metadata probes
 - [x] Index the latest worktree session while retaining JSON session history
 - [x] Persist phased per-session timing, subprocess, tier, path, and cache metrics
