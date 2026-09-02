@@ -643,6 +643,14 @@ If unresolved or validation fails:
 - keep enough state/logs to diagnose
 - release lock only after state is persisted
 - exit non-zero
+- create an immutable incident ticket with a stable failure fingerprint,
+  concise diagnosis, proposed fix, scope, confidence, and preserved evidence
+- print the ticket in the failure summary and offer to implement its fix in a
+  separate user-approved session
+
+Incident proposals may improve the workflow skill or global instructions, but
+a failed session never edits its own policy. `codex-handoff incident <ticket>`
+is read-only and exposes the stored diagnosis for a later session.
 
 ## 11. Out-of-Order Sessions
 

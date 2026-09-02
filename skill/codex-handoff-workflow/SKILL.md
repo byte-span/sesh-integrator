@@ -142,6 +142,9 @@ resume`. Do not fetch, merge, push, reset, or retry manually; the CLI owns
     the exact fetched commit, full revalidation, and bounded non-force retries.
 12. For any other integration failure, report the CLI's recorded error; do not
     describe the session as `needs_review` unless the CLI recorded that status.
+    Include the incident ticket, diagnosis, and proposed fix printed by the CLI.
+    Ask whether the user wants that ticket implemented in a new session; never
+    edit workflow instructions or tool code from the failed session itself.
 13. Classify external-state rollout for every integration. `none` means no
     external state is affected; `applied` means it is already applied;
     `automated` means trusted automation will apply it; and `manual` requires

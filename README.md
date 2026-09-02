@@ -67,6 +67,7 @@ codex-handoff commit --message "Implement feature" [--session <session-id>]
 codex-handoff validate [--session <session-id>]
 codex-handoff integrate --summary "Implemented feature and tests" --rollout <none|applied|automated|manual> [--follow-up "..."]... [--session <session-id>]
 codex-handoff resume [--session <session-id>]
+codex-handoff incident <ticket-id>
 codex-handoff status [--session <session-id>]
 codex-handoff reconcile [repo-path] [--apply]
 codex-handoff audit-legacy
@@ -91,6 +92,7 @@ Creates, without overwriting an existing configuration:
 ├── cache/
 ├── recovery-bundles/
 ├── recovery-worktrees/
+├── incidents/
 ├── locks/
 ├── logs/
 ├── source-worktrees/
@@ -594,6 +596,21 @@ codex-handoff status
 ```
 
 Shows every session, active/ready/waiting/succeeded/`needs_review`/`promotion_pending` state, staging and promoted commits, target branch, recovery phase, worktree paths, latest error, and current lock owners.
+
+### Failure incidents
+
+Failed validation, integration, and resume attempts create immutable incident
+tickets under `~/.codex-handoff/incidents/`. The failure summary prints the
+ticket, concise diagnosis, and proposed fix. Inspect its complete stored record
+without mutation with:
+
+```bash
+codex-handoff incident CH-YYYYMMDD-XXXXXX
+```
+
+Instruction or code fixes proposed by an incident are implemented only in a
+new, user-approved session. Repeated failure fingerprints provide evidence for
+future workflow improvements; the failed session never edits its own policy.
 
 ### `reconcile`
 

@@ -140,6 +140,38 @@ export interface Session {
   postIntegrationResults?: CommandExecutionResult[];
   gitBaseline?: GitObservation;
   recoveryBundle?: RecoveryBundlePointer;
+  latestIncidentId?: string;
+}
+
+export interface Incident {
+  version: 1;
+  id: string;
+  sessionId: string;
+  repositoryId: string;
+  createdAt: string;
+  status: SessionStatus;
+  phase?: Session["recoveryPhase"];
+  fingerprint: string;
+  category:
+    | "conflict"
+    | "validation"
+    | "promotion"
+    | "dependency"
+    | "recovery-integrity"
+    | "environment"
+    | "unknown";
+  confidence: "high" | "medium" | "low";
+  diagnosis: string;
+  proposedFix: string;
+  fixScope: "instructions" | "project" | "environment" | "user-state";
+  error: string;
+  evidence: {
+    readyCommit?: string;
+    integratedCommit?: string;
+    integrationWorktreePath?: string;
+    conflictPromptPath?: string;
+    validationFailure?: ValidationFailureRecord;
+  };
 }
 
 export interface RecoveryBundlePointer {
@@ -249,6 +281,7 @@ export interface RuntimePaths {
   cache: string;
   recoveryBundles: string;
   recoveryWorktrees: string;
+  incidents: string;
 }
 
 export interface ValidationCacheEntry {

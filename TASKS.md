@@ -85,6 +85,9 @@ Complete personal MVP implementation checklist.
 
 ## Lock reliability and status
 
+- [x] Record immutable failure incidents with ticketed diagnoses, proposed fixes, and recurrence fingerprints
+- [x] Expose read-only incident lookup and concise failure summaries
+
 - [x] Show lock waiting and owner details
 - [x] Detect a same-host dead owner
 - [x] Inspect merge/dirty state before limited stale-lock recovery

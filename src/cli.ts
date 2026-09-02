@@ -17,6 +17,7 @@ import { reconcileCommand } from "./reconcile.js";
 import { benchmarkCommand } from "./benchmark.js";
 import { finishPerformance, startPerformance } from "./performance.js";
 import type { RolloutDisposition } from "./types.js";
+import { incidentCommand } from "./incident.js";
 
 export async function main(argv = process.argv.slice(2)): Promise<void> {
   const [command, ...args] = argv;
@@ -79,6 +80,12 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
       }
       case "status": {
         await statusCommand(parseSessionOption(args));
+        break;
+      }
+      case "incident": {
+        if (args.length !== 1 || !args[0])
+          throw new Error("Usage: codex-handoff incident <ticket-id>");
+        await incidentCommand(args[0]);
         break;
       }
       case "reconcile": {
@@ -325,6 +332,7 @@ Usage:
   codex-handoff integrate --summary "..." --rollout <none|applied|automated|manual> [--follow-up "..."]... [--session <session-id>]
   codex-handoff resume [--session <session-id>]
   codex-handoff status [--session <session-id>]
+  codex-handoff incident <ticket-id>
   codex-handoff reconcile [repo-path] [--apply]
   codex-handoff audit-legacy
   codex-handoff doctor
