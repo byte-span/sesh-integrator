@@ -26,7 +26,7 @@ it("serializes exclusive resource users across sessions while allowing shared us
     command: [
       process.execPath,
       "-e",
-      `const fs=require('fs');const p=${JSON.stringify(events)};fs.appendFileSync(p,${JSON.stringify(`${label}-start\n`)});setTimeout(()=>fs.appendFileSync(p,${JSON.stringify(`${label}-end\n`)}),120)`,
+      `const fs=require('fs');const p=${JSON.stringify(events)};fs.appendFileSync(p,${JSON.stringify(`${label}-start\n`)});setTimeout(()=>fs.appendFileSync(p,${JSON.stringify(`${label}-end\n`)}),500)`,
     ],
     resources: { [mode]: ["generic:test-resource"] },
   });

@@ -1,95 +1,20 @@
 import { createHash, randomBytes } from "node:crypto";
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { ensureRuntime, runtimePaths, writeSession } from "./runtime.js";
+import {
+  ensureRuntime,
+  prepareCodexResolverHome,
+  readConfig,
+  runtimePaths,
+  writeSession,
+} from "./runtime.js";
+import { run } from "./process.js";
 import type { Incident, Session } from "./types.js";
 
 type Diagnosis = Pick<
   Incident,
   "category" | "confidence" | "diagnosis" | "proposedFix" | "fixScope"
 >;
-
-export function diagnoseFailure(session: Session, error: string): Diagnosis {
-  const text = error.toLowerCase();
-  if (session.awaitingConflictResolution || text.includes("conflict"))
-    return {
-      category: "conflict",
-      confidence: "high",
-      diagnosis: "The exact integration merge has unresolved conflicts.",
-      proposedFix:
-        "Resolve and stage the preserved conflict using its prompt, then resume.",
-      fixScope: "project",
-    };
-  if (session.validationFailure || text.includes("validation failed"))
-    return {
-      category: "validation",
-      confidence: "high",
-      diagnosis: `${session.validationFailure?.classification ?? "A"} validation failure blocked integration.`,
-      proposedFix:
-        session.validationFailure?.classification === "transient"
-          ? "Resume the unchanged preserved validation; if it recurs, correct its retry classification or resource policy."
-          : "Fix the recorded command failure in a new source session, then integrate that fix.",
-      fixScope:
-        session.validationFailure?.classification === "transient"
-          ? "instructions"
-          : "project",
-    };
-  if (text.includes("dependenc"))
-    return {
-      category: "dependency",
-      confidence: "high",
-      diagnosis:
-        "A declared handoff dependency has not completed successfully.",
-      proposedFix:
-        "Complete its incident first, then resume this preserved session.",
-      fixScope: "project",
-    };
-  if (text.includes("manifest hash") || text.includes("recovery manifest"))
-    return {
-      category: "recovery-integrity",
-      confidence: "high",
-      diagnosis: "Immutable recovery evidence failed integrity verification.",
-      proposedFix:
-        "Audit the recovery bundle and runtime-writing path without rewriting preserved evidence.",
-      fixScope: "project",
-    };
-  if (
-    session.status === "promotion_pending" ||
-    text.includes("target worktree") ||
-    text.includes("must be checked out")
-  )
-    return {
-      category: "promotion",
-      confidence: "high",
-      diagnosis: "Target promotion is blocked by the target worktree state.",
-      proposedFix:
-        "Preserve user changes, make the target worktree clean and accessible, then resume.",
-      fixScope: "user-state",
-    };
-  if (
-    text.includes("sign") ||
-    text.includes("timeout") ||
-    text.includes("temporar") ||
-    text.includes("connection") ||
-    text.includes("lock")
-  )
-    return {
-      category: "environment",
-      confidence: "medium",
-      diagnosis: "An environmental dependency prevented completion.",
-      proposedFix:
-        "Correct the recorded environment failure, then resume the preserved session.",
-      fixScope: "environment",
-    };
-  return {
-    category: "unknown",
-    confidence: "low",
-    diagnosis: "The recorded evidence does not match a known failure class.",
-    proposedFix:
-      "Investigate this ticket in a new session and add a bounded workflow rule for the confirmed cause.",
-    fixScope: "instructions",
-  };
-}
 
 export async function recordIncident(
   session: Session,
@@ -98,13 +23,13 @@ export async function recordIncident(
   const paths = await ensureRuntime();
   const now = new Date();
   const id = `CH-${now.toISOString().slice(0, 10).replaceAll("-", "")}-${randomBytes(3).toString("hex").toUpperCase()}`;
-  const diagnosis = diagnoseFailure(session, error);
   const fingerprint = createHash("sha256")
     .update(
-      `${diagnosis.category}\0${error.replace(/[0-9a-f]{7,40}/gi, "<sha>").replace(/\d+/g, "<n>")}`,
+      `${session.status}\0${session.recoveryPhase ?? "none"}\0${error.replace(/[0-9a-f]{7,40}/gi, "<sha>").replace(/\d+/g, "<n>")}`,
     )
     .digest("hex")
     .slice(0, 12);
+  const investigation = await investigateFailure(session, error, fingerprint);
   const incident: Incident = {
     version: 1,
     id,
@@ -114,7 +39,7 @@ export async function recordIncident(
     status: session.status,
     ...(session.recoveryPhase ? { phase: session.recoveryPhase } : {}),
     fingerprint,
-    ...diagnosis,
+    ...investigation,
     error,
     evidence: {
       ...(session.readyCommit ? { readyCommit: session.readyCommit } : {}),
@@ -140,6 +65,145 @@ export async function recordIncident(
   session.latestIncidentId = id;
   await writeSession(session);
   return incident;
+}
+
+async function investigateFailure(
+  session: Session,
+  error: string,
+  fingerprint: string,
+): Promise<
+  Diagnosis & Pick<Incident, "investigationSource" | "investigationError">
+> {
+  const fallback: Diagnosis & Pick<Incident, "investigationSource"> = {
+    category: "unclassified",
+    confidence: "low",
+    diagnosis: "Automated investigation did not produce a validated diagnosis.",
+    proposedFix: `Open this incident in a new session and investigate fingerprint ${fingerprint} from its preserved evidence.`,
+    fixScope: "project",
+    investigationSource: "fallback",
+  };
+  if (process.env.CODEX_HANDOFF_TEST_INCIDENT_FALLBACK === "1")
+    return {
+      ...fallback,
+      investigationError: "Agent investigation disabled by test harness",
+    };
+  const paths = await ensureRuntime();
+  const temporary = await mkdtemp(join(paths.root, "incident-analysis-"));
+  try {
+    const schemaPath = join(temporary, "schema.json");
+    const outputPath = join(temporary, "result.json");
+    await writeFile(schemaPath, `${JSON.stringify(investigationSchema)}\n`);
+    const priorCount = (await readPriorIncidents(fingerprint)).length;
+    const prompt = buildInvestigationPrompt(
+      session,
+      error,
+      fingerprint,
+      priorCount,
+    );
+    const config = await readConfig();
+    const codexHome = await prepareCodexResolverHome();
+    const result = await run(
+      config.codexCommand,
+      [
+        "exec",
+        "--ephemeral",
+        "--sandbox",
+        "read-only",
+        "--output-schema",
+        schemaPath,
+        "--output-last-message",
+        outputPath,
+        "-",
+      ],
+      {
+        cwd: session.repositoryPath,
+        input: prompt,
+        env: { ...process.env, CODEX_HOME: codexHome },
+        timeoutMs: 120_000,
+      },
+    );
+    if (result.code !== 0)
+      return { ...fallback, investigationError: `Codex exited ${result.code}` };
+    const parsed = JSON.parse(await readFile(outputPath, "utf8")) as unknown;
+    const diagnosis = validateDiagnosis(parsed);
+    return { ...diagnosis, investigationSource: "agent" };
+  } catch (errorValue) {
+    return {
+      ...fallback,
+      investigationError:
+        errorValue instanceof Error ? errorValue.message : String(errorValue),
+    };
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
+}
+
+const investigationSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["category", "confidence", "diagnosis", "proposedFix", "fixScope"],
+  properties: {
+    category: { type: "string", minLength: 1, maxLength: 60 },
+    confidence: { enum: ["high", "medium", "low"] },
+    diagnosis: { type: "string", minLength: 1, maxLength: 300 },
+    proposedFix: { type: "string", minLength: 1, maxLength: 500 },
+    fixScope: {
+      enum: ["instructions", "project", "environment", "user-state"],
+    },
+  },
+} as const;
+
+function buildInvestigationPrompt(
+  session: Session,
+  error: string,
+  fingerprint: string,
+  priorCount: number,
+): string {
+  return `Investigate why this codex-handoff session did not complete. This is read-only analysis: do not modify files, Git state, runtime state, instructions, or external systems. Base conclusions on the supplied evidence and repository structure; avoid inventing facts. Prefer a systemic instruction fix when workflow behavior caused the failure, and a code fix only when evidence identifies a tool defect. Return only the requested JSON object.\n\nFingerprint: ${fingerprint}\nPrior incidents with fingerprint: ${priorCount}\nSession evidence:\n${JSON.stringify({ sessionId: session.id, status: session.status, phase: session.recoveryPhase, taskSummary: session.taskSummary, completionSummary: session.completionSummary, readyCommit: session.readyCommit, integratedCommit: session.integratedCommit, awaitingConflictResolution: session.awaitingConflictResolution, validationFailure: session.validationFailure, error }, null, 2)}`;
+}
+
+function validateDiagnosis(value: unknown): Diagnosis {
+  if (!value || typeof value !== "object")
+    throw new Error("Investigation response is not an object");
+  const item = value as Record<string, unknown>;
+  if (
+    typeof item.category !== "string" ||
+    !item.category.trim() ||
+    item.category.length > 60 ||
+    !["high", "medium", "low"].includes(String(item.confidence)) ||
+    typeof item.diagnosis !== "string" ||
+    !item.diagnosis.trim() ||
+    item.diagnosis.length > 300 ||
+    typeof item.proposedFix !== "string" ||
+    !item.proposedFix.trim() ||
+    item.proposedFix.length > 500 ||
+    !["instructions", "project", "environment", "user-state"].includes(
+      String(item.fixScope),
+    )
+  )
+    throw new Error("Investigation response failed validation");
+  return item as unknown as Diagnosis;
+}
+
+async function readPriorIncidents(fingerprint: string): Promise<Incident[]> {
+  const directory = runtimePaths().incidents;
+  const names = (await readdir(directory)).filter((name) =>
+    name.endsWith(".json"),
+  );
+  const incidents = await Promise.all(
+    names.map(async (name) => {
+      try {
+        return JSON.parse(
+          await readFile(join(directory, name), "utf8"),
+        ) as Incident;
+      } catch {
+        return undefined;
+      }
+    }),
+  );
+  return incidents.filter(
+    (item): item is Incident => item?.fingerprint === fingerprint,
+  );
 }
 
 export function writeIncidentSummary(incident: Incident): void {
@@ -169,6 +233,11 @@ export async function incidentCommand(id: string): Promise<void> {
   process.stdout.write(`Diagnosis: ${incident.diagnosis}\n`);
   process.stdout.write(`Proposed fix: ${incident.proposedFix}\n`);
   process.stdout.write(`Fix scope: ${incident.fixScope}\n`);
+  process.stdout.write(`Investigation: ${incident.investigationSource}\n`);
+  if (incident.investigationError)
+    process.stdout.write(
+      `Investigation fallback: ${incident.investigationError}\n`,
+    );
   process.stdout.write(`Fingerprint: ${incident.fingerprint}\n`);
   process.stdout.write(`Recorded error: ${incident.error}\n`);
 }

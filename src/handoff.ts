@@ -716,6 +716,10 @@ export async function integrateCommand(
       session.status = "needs_review";
     }
     await writeSession(session);
+    if (lock) {
+      await releaseRepoLock(lock);
+      lock = undefined;
+    }
     await safelyRecordIncident(session, error);
     throw error;
   } finally {
@@ -1019,6 +1023,10 @@ export async function resumeCommand(sessionId?: string): Promise<Session> {
     }
     session.latestError = errorMessage(error);
     await writeSession(session);
+    if (lock) {
+      await releaseRepoLock(lock);
+      lock = undefined;
+    }
     await safelyRecordIncident(session, error);
     throw error;
   } finally {

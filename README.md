@@ -610,7 +610,11 @@ codex-handoff incident CH-YYYYMMDD-XXXXXX
 
 Instruction or code fixes proposed by an incident are implemented only in a
 new, user-approved session. Repeated failure fingerprints provide evidence for
-future workflow improvements; the failed session never edits its own policy.
+future workflow improvements. Diagnosis is produced by an ephemeral, read-only,
+schema-constrained Codex investigation after releasing the repository lock;
+code owns evidence and safety rather than an expanding failure-rule chain. If
+that investigation is unavailable or invalid, the ticket records a neutral
+fallback instead of guessing. The failed session never edits its own policy.
 
 ### `reconcile`
 

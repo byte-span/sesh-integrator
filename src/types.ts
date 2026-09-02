@@ -152,18 +152,13 @@ export interface Incident {
   status: SessionStatus;
   phase?: Session["recoveryPhase"];
   fingerprint: string;
-  category:
-    | "conflict"
-    | "validation"
-    | "promotion"
-    | "dependency"
-    | "recovery-integrity"
-    | "environment"
-    | "unknown";
+  category: string;
   confidence: "high" | "medium" | "low";
   diagnosis: string;
   proposedFix: string;
   fixScope: "instructions" | "project" | "environment" | "user-state";
+  investigationSource: "agent" | "fallback";
+  investigationError?: string;
   error: string;
   evidence: {
     readyCommit?: string;

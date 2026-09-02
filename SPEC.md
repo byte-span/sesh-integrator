@@ -650,7 +650,12 @@ If unresolved or validation fails:
 
 Incident proposals may improve the workflow skill or global instructions, but
 a failed session never edits its own policy. `codex-handoff incident <ticket>`
-is read-only and exposes the stored diagnosis for a later session.
+is read-only and exposes the stored diagnosis for a later session. Release the
+repository lock before invoking an ephemeral, read-only Codex investigation.
+Validate its response against a narrow schema; deterministic code captures
+evidence, fingerprints recurrence, and enforces safety, but does not maintain a
+failure-classification rule tree. An unavailable or invalid investigation
+stores a neutral fallback diagnosis.
 
 ## 11. Out-of-Order Sessions
 
