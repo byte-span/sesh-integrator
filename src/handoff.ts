@@ -78,6 +78,7 @@ import {
   recordValidationRecovery,
   snapshotRecoveryState,
 } from "./recovery.js";
+import { recordIncident, writeIncidentSummary } from "./incident.js";
 
 export async function initCommand(): Promise<void> {
   const paths = await ensureRuntime();
@@ -635,7 +636,6 @@ export async function integrateCommand(
     `Validation tier: ${validation.name} (${validation.changedPaths.length} changed path(s))\n`,
   );
 
-  await assertDependencies(session);
   let integrationWorktree = join(
     runtimePaths().worktrees,
     session.repositoryId,
@@ -645,6 +645,7 @@ export async function integrateCommand(
   let lock: LockHandle | undefined;
   let integrationStarted = false;
   try {
+    await assertDependencies(session);
     lock = await measurePhase("lock_wait", async () =>
       acquireRepoLock(
         session.repositoryId,
@@ -715,6 +716,11 @@ export async function integrateCommand(
       session.status = "needs_review";
     }
     await writeSession(session);
+    if (lock) {
+      await releaseRepoLock(lock);
+      lock = undefined;
+    }
+    await safelyRecordIncident(session, error);
     throw error;
   } finally {
     if (lock) await releaseRepoLock(lock);
@@ -775,10 +781,11 @@ export async function validateCommand(sessionId?: string): Promise<Session> {
       }),
     );
   } catch (error) {
-    if (error instanceof ValidationFailure) {
+    if (error instanceof ValidationFailure)
       session.validationFailure = error.record;
-      await writeSession(session);
-    }
+    session.latestError = errorMessage(error);
+    await writeSession(session);
+    await safelyRecordIncident(session, error);
     throw error;
   }
   await assertSourceHandoffState(
@@ -1016,9 +1023,28 @@ export async function resumeCommand(sessionId?: string): Promise<Session> {
     }
     session.latestError = errorMessage(error);
     await writeSession(session);
+    if (lock) {
+      await releaseRepoLock(lock);
+      lock = undefined;
+    }
+    await safelyRecordIncident(session, error);
     throw error;
   } finally {
     if (lock) await releaseRepoLock(lock);
+  }
+}
+
+async function safelyRecordIncident(
+  session: Session,
+  error: unknown,
+): Promise<void> {
+  try {
+    const incident = await recordIncident(session, errorMessage(error));
+    writeIncidentSummary(incident);
+  } catch (incidentError) {
+    process.stderr.write(
+      `Warning: failed to record handoff incident: ${errorMessage(incidentError)}\n`,
+    );
   }
 }
 

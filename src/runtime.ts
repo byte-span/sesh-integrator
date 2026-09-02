@@ -40,6 +40,7 @@ export function runtimePaths(): RuntimePaths {
     cache: join(root, "cache"),
     recoveryBundles: join(root, "recovery-bundles"),
     recoveryWorktrees: join(root, "recovery-worktrees"),
+    incidents: join(root, "incidents"),
   };
 }
 
@@ -85,6 +86,7 @@ export async function ensureRuntime(): Promise<RuntimePaths> {
     mkdir(join(paths.cache, "validation"), { recursive: true }),
     mkdir(paths.recoveryBundles, { recursive: true }),
     mkdir(paths.recoveryWorktrees, { recursive: true }),
+    mkdir(paths.incidents, { recursive: true }),
   ]);
   await chmod(paths.codexHome, 0o700);
   await writeJsonIfMissing(paths.config, defaultConfig());

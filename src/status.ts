@@ -75,6 +75,8 @@ export async function statusCommand(sessionId?: string): Promise<void> {
     );
     if (session.latestError)
       process.stdout.write(`  latest error: ${session.latestError}\n`);
+    if (session.latestIncidentId)
+      process.stdout.write(`  incident ticket: ${session.latestIncidentId}\n`);
     if (session.validationFailure) {
       const failure = session.validationFailure;
       process.stdout.write(

@@ -3689,6 +3689,7 @@ async function runCli(
         CODEX_HANDOFF_HOME: fixture.runtime,
         CODEX_HANDOFF_AUDIT_HOME: fixture.auditHome,
         CODEX_HANDOFF_DOCTOR_HOME: fixture.auditHome,
+        CODEX_HANDOFF_TEST_INCIDENT_FALLBACK: "1",
         CODEX_HOME: fixture.sourceCodexHome,
         ...extraEnv,
       },

@@ -33,6 +33,7 @@ export async function run(
     input?: string;
     env?: NodeJS.ProcessEnv;
     echo?: boolean;
+    timeoutMs?: number;
   } = {},
 ): Promise<CommandResult> {
   const started = process.hrtime.bigint();
@@ -50,6 +51,12 @@ export async function run(
     });
     let stdout = "";
     let stderr = "";
+    const timeout = options.timeoutMs
+      ? setTimeout(() => {
+          stderr += `Process timed out after ${options.timeoutMs}ms\n`;
+          child.kill("SIGTERM");
+        }, options.timeoutMs)
+      : undefined;
     child.stdout!.on("data", (chunk: Buffer) => {
       const text = chunk.toString();
       stdout += text;
@@ -61,6 +68,7 @@ export async function run(
       if (options.echo) process.stderr.write(text);
     });
     child.once("error", (error) => {
+      if (timeout) clearTimeout(timeout);
       recordOnce();
       reject(error);
     });
@@ -68,6 +76,7 @@ export async function run(
       if (error.code !== "EPIPE") reject(error);
     });
     child.once("close", (code) => {
+      if (timeout) clearTimeout(timeout);
       recordOnce();
       resolve({ code: code ?? 1, stdout, stderr });
     });
