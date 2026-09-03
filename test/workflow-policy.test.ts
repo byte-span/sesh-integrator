@@ -54,9 +54,10 @@ describe("bundled workflow trigger policy", () => {
     ]);
 
     for (const policy of policies) {
-      expect(policy).toMatch(/retry-safe/i);
+      expect(policy).toMatch(/retry/i);
+      expect(policy).toMatch(/safe/i);
       expect(policy).toMatch(/three\s+total\s+attempts/i);
-      expect(policy).toMatch(/deterministic\s+(?:error|failure)/i);
+      expect(policy).toMatch(/evidence, not (?:a )?verdict/i);
     }
   });
 

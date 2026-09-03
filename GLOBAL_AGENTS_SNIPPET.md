@@ -105,10 +105,10 @@ At completion:
    codex-handoff commit --message "<focused commit message>"
    ```
 
-3. Run `codex-handoff validate`. If it fails for a plausibly retry-safe reason
-   such as a timeout, temporary service/network error, contention, startup race,
-   or flaky test, rerun the unchanged validation for at most three total
-   attempts. Stop after repeated failure or a clearly deterministic error; do
+3. Run `codex-handoff validate`. Treat the complete failure output and exit code
+   as evidence, not a verdict about whether the failure is deterministic. If
+   retrying is plausibly safe, rerun the unchanged validation for at most three
+   total attempts. Stop after repeated failure or evidence of a code defect; do
    not integrate without successful validation or edit code merely to make a
    retry pass.
 4. Run `codex-handoff integrate --summary "<concise completion summary>"
@@ -124,7 +124,11 @@ At completion:
    the reported blocking condition without disturbing user state, and run
    `codex-handoff resume`. Do not claim success until promotion and configured
    post-integration checks complete.
-7. Report the session, source commit, staging integration commit, target branch
+7. For `validation_pending`, inspect the preserved evidence and incident, then
+   autonomously run `codex-handoff resume` in the same session when retrying is
+   safe, for at most three total attempts. Do not start a new session merely to
+   retry integration.
+8. Report the session, source commit, staging integration commit, target branch
    and promoted commit, pull-request URL when present, and every required manual
    follow-up step. Requests for concision never override these required fields.
    Use the CLI's compact `Completion summary` block as the reporting baseline.

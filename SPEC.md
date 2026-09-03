@@ -202,11 +202,13 @@ the same key. Keys are acquired in sorted order and held only for that command,
 so conflicting source and integration validations serialize across repositories
 and sessions without serializing unrelated work.
 
-Failures default to deterministic and run once. Explicitly transient failures
-retry with bounded exponential backoff (three attempts by default). Exhausted
-integration failures preserve the exact merge and command metadata in
-`validation_pending`; `resume` reacquires resources and reruns the unchanged
-validation instead of immediately converting the session to `needs_review`.
+Failures default to unclassified and run once. A non-zero exit is preserved as
+evidence, never promoted to a deterministic verdict. Explicitly transient
+failures retry with bounded exponential backoff (three attempts by default).
+Every integration validation failure preserves the exact merge and command
+metadata in `validation_pending`; `resume` reacquires resources and reruns the
+unchanged validation after the agent assesses the evidence. Legacy
+`deterministic` declarations remain readable but are treated as unclassified.
 
 `defaultTargetBranch` is an optional global policy. Target resolution uses an
 explicit repository `targetBranch` first, then `defaultTargetBranch`, then the
@@ -638,8 +640,8 @@ After resolution:
 If unresolved or validation fails:
 
 - preserve integration worktree
-- mark deterministic failures `needs_review`
-- preserve exhausted transient failures as resumable `validation_pending`
+- preserve all validation failures as resumable `validation_pending`
+- let the agent assess preserved evidence before choosing retry or escalation
 - keep enough state/logs to diagnose
 - release lock only after state is persisted
 - exit non-zero
