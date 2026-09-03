@@ -144,7 +144,10 @@ function isKeyList(value: unknown): value is string[] {
 function isFailurePolicy(value: unknown): boolean {
   if (typeof value !== "object" || value === null) return false;
   const policy = value as Record<string, unknown>;
-  if (!["transient", "deterministic"].includes(String(policy.classification)))
+  if (
+    policy.classification !== undefined &&
+    !["transient", "deterministic"].includes(String(policy.classification))
+  )
     return false;
   for (const key of ["maxAttempts", "initialBackoffMs", "maxBackoffMs"]) {
     const item = policy[key];

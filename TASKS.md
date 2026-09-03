@@ -150,6 +150,7 @@ Complete personal MVP implementation checklist.
 - [x] Support explicit parallel validation command groups
 - [x] Coordinate generic shared/exclusive validation resources across sessions
 - [x] Retry declared transient validation failures with bounded backoff and resumable exhaustion
+- [x] Treat undeclared validation failures as resumable evidence instead of deterministic verdicts
 - [x] Batch Git content hashing and parallelize independent Git metadata probes
 - [x] Index the latest worktree session while retaining JSON session history
 - [x] Persist phased per-session timing, subprocess, tier, path, and cache metrics

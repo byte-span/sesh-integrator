@@ -356,7 +356,7 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
 
     expect(result.code).toBe(1);
     const pending = (await sessions(fixture))[0]!;
-    expect(pending.status).toBe("needs_review");
+    expect(pending.status).toBe("validation_pending");
     expect(pending.latestError).toContain("Validation failed (9)");
     expect(git(remote, "rev-parse", "refs/heads/dev")).not.toBe(
       pending.promotedCommit,
@@ -2467,11 +2467,11 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     expect(git(fixture.repo, "rev-parse", "codex-handoff/integration")).toBe(
       before,
     );
-    expect(
-      (await sessions(fixture)).find(
-        (session) => session.worktreePath === worktree,
-      )!.status,
-    ).toBe("needs_review");
+    const pending = (await sessions(fixture)).find(
+      (session) => session.worktreePath === worktree,
+    )!;
+    expect(pending.status).toBe("validation_pending");
+    expect(pending.validationFailure?.classification).toBe("unclassified");
     expect(git(worktree, "status", "--porcelain=v1")).toBe("");
 
     await updateConfig(fixture, (config) => {

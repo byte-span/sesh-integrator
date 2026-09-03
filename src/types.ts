@@ -7,7 +7,7 @@ export interface ValidationCommandSpec {
     exclusive?: string[];
   };
   failure?: {
-    classification: "transient" | "deterministic";
+    classification?: "transient";
     maxAttempts?: number;
     initialBackoffMs?: number;
     maxBackoffMs?: number;
@@ -213,7 +213,7 @@ export interface RecoveryBundleManifest {
 export interface ValidationFailureRecord {
   phase: "source" | "integration";
   command: Command;
-  classification: "transient" | "deterministic";
+  classification: "transient" | "unclassified";
   attempts: number;
   maxAttempts: number;
   exhausted: boolean;

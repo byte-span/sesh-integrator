@@ -155,7 +155,14 @@ async function runValidationCommand(
 ): Promise<void> {
   const command = validationCommandValue(entry);
   const spec = Array.isArray(entry) ? undefined : entry;
-  const classification = spec?.failure?.classification ?? "deterministic";
+  // A non-zero exit is evidence, not proof that a failure is deterministic.
+  // Keep legacy `deterministic` config readable, but deliberately do not turn
+  // that declaration into a terminal runtime verdict.
+  const declaredClassification = (
+    spec?.failure as { classification?: string } | undefined
+  )?.classification;
+  const classification =
+    declaredClassification === "transient" ? "transient" : "unclassified";
   const maxAttempts =
     classification === "transient" ? (spec?.failure?.maxAttempts ?? 3) : 1;
   const initialBackoffMs = spec?.failure?.initialBackoffMs ?? 250;
@@ -179,12 +186,12 @@ async function runValidationCommand(
       });
       if (result.code === 0) return;
       const message = `Validation failed (${result.code}): ${command.join(" ")}`;
-      if (classification === "deterministic" || attempt === maxAttempts) {
+      if (classification !== "transient" || attempt === maxAttempts) {
         throw failure(message, attempt);
       }
     } catch (error) {
       if (error instanceof ValidationFailure) throw error;
-      if (classification === "deterministic" || attempt === maxAttempts) {
+      if (classification !== "transient" || attempt === maxAttempts) {
         throw failure(
           error instanceof Error ? error.message : String(error),
           attempt,
@@ -210,7 +217,9 @@ async function runValidationCommand(
       classification,
       attempts,
       maxAttempts,
-      exhausted: classification === "transient" && attempts >= maxAttempts,
+      // Every validation failure remains resumable. The surrounding agent can
+      // use the preserved evidence to decide whether retrying is appropriate.
+      exhausted: attempts >= maxAttempts,
       sharedResources,
       exclusiveResources,
       failedAt: new Date().toISOString(),

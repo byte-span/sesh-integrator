@@ -95,13 +95,13 @@ Before saying the task is complete:
    path's disk contents were verified.
 5. Run `codex-handoff validate`. It chooses configured validation commands from
    the exact committed diff; do not manually substitute a cheaper tier.
-6. If validation fails, inspect the failure before stopping. When the failure
-   is plausibly retry-safe—such as a timeout, temporary service/network error,
-   port or lock contention, startup race, or flaky test—rerun the unchanged
+6. If validation fails, inspect the complete failure evidence before stopping.
+   An exit code is evidence, not a verdict about whether the failure is
+   deterministic. When retrying is plausibly safe, rerun the unchanged
    `codex-handoff validate` command, for at most three total attempts. Do not
-   edit code merely to make a retry pass. Stop after repeated failure or a
-   clearly deterministic error, and never integrate without successful
-   validation. If validation succeeds while warning that a
+   edit code merely to make a retry pass. Stop after repeated failure or when
+   the evidence identifies a code defect, and never integrate without
+   successful validation. If validation succeeds while warning that a
    baseline-inaccessible tracked path is preserved and excluded, continue to
    `integrate`; do not independently reject that path or inspect the integration
    worktree before the CLI does.
@@ -123,9 +123,9 @@ Before saying the task is complete:
 9. If a clean merge was preserved after validation or commit creation failed,
    run `codex-handoff resume` from the original source worktree. The CLI must
    verify that its exact staged merge tree is unchanged before retrying.
-   An exhausted transient validation is recorded as `validation_pending`; it is
-   resumable by the same command and does not require reclassifying it as
-   `needs_review`.
+   Every integration validation failure is recorded as `validation_pending`;
+   it is resumable by the same command after evidence review and does not
+   require reclassifying it as `needs_review`.
    Resume treats the durable recovery bundle as authoritative and reconstructs
    a fresh, hash-verified recovery worktree. Do not move, edit, or delete files
    under `~/.codex-handoff/recovery-bundles/` or refs under
@@ -140,11 +140,14 @@ Before saying the task is complete:
     the preserved integration worktree it names, then run `codex-handoff
 resume`. Do not fetch, merge, push, reset, or retry manually; the CLI owns
     the exact fetched commit, full revalidation, and bounded non-force retries.
-12. For any other integration failure, report the CLI's recorded error; do not
-    describe the session as `needs_review` unless the CLI recorded that status.
-    Include the incident ticket, diagnosis, and proposed fix printed by the CLI.
-    Ask whether the user wants that ticket implemented in a new session; never
-    edit workflow instructions or tool code from the failed session itself.
+12. For any other integration failure, inspect the CLI's complete preserved
+    evidence and incident diagnosis. Treat classifications as evidence, not a
+    verdict. If retrying the unchanged result is safe, run `codex-handoff
+resume` in the same session for at most three total attempts. Report a
+    blocker only after those attempts fail or the evidence identifies a code
+    defect, ambiguity, or required external change. Do not start a replacement
+    session merely to retry integration, and never edit workflow instructions
+    or tool code from the failed session itself.
 13. Classify external-state rollout for every integration. `none` means no
     external state is affected; `applied` means it is already applied;
     `automated` means trusted automation will apply it; and `manual` requires

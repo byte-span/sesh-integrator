@@ -78,7 +78,7 @@ async function investigateFailure(
     category: "unclassified",
     confidence: "low",
     diagnosis: "Automated investigation did not produce a validated diagnosis.",
-    proposedFix: `Open this incident in a new session and investigate fingerprint ${fingerprint} from its preserved evidence.`,
+    proposedFix: `Inspect fingerprint ${fingerprint} from its preserved evidence and resume the same session when retrying is safe.`,
     fixScope: "project",
     investigationSource: "fallback",
   };
@@ -211,7 +211,9 @@ export function writeIncidentSummary(incident: Incident): void {
   process.stderr.write(`Cause: ${incident.diagnosis}\n`);
   process.stderr.write(`Fix: ${incident.proposedFix}\n`);
   process.stderr.write(
-    `Would you like me to implement the fix from ${incident.id} in a new session?\n`,
+    incident.status === "validation_pending"
+      ? "Next: inspect the preserved evidence and resume this session when retrying is safe.\n"
+      : "Next: follow the preserved recovery guidance for this session.\n",
   );
 }
 
