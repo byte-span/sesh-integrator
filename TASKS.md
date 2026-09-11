@@ -112,6 +112,8 @@ Complete personal MVP implementation checklist.
 
 ## Skill and global guidance
 
+- [x] Synchronize global guidance only; leave repository instructions optional and untouched
+
 - [x] Preserve and clarify `parallel-integrator-workflow`
 - [x] Add an idempotent user-skill installation script
 - [x] Require begin before edits and configured source validation before completion

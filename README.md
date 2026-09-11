@@ -81,7 +81,7 @@ pnpm build
 parallel-integrator init
 ```
 
-The CLI installer creates an idempotent symlink in `~/.local/bin`, which must be on `PATH`. Set `PARALLEL_INTEGRATOR_BIN_DIR` to choose another user-writable bin directory. It also installs the machine safeguards: the bundled skill, managed guidance blocks, conservative self-hosting Git hooks, and a bounded six-hourly user systemd health check. The health check safely fetches `origin/main` and fast-forwards a clean local `dev` after a remote dev-to-main merge; dirty or divergent state is reported and preserved.
+The CLI installer creates an idempotent symlink in `~/.local/bin`, which must be on `PATH`. Set `PARALLEL_INTEGRATOR_BIN_DIR` to choose another user-writable bin directory. It also installs the machine safeguards: the bundled skill, global managed guidance, conservative self-hosting Git hooks, and a bounded six-hourly user systemd health check. The health check safely fetches `origin/main` and fast-forwards a clean local `dev` after a remote dev-to-main merge; dirty or divergent state is reported and preserved.
 
 `scripts/install-skill.sh` idempotently installs the supplied skill at `~/.agents/skills/parallel-integrator-workflow/`. It accepts an alternate destination for testing:
 
@@ -89,10 +89,19 @@ The CLI installer creates an idempotent symlink in `~/.local/bin`, which must be
 ./scripts/install-skill.sh /tmp/parallel-integrator-skill
 ```
 
-Only delimited managed sections are synchronized. Global guidance comes from
-[GLOBAL_AGENTS_SNIPPET.md](./GLOBAL_AGENTS_SNIPPET.md), and every registered
-repository receives [REPOSITORY_AGENTS_SNIPPET.md](./REPOSITORY_AGENTS_SNIPPET.md).
-All surrounding user and project-specific instructions are preserved.
+Only the managed section in `~/.codex/AGENTS.md` is synchronized, using
+[GLOBAL_AGENTS_SNIPPET.md](./GLOBAL_AGENTS_SNIPPET.md). Surrounding global
+instructions are preserved. Installation and post-merge hooks never create or
+modify `AGENTS.md` in registered repositories, and guidance synchronization does
+not require a runtime config. The global policy and installed skill coordinate
+the workflow; repository configuration controls validation and promotion.
+
+Project-specific `AGENTS.md` files remain optional and are read during conflict
+resolution. Doctor does not require a repository managed block or compare
+project instructions with a bundled template. Old repository managed blocks
+can be removed through normal reviewed changes, preserving all content outside
+the delimiters. If a file contains only the generated block, it can be removed.
+Cleanup is deliberately separate from installation and synchronization.
 
 ## Commands
 
@@ -607,8 +616,8 @@ does not infer resolution from error text or remove external steps on recovery.
 No session schema migration or new flags are needed; existing `--follow-up`
 strings remain supported. After rebuilding the CLI, refresh installed guidance
 with `./scripts/install-skill.sh` and `node scripts/sync-managed-guidance.mjs`.
-The latter updates managed blocks in global guidance and registered repositories;
-review those local guidance changes normally. Start a new agent session to load
+The latter updates only the managed block in global guidance; registered
+repositories are not modified. Start a new agent session to load
 the updated instructions. Rebuilding suffices for an existing CLI symlink pointing
 to this checkout's `dist/cli.js`; other installations must update their CLI too.
 
@@ -712,7 +721,7 @@ Run one read-only readiness check from the project you intend to use:
 parallel-integrator doctor
 ```
 
-It checks Node.js, Git, the configured Codex executable, runtime/config files, the installed workflow skill, synchronized managed global and registered-repository guidance without stale concurrency prohibitions, current-project registration, separate staging/target branch ancestry, source and integration validation commands, active locks, and conflicting legacy automation. It prints `READY`, `READY WITH ... WARNINGS`, or `NOT READY` with actionable details. A `NOT READY` result exits nonzero. Warnings cover checks that could not be confirmed safely, such as an unavailable `launchctl` query.
+It checks Node.js, Git, the configured Codex executable, runtime/config files, the installed workflow skill, synchronized managed global guidance without stale concurrency prohibitions, current-project registration, separate staging/target branch ancestry, source and integration validation commands, active locks, and conflicting legacy automation. It prints `READY`, `READY WITH ... WARNINGS`, or `NOT READY` with actionable details. A `NOT READY` result exits nonzero. Warnings cover checks that could not be confirmed safely, such as an unavailable `launchctl` query.
 
 ## Disposable-repository verification
 

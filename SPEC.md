@@ -113,6 +113,11 @@ Global Codex guidance:
 ~/.codex/AGENTS.md
 ```
 
+Installers synchronize only global guidance and the workflow skill. They must
+not create or modify repository `AGENTS.md` files. Repository instructions are
+optional, remain project-owned, and are read for conflict context. Doctor does
+not require or compare repository-managed guidance blocks.
+
 Existing old system remains separate:
 
 ```text

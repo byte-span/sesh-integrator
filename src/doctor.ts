@@ -161,29 +161,6 @@ export async function doctorCommand(cwd = process.cwd()): Promise<void> {
     checks.push(fail("Global guidance", errorMessage(error)));
   }
 
-  if (config) {
-    const repositoryGuidancePath = fileURLToPath(
-      new URL("../REPOSITORY_AGENTS_SNIPPET.md", import.meta.url),
-    );
-    let expectedRepositoryGuidance = "";
-    try {
-      expectedRepositoryGuidance = managedBlock(
-        normalizeText(await readFile(repositoryGuidancePath, "utf8")),
-      );
-    } catch (error) {
-      checks.push(fail("Repository guidance bundle", errorMessage(error)));
-    }
-    for (const repository of config.repositories) {
-      checks.push(
-        await repositoryGuidanceCheck(
-          repository,
-          expectedRepositoryGuidance,
-          repositoryGuidancePath,
-        ),
-      );
-    }
-  }
-
   if (config) checks.push(...(await repositoryChecks(config, cwd)));
   checks.push(await lockCheck(paths.locks));
   checks.push(...legacyChecks(await collectLegacyFindings()));
@@ -690,32 +667,4 @@ function managedSection(contents: string): string | undefined {
 
 function hasStaleConcurrencyRule(contents: string): boolean {
   return STALE_CONCURRENCY_RULES.some((pattern) => pattern.test(contents));
-}
-
-async function repositoryGuidanceCheck(
-  repository: RepositoryConfig,
-  expected: string,
-  bundledPath: string,
-): Promise<Check> {
-  const agentsPath = join(repository.path, "AGENTS.md");
-  try {
-    const contents = normalizeText(await readFile(agentsPath, "utf8"));
-    if (hasStaleConcurrencyRule(contents)) {
-      return fail(
-        `Repository guidance (${repository.path})`,
-        `${agentsPath} contains stale wording that blocks unrelated concurrent sessions`,
-      );
-    }
-    return managedSection(contents) === expected
-      ? pass(`Repository guidance (${repository.path})`, agentsPath)
-      : fail(
-          `Repository guidance (${repository.path})`,
-          `${agentsPath} managed section differs from ${bundledPath}; run scripts/sync-managed-guidance.mjs`,
-        );
-  } catch (error) {
-    return fail(
-      `Repository guidance (${repository.path})`,
-      `${errorMessage(error)}; run scripts/sync-managed-guidance.mjs`,
-    );
-  }
 }

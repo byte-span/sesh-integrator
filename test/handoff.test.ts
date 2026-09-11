@@ -3251,7 +3251,7 @@ describe.sequential("parallel-integrator repository workflow", () => {
     expect(await snapshot(fixture.runtime)).toEqual(runtimeBefore);
   });
 
-  it("reports READY when installation and current repository checks pass", async () => {
+  it("reports READY without requiring repository-managed guidance", async () => {
     const fixture = await createFixture();
     await updateConfig(fixture, (config) => {
       config.codexCommand = process.execPath;
@@ -3301,15 +3301,6 @@ describe.sequential("parallel-integrator repository workflow", () => {
         await readFile(join(process.cwd(), "GLOBAL_AGENTS_SNIPPET.md"), "utf8"),
       ),
     );
-    await writeFile(
-      join(fixture.repo, "AGENTS.md"),
-      managedBlock(
-        await readFile(
-          join(process.cwd(), "REPOSITORY_AGENTS_SNIPPET.md"),
-          "utf8",
-        ),
-      ),
-    );
     await mkdir(join(fixture.auditHome, "Library", "LaunchAgents"), {
       recursive: true,
     });
@@ -3325,6 +3316,19 @@ describe.sequential("parallel-integrator repository workflow", () => {
     expect(result.stdout).toContain("READY");
     expect(await snapshot(fixture.auditHome)).toEqual(beforeHome);
     expect(await snapshot(fixture.runtime)).toEqual(beforeRuntime);
+    expect(await exists(join(fixture.repo, "AGENTS.md"))).toBe(false);
+    for (const instructions of [
+      "# Project conventions\nUse the repository's coding style.\n",
+      "<!-- codex-handoff:managed:start -->\nOutdated generated instructions.\n",
+    ]) {
+      await writeFile(join(fixture.repo, "AGENTS.md"), instructions);
+      const result = await runCli(fixture, fixture.repo, ["doctor"]);
+      expect(result.code, result.stderr).toBe(0);
+      expect(result.stdout).not.toContain("Repository guidance");
+      expect(await readFile(join(fixture.repo, "AGENTS.md"), "utf8")).toBe(
+        instructions,
+      );
+    }
   });
 
   it("reports stale global detached/default-branch guidance", async () => {

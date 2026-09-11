@@ -35,7 +35,6 @@ describe("bundled workflow trigger policy", () => {
   it("keeps required completion fields even when a concise response is requested", async () => {
     const policies = await Promise.all([
       readFile(join(process.cwd(), "GLOBAL_AGENTS_SNIPPET.md"), "utf8"),
-      readFile(join(process.cwd(), "REPOSITORY_AGENTS_SNIPPET.md"), "utf8"),
       readFile(
         join(
           process.cwd(),
@@ -67,7 +66,6 @@ describe("bundled workflow trigger policy", () => {
   it("lets the agent retry plausibly transient validation failures", async () => {
     const policies = await Promise.all([
       readFile(join(process.cwd(), "GLOBAL_AGENTS_SNIPPET.md"), "utf8"),
-      readFile(join(process.cwd(), "REPOSITORY_AGENTS_SNIPPET.md"), "utf8"),
       readFile(
         join(
           process.cwd(),
@@ -102,39 +100,23 @@ describe("bundled workflow trigger policy", () => {
   });
 
   it("ships managed guidance and bounded self-hosting automation", async () => {
-    const [repositoryGuidance, timer, service, prePush, postMerge, syncDev] =
-      await Promise.all([
-        readFile(join(process.cwd(), "REPOSITORY_AGENTS_SNIPPET.md"), "utf8"),
-        readFile(
-          join(process.cwd(), "systemd", "parallel-integrator-health.timer"),
-          "utf8",
-        ),
-        readFile(
-          join(
-            process.cwd(),
-            "systemd",
-            "parallel-integrator-health.service.in",
-          ),
-          "utf8",
-        ),
-        readFile(
-          join(process.cwd(), "scripts", "self-hosting-pre-push"),
-          "utf8",
-        ),
-        readFile(
-          join(process.cwd(), "scripts", "self-hosting-post-merge"),
-          "utf8",
-        ),
-        readFile(
-          join(process.cwd(), "scripts", "self-hosting-sync-dev"),
-          "utf8",
-        ),
-      ]);
+    const [timer, service, prePush, postMerge, syncDev] = await Promise.all([
+      readFile(
+        join(process.cwd(), "systemd", "parallel-integrator-health.timer"),
+        "utf8",
+      ),
+      readFile(
+        join(process.cwd(), "systemd", "parallel-integrator-health.service.in"),
+        "utf8",
+      ),
+      readFile(join(process.cwd(), "scripts", "self-hosting-pre-push"), "utf8"),
+      readFile(
+        join(process.cwd(), "scripts", "self-hosting-post-merge"),
+        "utf8",
+      ),
+      readFile(join(process.cwd(), "scripts", "self-hosting-sync-dev"), "utf8"),
+    ]);
 
-    expect(repositoryGuidance).toContain("codex-handoff:managed:start");
-    expect(repositoryGuidance).toContain(
-      "Unrelated active sessions do not block",
-    );
     expect(timer).toContain("OnUnitActiveSec=6h");
     expect(service).toContain("TimeoutStartSec=130");
     expect(prePush).toContain("merge-base --is-ancestor origin/main dev");
