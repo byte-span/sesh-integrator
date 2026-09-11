@@ -1,3 +1,4 @@
+import { writeCompletionSummary } from "./completion.js";
 import { access, mkdir, readFile } from "node:fs/promises";
 import { constants } from "node:fs";
 import { dirname, join } from "node:path";
@@ -721,6 +722,7 @@ export async function integrateCommand(
       lock = undefined;
     }
     await safelyRecordIncident(session, error);
+    writeCompletionSummary(session);
     throw error;
   } finally {
     if (lock) await releaseRepoLock(lock);
@@ -1028,6 +1030,7 @@ export async function resumeCommand(sessionId?: string): Promise<Session> {
       lock = undefined;
     }
     await safelyRecordIncident(session, error);
+    writeCompletionSummary(session);
     throw error;
   } finally {
     if (lock) await releaseRepoLock(lock);
@@ -1862,50 +1865,6 @@ async function validateRemoteRecoveryAndContinue(
     true,
     false,
   );
-}
-
-function writeCompletionSummary(session: Session): void {
-  const pullRequest = session.pullRequestUrl ?? "None";
-  const manualFollowUps = [
-    ...(session.pullRequestUrl
-      ? [`Review and merge ${session.pullRequestUrl}.`]
-      : []),
-    ...(session.rolloutDisposition === "manual"
-      ? (session.rolloutFollowUps ?? [])
-      : []),
-  ];
-  const rollout = formatRolloutDisposition(session.rolloutDisposition);
-  process.stdout.write(
-    `Completion summary:\n` +
-      `  Session: ${session.id}\n` +
-      `  Source commit: ${session.readyCommit}\n` +
-      `  Staging integration commit: ${session.integratedCommit}\n` +
-      `  Target promotion: ${session.targetBranch} at ${session.promotedCommit}\n` +
-      `  Pull request: ${pullRequest}\n` +
-      `  External rollout: ${rollout}\n` +
-      (manualFollowUps.length
-        ? manualFollowUps
-            .map((item) => `  Manual follow-up: ${item}\n`)
-            .join("")
-        : `  Manual follow-up: No manual follow-up required.\n`),
-  );
-}
-
-function formatRolloutDisposition(
-  disposition: RolloutDisposition | undefined,
-): string {
-  switch (disposition) {
-    case "none":
-      return "None required.";
-    case "applied":
-      return "Already applied.";
-    case "automated":
-      return "Applied by trusted automation.";
-    case "manual":
-      return "Manual action required.";
-    default:
-      return "Unclassified.";
-  }
 }
 
 async function completePromotion(

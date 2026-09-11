@@ -28,18 +28,29 @@ describe("bundled workflow trigger policy", () => {
   });
 
   it("keeps required completion fields even when a concise response is requested", async () => {
-    const [guidance, skill] = await Promise.all([
+    const policies = await Promise.all([
       readFile(join(process.cwd(), "GLOBAL_AGENTS_SNIPPET.md"), "utf8"),
+      readFile(join(process.cwd(), "REPOSITORY_AGENTS_SNIPPET.md"), "utf8"),
       readFile(
         join(process.cwd(), "skill", "codex-handoff-workflow", "SKILL.md"),
         "utf8",
       ),
     ]);
 
-    for (const policy of [guidance, skill]) {
+    for (const policy of policies) {
       expect(policy).toContain("Requests for concision never override");
       expect(policy).toContain("pull-request URL");
       expect(policy).toContain("Completion summary");
+      expect(policy).toContain("exact configuration");
+      expect(policy).toContain("Never request, read, store, or print");
+      expect(policy).toContain("secret values");
+      expect(policy).toContain("must not replace known essential steps");
+      expect(policy).toContain(
+        "resolved integration prerequisites as completed",
+      );
+      expect(policy).toContain(
+        "Recovery alone does not resolve recorded external setup actions",
+      );
     }
   });
 

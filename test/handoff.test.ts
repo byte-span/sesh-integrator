@@ -75,6 +75,10 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
       "manual rollout requires at least one --follow-up",
     );
 
+    const actions = [
+      "On a trusted machine, add CWS_CLIENT_ID, CWS_CLIENT_SECRET, and CWS_REFRESH_TOKEN to the release repository's chrome-web-store GitHub environment.",
+      "In the fixture repository's chrome-web-store GitHub environment, configure Actions variables FIXTURE_EXTENSION_ID and FIXTURE_CHANNEL. See docs/release.md for context.",
+    ];
     const completed = await runCliOk(fixture, fixture.repo, [
       "integrate",
       "--summary",
@@ -82,19 +86,27 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
       "--rollout",
       "manual",
       "--follow-up",
-      "Apply the pending external-state change through the trusted workflow.",
+      actions[0]!,
+      "--follow-up",
+      actions[1]!,
     ]);
     expect(completed.stdout).toContain(
       "External rollout: Manual action required.",
     );
-    expect(completed.stdout).toContain(
-      "Manual follow-up: Apply the pending external-state change through the trusted workflow.",
-    );
+    expect(completed.stdout).toContain("Required manual actions (2 recorded)");
+    for (const action of actions)
+      expect(completed.stdout).toContain(`Manual follow-up: ${action}`);
+    expect(completed.stdout).not.toContain("No manual follow-up required.");
     const [session] = await sessions(fixture);
     expect(session.rolloutDisposition).toBe("manual");
-    expect(session.rolloutFollowUps).toEqual([
-      "Apply the pending external-state change through the trusted workflow.",
+    expect(session.rolloutFollowUps).toEqual(actions);
+    const status = await runCliOk(fixture, fixture.repo, [
+      "status",
+      "--session",
+      session.id,
     ]);
+    for (const action of actions)
+      expect(status.stdout).toContain(`Manual follow-up: ${action}`);
   });
 
   it("caches only fingerprinted advisory setup with an extant marker", async () => {
@@ -1591,6 +1603,12 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
       "integrate",
       "--summary",
       "unheld post target complete",
+      "--rollout",
+      "manual",
+      "--follow-up",
+      "On a trusted machine, add CWS_CLIENT_ID and CWS_CLIENT_SECRET to the chrome-web-store GitHub environment.",
+      "--follow-up",
+      "On a trusted machine, add CWS_REFRESH_TOKEN to the chrome-web-store GitHub environment.",
     ]);
 
     expect(blocked.code).toBe(1);
@@ -1601,11 +1619,39 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     expect(pending.status).toBe("promotion_pending");
     await expect(readFile(marker, "utf8")).rejects.toThrow();
 
+    for (const action of pending.rolloutFollowUps)
+      expect(blocked.stdout).toContain(`Manual follow-up: ${action}`);
+    expect(blocked.stdout).toContain("Outstanding integration prerequisite:");
+    expect(blocked.stdout).not.toContain("No manual follow-up required.");
+    const pendingStatus = await runCliOk(fixture, worktree, [
+      "status",
+      "--session",
+      pending.id,
+    ]);
+    expect(pendingStatus.stdout).toContain(
+      "Outstanding integration prerequisite:",
+    );
+    expect(pendingStatus.stdout).not.toContain("No manual follow-up required.");
+
     const targetHolder = join(fixture.root, "target-holder");
     git(fixture.repo, "worktree", "add", targetHolder, "main");
-    await runCliOk(fixture, worktree, ["resume"]);
+    const resumed = await runCliOk(fixture, worktree, ["resume"]);
+    const recoveredStatus = await runCliOk(fixture, worktree, [
+      "status",
+      "--session",
+      pending.id,
+    ]);
+    for (const output of [resumed.stdout, recoveredStatus.stdout]) {
+      for (const action of pending.rolloutFollowUps)
+        expect(output).toContain(`Manual follow-up: ${action}`);
+      expect(output).not.toContain("Outstanding integration prerequisite:");
+      expect(output).not.toContain("must be checked out in one clean worktree");
+      expect(output).not.toContain("No manual follow-up required.");
+    }
     const completed = (await sessions(fixture))[0]!;
     expect(completed.status).toBe("succeeded");
+    expect(completed.latestError).toBeUndefined();
+    expect(completed.rolloutFollowUps).toEqual(pending.rolloutFollowUps);
     expect(await readFile(marker, "utf8")).toBe(await realpath(targetHolder));
     expect(git(targetHolder, "branch", "--show-current")).toBe("main");
     expect(git(targetHolder, "rev-parse", "HEAD")).toBe(
@@ -2427,11 +2473,21 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
       "--summary",
       "dependency complete",
     ]);
-    await runCliOk(fixture, dependentWorktree, [
+    const recovered = await runCliOk(fixture, dependentWorktree, [
       "integrate",
       "--summary",
       "dependent complete",
     ]);
+    expect(recovered.stdout).toContain("No manual follow-up required.");
+    const status = await runCliOk(fixture, dependentWorktree, [
+      "status",
+      "--session",
+      dependentReady.id,
+    ]);
+    expect(status.stdout).not.toContain("has not been promoted successfully");
+    expect(status.stdout).not.toContain(
+      "Outstanding integration prerequisite:",
+    );
     expect(
       (await sessions(fixture)).every(
         (session) => session.status === "succeeded",

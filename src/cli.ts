@@ -329,7 +329,7 @@ Usage:
   codex-handoff begin --summary "..." [--create-worktree] [--no-auto-branch] [--depends-on <session-id>]...
   codex-handoff commit --message "..." [--session <session-id>]
   codex-handoff validate [--session <session-id>]
-  codex-handoff integrate --summary "..." --rollout <none|applied|automated|manual> [--follow-up "..."]... [--session <session-id>]
+  codex-handoff integrate --summary "..." --rollout <none|applied|automated|manual> [--follow-up "<action, destination, exact configuration names; no secret values>"]... [--session <session-id>]
   codex-handoff resume [--session <session-id>]
   codex-handoff status [--session <session-id>]
   codex-handoff incident <ticket-id>

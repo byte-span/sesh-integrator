@@ -532,10 +532,46 @@ Every integration must classify external-state rollout as `none`, `applied`,
 depends on another system; promoting source never implies that external state
 was applied.
 
-On success, the command prints a compact `Completion summary` containing the
-session ID, source commit, staging integration commit, target promotion, pull
-request URL when present, and manual follow-up. This block is intended to be
-copied into the agent's final response without dropping fields for concision.
+Integration and recovery results print a `Completion summary` containing the session
+ID, source commit, staging integration commit, target promotion, pull request
+URL when present, and every recorded manual action in full. Retrieve it again
+with `codex-handoff status --session <session-id>`. Status also separates current
+integration prerequisites from external actions. Successful recovery removes
+resolved integration blockers; it does not imply that external setup occurred.
+`automated` reports delegation, not verified external completion. Legacy sessions
+without rollout metadata report incomplete requirements instead of claiming no
+manual work remains.
+
+Use one repeatable `--follow-up` per outstanding action. Specify what to do,
+where (system, repository/project, environment), and exact configuration names
+verified from non-secret source/configuration. For example:
+
+```text
+--follow-up "On a trusted machine, add CWS_CLIENT_ID, CWS_CLIENT_SECRET, and CWS_REFRESH_TOKEN to the release repository's chrome-web-store GitHub environment."
+```
+
+Add a separate action listing the verified Actions variable names and their
+destination when variables are required; do not guess their names. Credential
+values must never enter arguments, session records, or output. Documentation
+links supplement known steps rather than replacing them.
+
+The CLI enforces a rollout classification and nonempty manual actions and
+preserves their text across retry/recovery. It cannot verify actionability,
+external completion, secret-free input, or the agent's final response. The skill
+and managed instructions require a final action-by-action check that preserves
+destinations and configuration names even when concise. Resolved prerequisites
+belong in completed work, not the outstanding list. Recorded follow-ups remain
+a declaration snapshot, not an external task tracker: if an action is later
+completed with evidence, the agent reports it separately as completed. The CLI
+does not infer resolution from error text or remove external steps on recovery.
+
+No session schema migration or new flags are needed; existing `--follow-up`
+strings remain supported. After rebuilding the CLI, refresh installed guidance
+with `./scripts/install-skill.sh` and `node scripts/sync-managed-guidance.mjs`.
+The latter updates managed blocks in global guidance and registered repositories;
+review those local guidance changes normally. Start a new agent session to load
+the updated instructions. Rebuilding suffices for an existing CLI symlink pointing
+to this checkout's `dist/cli.js`; other installations must update their CLI too.
 
 The ready SHA and timestamp are persisted before dependency or lock checks. Dependencies must already have succeeded. Simultaneous processes wait on an atomic per-repository directory lock, then merge against the current staging branch. Under that lock the CLI records the target's exact expected commit. The mutable source branch name is never merged.
 

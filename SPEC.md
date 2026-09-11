@@ -433,6 +433,17 @@ codex-handoff integrate --summary "Implemented edit flow and tests" --rollout no
 
 The CLI itself should not broadly stage arbitrary user files.
 
+Completion output preserves every recorded follow-up in full, with a count and
+an instruction to retain each action, destination, and exact configuration name
+in the final response. Follow-ups remain backward-compatible strings, never
+credential values. The agent verifies actionability and completeness; the CLI
+cannot inspect the final assistant response. Links may supplement but not
+replace known steps. Integration failures and `status --session` report current
+prerequisites separately from external follow-ups. Successful recovery removes
+resolved blockers without treating external actions as completed. Missing legacy
+rollout metadata cannot justify “No manual follow-up required.” Automated rollout
+means delegated, not verified applied.
+
 ### 9.1 Tiered validation and direct trivial integration
 
 Validation tiers are ordered and path-based. A tier matches only if every path

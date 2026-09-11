@@ -1,3 +1,4 @@
+import { writeCompletionSummary } from "./completion.js";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { readLockMetadata } from "./lock.js";
@@ -86,6 +87,7 @@ export async function statusCommand(sessionId?: string): Promise<void> {
         `  validation command: ${failure.command.join(" ")}\n`,
       );
     }
+    if (selected && session.readyCommit) writeCompletionSummary(session);
     if (session.awaitingConflictResolution) {
       process.stdout.write(
         `  resumable conflict: yes (run codex-handoff resume after resolving and staging)\n`,

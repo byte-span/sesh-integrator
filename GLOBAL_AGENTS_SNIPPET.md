@@ -134,6 +134,32 @@ At completion:
    Use the CLI's compact `Completion summary` block as the reporting baseline.
    If no manual steps remain, state `No manual follow-up required.`
 
+For each `--follow-up`, record one actionable outstanding step: what to do,
+where to do it (system, repository/project, environment), and exact configuration
+names when known. Verify names from non-secret source/configuration; do not
+invent missing names. For credentials, record only names and destination and
+say to configure them on a trusted machine. Never request, read, store, or print
+secret values, including in CLI arguments or session records.
+
+Before the final response, use the latest `Completion summary` (available again
+with `codex-handoff status --session <session-id>`) and check every recorded
+action against the response. Preserve every outstanding action and its essential
+details, even when concise: action, destination, exact names, and prerequisites.
+Do not collapse setup into a label such as “complete CWS setup.” Documentation
+links may supplement instructions but must not replace known essential steps.
+Keep completed actions separate from outstanding ones. After successful recovery,
+report resolved integration prerequisites as completed, not required follow-ups;
+do not copy old errors or incident fixes into the outstanding list. Record only
+outstanding external work in `--follow-up`, not prerequisites the session already
+resolved. Recovery alone does not resolve recorded external setup actions. If an
+external action was subsequently completed with evidence, explicitly report that
+completion instead of silently omitting it or repeating it as outstanding.
+
+Source promotion success is separate from external setup or rollout completion.
+`automated` means delegated, not verified complete. Use `No manual follow-up
+required.` only when no required actions remain, including review/merge and
+unresolved prerequisites. Requests for concision never override these details.
+
 Never push, force-push, deploy, or perform destructive remote actions unless the
 user clearly requests that specific external action. Never delete branches or
 worktrees, reset a user checkout, discard changes, or trade away user state to
