@@ -98,10 +98,32 @@ the workflow; repository configuration controls validation and promotion.
 
 Project-specific `AGENTS.md` files remain optional and are read during conflict
 resolution. Doctor does not require a repository managed block or compare
-project instructions with a bundled template. Old repository managed blocks
-can be removed through normal reviewed changes, preserving all content outside
-the delimiters. If a file contains only the generated block, it can be removed.
-Cleanup is deliberately separate from installation and synchronization.
+project instructions with a bundled template. To remove the old generated blocks
+from every registered checkout on a machine, run:
+
+```bash
+parallel-integrator cleanup-guidance --apply
+```
+
+Omit `--apply` to preview. The command reads the selected runtime's repository
+list, removes recognized `codex-handoff` or `parallel-integrator` managed blocks,
+and deletes a file only when nothing but whitespace remains. Text outside the
+block is preserved, including line endings. Every changed file is backed up
+under `<runtime>/guidance-backups/<id>/AGENTS.md`, with its original path and mode
+in `metadata.json`; output prints the backup location.
+
+Cleanup skips staged or unmerged `AGENTS.md` files, symlinks, hard links,
+malformed or multiple blocks, and markers inside code examples. It continues
+with other repositories and exits nonzero if anything was skipped. Missing
+files and files without managed blocks are left alone; repeat runs are safe.
+Only registered checkout roots are scanned, not every old linked worktree or
+unregistered clone. Register other projects first if they need cleanup.
+
+Cleanup is an explicit local maintenance action, separate from installation and
+synchronization. It leaves branches and the Git index unchanged and never
+commits, integrates, pushes, or opens PRs. Review tracked-file changes through
+your normal workflow. To undo a cleanup, inspect the reported backup and copy
+its original file back to the recorded path without overwriting newer edits.
 
 ## Commands
 
@@ -119,6 +141,7 @@ parallel-integrator incident <ticket-id>
 parallel-integrator status [--session <session-id>]
 parallel-integrator reconcile [repo-path] [--apply]
 parallel-integrator audit-legacy
+parallel-integrator cleanup-guidance [--apply]
 parallel-integrator doctor
 parallel-integrator benchmark [--runs <n>] [--json] [--check]
 ```

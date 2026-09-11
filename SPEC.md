@@ -729,6 +729,17 @@ Print `READY`, `READY WITH ... WARNINGS`, or `NOT READY`. Exit nonzero for
 missing required readiness conditions. Do not mutate runtime, configuration,
 Git state, or legacy components.
 
+### Explicit repository guidance cleanup
+
+`parallel-integrator cleanup-guidance` previews removal of recognized historical
+managed repository blocks across registered checkout roots. `--apply` performs
+the cleanup with original-file backups under the selected runtime. Preserve
+all text outside the block and remove generated-only files. Skip staged files,
+symlinks, hard links, malformed or ambiguous blocks, code examples, and detected
+concurrent modifications. Continue processing other repositories and exit
+nonzero when any are skipped. Do not alter the Git index or refs, commit, push,
+or run this operation from installers or automatic hooks.
+
 ## 14. `audit-legacy`
 
 Read-only by default.
