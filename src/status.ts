@@ -39,7 +39,7 @@ export async function statusCommand(sessionId?: string): Promise<void> {
     process.stdout.write(`  worktree: ${session.worktreePath}\n`);
     if (session.launchWorktreePath) {
       process.stdout.write(
-        `  launch checkout: ${session.launchWorktreePath} (source worktree managed by codex-handoff)\n`,
+        `  launch checkout: ${session.launchWorktreePath} (source worktree managed by parallel-integrator)\n`,
       );
     }
     process.stdout.write(`  branch: ${session.branch}\n`);
@@ -90,7 +90,7 @@ export async function statusCommand(sessionId?: string): Promise<void> {
     if (selected && session.readyCommit) writeCompletionSummary(session);
     if (session.awaitingConflictResolution) {
       process.stdout.write(
-        `  resumable conflict: yes (run codex-handoff resume after resolving and staging)\n`,
+        `  resumable conflict: yes (run parallel-integrator resume after resolving and staging)\n`,
       );
       if (session.conflictPromptPath)
         process.stdout.write(

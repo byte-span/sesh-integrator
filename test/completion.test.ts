@@ -66,7 +66,7 @@ describe("completion reporting", () => {
   it("distinguishes delegated automation from verified external completion", () => {
     const output = summary({ rolloutDisposition: "automated" });
     expect(output).toContain("Target promotion: dev at staging");
-    expect(output).toContain("completion not verified by codex-handoff");
+    expect(output).toContain("completion not verified by parallel-integrator");
     expect(output).toContain("No manual follow-up required.");
   });
 

@@ -46,7 +46,7 @@ function formatRolloutDisposition(
     case "applied":
       return "Already applied (declared by agent).";
     case "automated":
-      return "Delegated to trusted automation; completion not verified by codex-handoff.";
+      return "Delegated to trusted automation; completion not verified by parallel-integrator.";
     case "manual":
       return "Manual action required.";
     default:

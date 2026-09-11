@@ -34,7 +34,8 @@ interface CliResult {
 
 const temporaryRoots: string[] = [];
 const cli =
-  process.env.CODEX_HANDOFF_TEST_CLI ?? join(process.cwd(), "dist", "cli.js");
+  process.env.PARALLEL_INTEGRATOR_TEST_CLI ??
+  join(process.cwd(), "dist", "cli.js");
 
 afterEach(async () => {
   await Promise.all(
@@ -44,7 +45,7 @@ afterEach(async () => {
   );
 });
 
-describe.sequential("codex-handoff disposable repository workflow", () => {
+describe.sequential("parallel-integrator repository workflow", () => {
   it("requires and reports a technology-neutral external rollout classification", async () => {
     const fixture = await createFixture();
     await runCliOk(fixture, fixture.repo, [
@@ -58,7 +59,7 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
       fixture,
       fixture.repo,
       ["integrate", "--summary", "missing classification"],
-      { CODEX_HANDOFF_TEST_REQUIRE_ROLLOUT: "1" },
+      { PARALLEL_INTEGRATOR_TEST_REQUIRE_ROLLOUT: "1" },
     );
     expect(missing.code).toBe(1);
     expect(missing.stderr).toContain("integrate requires --rollout");
@@ -110,7 +111,9 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
   });
 
   it("caches only fingerprinted advisory setup with an extant marker", async () => {
-    const root = await mkdtemp(join(tmpdir(), "codex-handoff-setup-cache-"));
+    const root = await mkdtemp(
+      join(tmpdir(), "parallel-integrator-setup-cache-"),
+    );
     temporaryRoots.push(root);
     const runtime = join(root, "runtime");
     const worktree = join(root, "worktree");
@@ -118,14 +121,14 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     await mkdir(worktree);
     await writeFile(join(worktree, "package.json"), '{"name":"cache"}\n');
     await writeFile(join(worktree, "pnpm-lock.yaml"), "lockfileVersion: 9\n");
-    const previousRuntime = process.env.CODEX_HANDOFF_HOME;
-    process.env.CODEX_HANDOFF_HOME = runtime;
+    const previousRuntime = process.env.PARALLEL_INTEGRATOR_HOME;
+    process.env.PARALLEL_INTEGRATOR_HOME = runtime;
     try {
       const repository = {
         path: worktree,
         gitCommonDir: join(worktree, ".git"),
         defaultBranch: "main",
-        integrationBranch: "codex-handoff/integration",
+        integrationBranch: "parallel-integrator/integration",
         setupCommands: [
           [
             process.execPath,
@@ -149,8 +152,9 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
       );
       expect(await readFile(marker, "utf8")).toBe("run\n");
     } finally {
-      if (previousRuntime === undefined) delete process.env.CODEX_HANDOFF_HOME;
-      else process.env.CODEX_HANDOFF_HOME = previousRuntime;
+      if (previousRuntime === undefined)
+        delete process.env.PARALLEL_INTEGRATOR_HOME;
+      else process.env.PARALLEL_INTEGRATOR_HOME = previousRuntime;
     }
   });
 
@@ -775,7 +779,7 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
       "dirty\n",
     );
     expect(() =>
-      git(fixture.repo, "show", "codex-handoff/integration:dirty.txt"),
+      git(fixture.repo, "show", "parallel-integrator/integration:dirty.txt"),
     ).toThrow();
   });
 
@@ -823,10 +827,10 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     );
     expect(integration.code, integration.stderr).toBe(0);
     expect(
-      git(fixture.repo, "show", "codex-handoff/integration:README.md"),
+      git(fixture.repo, "show", "parallel-integrator/integration:README.md"),
     ).toBe("README task");
     expect(
-      git(fixture.repo, "show", "codex-handoff/integration:.env.local"),
+      git(fixture.repo, "show", "parallel-integrator/integration:.env.local"),
     ).toBe("tracked secret");
   });
 
@@ -883,11 +887,11 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     expect(integration.stderr).toContain(
       "remains inaccessible, tracked, unstaged, and outside the task diff",
     );
-    expect(git(fixture.repo, "show", "codex-handoff/integration:app.ts")).toBe(
-      "export const ready = true;",
-    );
     expect(
-      git(fixture.repo, "show", "codex-handoff/integration:.env.local"),
+      git(fixture.repo, "show", "parallel-integrator/integration:app.ts"),
+    ).toBe("export const ready = true;");
+    expect(
+      git(fixture.repo, "show", "parallel-integrator/integration:.env.local"),
     ).toBe("tracked secret");
     const completed = (await sessions(fixture))[0];
     expect(completed.status).toBe("succeeded");
@@ -1070,7 +1074,7 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     const result = await runCli(fixture, fixture.repo, ["validate"]);
     expect(result.code).toBe(1);
     expect(result.stderr).toContain("predates observable Git baselines");
-    expect(result.stderr).toContain("Start a new codex-handoff session");
+    expect(result.stderr).toContain("Start a new parallel-integrator session");
   });
 
   it("runs configured setup before beginning a session", async () => {
@@ -1348,7 +1352,7 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
         "merge-base",
         "--is-ancestor",
         sourceHead,
-        "codex-handoff/integration",
+        "parallel-integrator/integration",
       ),
     ).toBe("");
     expect(git(worktree, "rev-parse", "HEAD")).toBe(sourceHead);
@@ -1404,9 +1408,9 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     expect(integration.code, integration.stderr).toBe(0);
     expect(integration.stdout).toContain("Promoted");
     expect(integration.stdout).toContain("directly");
-    expect(git(fixture.repo, "rev-parse", "codex-handoff/integration")).toBe(
-      readyCommit,
-    );
+    expect(
+      git(fixture.repo, "rev-parse", "parallel-integrator/integration"),
+    ).toBe(readyCommit);
     expect(git(fixture.repo, "rev-parse", "main")).toBe(readyCommit);
     expect(await readdir(join(fixture.runtime, "worktrees"))).toEqual([]);
     const complete = (await sessions(fixture))[0]!;
@@ -1535,7 +1539,7 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     const fixture = await createFixture();
     const originalMain = git(fixture.repo, "rev-parse", "main");
     await updateConfig(fixture, (config) => {
-      config.repositories[0].targetBranch = "codex-handoff/integration";
+      config.repositories[0].targetBranch = "parallel-integrator/integration";
     });
     const worktree = await addWorktree(fixture, "combined-staging-target");
     await runCliOk(fixture, worktree, [
@@ -1553,7 +1557,7 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
 
     const completed = (await sessions(fixture))[0]!;
     expect(completed.status).toBe("succeeded");
-    expect(completed.targetBranch).toBe("codex-handoff/integration");
+    expect(completed.targetBranch).toBe("parallel-integrator/integration");
     expect(completed.promotedCommit).toBe(completed.integratedCommit);
     expect(git(fixture.repo, "rev-parse", "main")).toBe(originalMain);
   });
@@ -1705,9 +1709,9 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     const pending = (await sessions(fixture))[0]!;
     expect(pending.status).toBe("promotion_pending");
     expect(git(fixture.repo, "rev-parse", "main")).toBe(originalMain);
-    expect(git(fixture.repo, "rev-parse", "codex-handoff/integration")).toBe(
-      pending.integratedCommit,
-    );
+    expect(
+      git(fixture.repo, "rev-parse", "parallel-integrator/integration"),
+    ).toBe(pending.integratedCommit);
     expect(await readFile(join(fixture.repo, "shared.txt"), "utf8")).toBe(
       "user change\n",
     );
@@ -1784,9 +1788,9 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     expect(result.stderr).toContain("inaccessible worktree");
     const pending = (await sessions(fixture))[0]!;
     expect(pending.status).toBe("promotion_pending");
-    expect(git(fixture.repo, "rev-parse", "codex-handoff/integration")).toBe(
-      pending.integratedCommit,
-    );
+    expect(
+      git(fixture.repo, "rev-parse", "parallel-integrator/integration"),
+    ).toBe(pending.integratedCommit);
   });
 
   it("audits and explicitly reconciles historical succeeded integrations missing from the target", async () => {
@@ -1826,9 +1830,9 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     expect(git(fixture.repo, "rev-parse", "main")).toBe(historicalTarget);
     const doctor = await runCli(fixture, fixture.repo, ["doctor"]);
     expect(doctor.stdout).toContain(
-      "staging codex-handoff/integration is ahead",
+      "staging parallel-integrator/integration is ahead",
     );
-    expect(doctor.stdout).toContain("codex-handoff reconcile");
+    expect(doctor.stdout).toContain("parallel-integrator reconcile");
 
     const applied = await runCli(fixture, fixture.repo, [
       "reconcile",
@@ -1882,9 +1886,9 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     expect(result.code).toBe(1);
     expect(result.stderr).toContain("diverged");
     expect(git(fixture.repo, "rev-parse", "main")).toBe(external);
-    expect(git(fixture.repo, "rev-parse", "codex-handoff/integration")).toBe(
-      completed.integratedCommit,
-    );
+    expect(
+      git(fixture.repo, "rev-parse", "parallel-integrator/integration"),
+    ).toBe(completed.integratedCommit);
   });
 
   it("uses full validation and the integration worktree for non-tiered changes", async () => {
@@ -2003,7 +2007,7 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
         "merge-base",
         "--is-ancestor",
         firstCommit,
-        "codex-handoff/integration",
+        "parallel-integrator/integration",
       ),
     ).toBe("");
     expect(
@@ -2012,7 +2016,7 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
         "merge-base",
         "--is-ancestor",
         docsCommit,
-        "codex-handoff/integration",
+        "parallel-integrator/integration",
       ),
     ).toBe("");
   });
@@ -2177,10 +2181,15 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
 
     expect(result.code, result.stderr).toBe(0);
     expect(
-      git(fixture.repo, "cat-file", "commit", "codex-handoff/integration"),
+      git(
+        fixture.repo,
+        "cat-file",
+        "commit",
+        "parallel-integrator/integration",
+      ),
     ).toContain("gpgsig -----BEGIN PGP SIGNATURE-----");
     expect(git(fixture.repo, "rev-parse", "main")).toBe(
-      git(fixture.repo, "rev-parse", "codex-handoff/integration"),
+      git(fixture.repo, "rev-parse", "parallel-integrator/integration"),
     );
   });
 
@@ -2271,7 +2280,7 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
         "merge-base",
         "--is-ancestor",
         readyCommit,
-        "codex-handoff/integration",
+        "parallel-integrator/integration",
       ),
     ).toBe("");
     expect(() =>
@@ -2279,7 +2288,7 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
         fixture.repo,
         "cat-file",
         "-e",
-        "codex-handoff/integration:later.txt",
+        "parallel-integrator/integration:later.txt",
       ),
     ).toThrow();
   });
@@ -2308,7 +2317,7 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     const finalHead = git(
       fixture.repo,
       "rev-parse",
-      "codex-handoff/integration",
+      "parallel-integrator/integration",
     );
     expect(
       git(fixture.repo, "merge-base", "--is-ancestor", commitA, finalHead),
@@ -2520,9 +2529,9 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     ]);
     expect(result.code).toBe(1);
     expect(result.stderr).toContain("Validation failed");
-    expect(git(fixture.repo, "rev-parse", "codex-handoff/integration")).toBe(
-      before,
-    );
+    expect(
+      git(fixture.repo, "rev-parse", "parallel-integrator/integration"),
+    ).toBe(before);
     const pending = (await sessions(fixture)).find(
       (session) => session.worktreePath === worktree,
     )!;
@@ -2857,7 +2866,7 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
         [
           process.execPath,
           "-e",
-          `const {execFileSync}=require("node:child_process");const fs=require("node:fs");const current=execFileSync("git",["rev-parse","HEAD"],{encoding:"utf8"}).trim();const staging=execFileSync("git",["rev-parse","codex-handoff/integration"],{encoding:"utf8"}).trim();const target=execFileSync("git",["rev-parse","main"],{encoding:"utf8"}).trim();const branch=execFileSync("git",["branch","--show-current"],{encoding:"utf8"}).trim();if(current!==staging||current!==target||branch!=="main"||current===${JSON.stringify(
+          `const {execFileSync}=require("node:child_process");const fs=require("node:fs");const current=execFileSync("git",["rev-parse","HEAD"],{encoding:"utf8"}).trim();const staging=execFileSync("git",["rev-parse","parallel-integrator/integration"],{encoding:"utf8"}).trim();const target=execFileSync("git",["rev-parse","main"],{encoding:"utf8"}).trim();const branch=execFileSync("git",["branch","--show-current"],{encoding:"utf8"}).trim();if(current!==staging||current!==target||branch!=="main"||current===${JSON.stringify(
             originalHead,
           )})process.exit(9);fs.writeFileSync(${JSON.stringify(marker)},JSON.stringify({branch,current,cwd:process.cwd()}));`,
         ],
@@ -2942,7 +2951,7 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     const failed = (await sessions(fixture))[0]!;
     expect(failed.status).toBe("needs_review");
     expect(failed.integratedCommit).toBe(
-      git(fixture.repo, "rev-parse", "codex-handoff/integration"),
+      git(fixture.repo, "rev-parse", "parallel-integrator/integration"),
     );
     expect(failed.integratedAt).toBeTruthy();
     expect(git(fixture.repo, "rev-parse", "main")).toBe(
@@ -2957,7 +2966,7 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
         "merge-base",
         "--is-ancestor",
         readyCommit,
-        "codex-handoff/integration",
+        "parallel-integrator/integration",
       ),
     ).toBe("");
     expect(git(worktree, "status", "--porcelain=v1")).toBe("");
@@ -2993,7 +3002,7 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     expect(result.stderr).toContain(
       "Merge conflict requires resolution by the current Codex session",
     );
-    expect(result.stderr).toContain("codex-handoff resume");
+    expect(result.stderr).toContain("parallel-integrator resume");
     const failed = (await sessions(fixture)).find(
       (session) => session.worktreePath === second,
     )!;
@@ -3170,7 +3179,7 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
       "worktree",
       "add",
       "-b",
-      "codex-handoff/integration",
+      "parallel-integrator/integration",
       integrationPath,
       "main",
     );
@@ -3257,13 +3266,18 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
       fixture.auditHome,
       ".agents",
       "skills",
-      "codex-handoff-workflow",
+      "parallel-integrator-workflow",
     );
     await mkdir(join(skillRoot, "agents"), { recursive: true });
     await writeFile(
       join(skillRoot, "SKILL.md"),
       await readFile(
-        join(process.cwd(), "skill", "codex-handoff-workflow", "SKILL.md"),
+        join(
+          process.cwd(),
+          "skill",
+          "parallel-integrator-workflow",
+          "SKILL.md",
+        ),
         "utf8",
       ),
     );
@@ -3273,7 +3287,7 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
         join(
           process.cwd(),
           "skill",
-          "codex-handoff-workflow",
+          "parallel-integrator-workflow",
           "agents",
           "openai.yaml",
         ),
@@ -3305,7 +3319,7 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     const result = await runCli(fixture, fixture.repo, ["doctor"]);
 
     expect(result.code, result.stderr).toBe(0);
-    expect(result.stdout).toContain("codex-handoff doctor (read-only)");
+    expect(result.stdout).toContain("parallel-integrator doctor (read-only)");
     expect(result.stdout).toContain("PASS  Workflow skill");
     expect(result.stdout).toContain("PASS  Registered repository");
     expect(result.stdout).toContain("READY");
@@ -3321,7 +3335,7 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     await mkdir(join(fixture.auditHome, ".codex"), { recursive: true });
     await writeFile(
       join(fixture.auditHome, ".codex", "AGENTS.md"),
-      "Use codex-handoff-workflow. Do not begin the workflow on the repository default branch.\n",
+      "Use parallel-integrator-workflow. Do not begin the workflow on the repository default branch.\n",
     );
 
     const result = await runCli(fixture, fixture.repo, ["doctor"]);
@@ -3537,13 +3551,13 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
     expect(result.stdout).toContain("NOT READY");
   });
 
-  it("reports the codex-handoff repository as intentionally self-managed", async () => {
+  it("reports the parallel-integrator repository as intentionally self-managed", async () => {
     const fixture = await createFixture();
 
     const result = await runCli(fixture, process.cwd(), ["doctor"]);
 
     expect(result.stdout).toContain(
-      "SKIP  Current repository: codex-handoff is intentionally self-managed and excluded from registration",
+      "SKIP  Current repository: parallel-integrator is intentionally self-managed and excluded from registration",
     );
     expect(result.stdout).not.toContain("Current repository: not registered");
   });
@@ -3571,7 +3585,7 @@ describe.sequential("codex-handoff disposable repository workflow", () => {
 });
 
 async function createFixture(sharedContents?: string): Promise<Fixture> {
-  const root = await mkdtemp(join(tmpdir(), "codex-handoff-test-"));
+  const root = await mkdtemp(join(tmpdir(), "parallel-integrator-test-"));
   temporaryRoots.push(root);
   const fixture = {
     root,
@@ -3734,7 +3748,7 @@ async function runCli(
   const effectiveArgs =
     args[0] === "integrate" &&
     !args.includes("--rollout") &&
-    extraEnv.CODEX_HANDOFF_TEST_REQUIRE_ROLLOUT !== "1"
+    extraEnv.PARALLEL_INTEGRATOR_TEST_REQUIRE_ROLLOUT !== "1"
       ? [...args, "--rollout", "none"]
       : args;
   return await new Promise((resolve, reject) => {
@@ -3742,10 +3756,10 @@ async function runCli(
       cwd,
       env: {
         ...process.env,
-        CODEX_HANDOFF_HOME: fixture.runtime,
-        CODEX_HANDOFF_AUDIT_HOME: fixture.auditHome,
-        CODEX_HANDOFF_DOCTOR_HOME: fixture.auditHome,
-        CODEX_HANDOFF_TEST_INCIDENT_FALLBACK: "1",
+        PARALLEL_INTEGRATOR_HOME: fixture.runtime,
+        PARALLEL_INTEGRATOR_AUDIT_HOME: fixture.auditHome,
+        PARALLEL_INTEGRATOR_DOCTOR_HOME: fixture.auditHome,
+        PARALLEL_INTEGRATOR_TEST_INCIDENT_FALLBACK: "1",
         CODEX_HOME: fixture.sourceCodexHome,
         ...extraEnv,
       },

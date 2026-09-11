@@ -1,17 +1,17 @@
 <!-- codex-handoff:managed:start -->
 
-## codex-handoff workflow
+## parallel-integrator workflow
 
-For code-changing Codex tasks, use `codex-handoff` from an ordinary checkout.
+For code-changing Codex tasks, use `parallel-integrator` from an ordinary checkout.
 Unrelated active sessions do not block a new task: create another isolated
-source worktree with `codex-handoff begin --create-worktree`. Preserve all user
+source worktree with `parallel-integrator begin --create-worktree`. Preserve all user
 state, and never reset, clean, discard, or silently stash it.
 
 Continue an existing session only when it belongs to the same task. Otherwise
-register with `codex-handoff register --auto-config` when needed and begin a new
+register with `parallel-integrator register --auto-config` when needed and begin a new
 session. Perform edits and lifecycle commands from the reported `Continue task
-in:` path. Finish with a focused `codex-handoff commit`, then
-`codex-handoff validate` and `codex-handoff integrate`. Treat failure output as
+in:` path. Finish with a focused `parallel-integrator commit`, then
+`parallel-integrator validate` and `parallel-integrator integrate`. Treat failure output as
 evidence, not a verdict about determinism. Retry unchanged validation or resume
 pending integration in the same session at most three total attempts when safe;
 stop on repeated failure or evidence of a code defect. Resume recoverable
@@ -32,7 +32,7 @@ say to configure them on a trusted machine. Never request, read, store, or print
 secret values, including in CLI arguments or session records.
 
 Before the final response, use the latest `Completion summary` (available again
-with `codex-handoff status --session <session-id>`) and check every recorded
+with `parallel-integrator status --session <session-id>`) and check every recorded
 action against the response. Preserve every outstanding action and its essential
 details, even when concise: action, destination, exact names, and prerequisites.
 Do not collapse setup into a label such as “complete CWS setup.” Documentation

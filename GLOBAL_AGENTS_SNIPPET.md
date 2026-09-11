@@ -1,13 +1,18 @@
-# codex-handoff global workflow
+# parallel-integrator global workflow
 
-For most code-changing tasks inside a Git repository, use `codex-handoff` from
+For most code-changing tasks inside a Git repository, use `parallel-integrator` from
 the current Codex CLI checkout. Do not use it for read-only work, non-Git
-directories, or changes to the `codex-handoff` repository itself. Do not invoke
-the legacy `codex-integrator` workflow for repositories using `codex-handoff`.
+directories, or changes to the `parallel-integrator` repository itself. Do not invoke
+the legacy `codex-integrator` workflow for repositories using `parallel-integrator`.
 
 Operate autonomously by default. Do not ask for routine approval to register,
 begin, validate, commit, integrate, resume, or safely promote local work that is
 already within the user's request.
+
+Runtime paths below use the fresh-install default. If `PARALLEL_INTEGRATOR_HOME`
+or compatibility `CODEX_HANDOFF_HOME` is set, use that directory instead.
+Otherwise, when `~/.codex-handoff/` already exists, use it in place of
+`~/.parallel-integrator/`; do not move existing session or worktree data.
 
 ## External services and production isolation
 
@@ -49,7 +54,7 @@ already within the user's request.
   declared project name.
 - Use normal environment-variable names without app/proxy prefixes. Keep names
   sorted and run `npm run validate:configs` in `secret-sync` after changes.
-- Make cross-repository registry edits through their own `codex-handoff`
+- Make cross-repository registry edits through their own `parallel-integrator`
   session. If the app ID cannot be established from existing non-secret project
   metadata, do not guess; finish safe application work and report the missing
   registry metadata for trusted follow-up.
@@ -58,7 +63,7 @@ Before editing:
 
 1. Inspect the repository instructions and Git state. Preserve all pre-existing
    user changes; never reset, overwrite, discard, clean, or silently stash them.
-2. Inspect `codex-handoff status`. Continue an active or recoverable session
+2. Inspect `parallel-integrator status`. Continue an active or recoverable session
    attached to the current source worktree when it belongs to the same task.
    An unrelated session launched from the same ordinary checkout does not block
    a new isolated task; begin another managed worktree. Never replace or
@@ -66,14 +71,14 @@ Before editing:
 3. If the repository is unregistered, run:
 
    ```bash
-   codex-handoff register --auto-config
+   parallel-integrator register --auto-config
    ```
 
    Registration is automatic and does not require routine approval.
    Before beginning, compare the effective target shown by
-   `codex-handoff status` with the repository's branch policy. If agents must
+   `parallel-integrator status` with the repository's branch policy. If agents must
    work on a branch such as `dev` while `main` remains stable, set the global
-   `defaultTargetBranch` to `dev` in `~/.codex-handoff/config.json`. This policy
+   `defaultTargetBranch` to `dev` in `~/.parallel-integrator/config.json`. This policy
    applies automatically to existing and new registrations that omit a
    repository `targetBranch`; use that per-repository field only for explicit
    exceptions.
@@ -81,7 +86,7 @@ Before editing:
 4. If no appropriate session exists, run:
 
    ```bash
-   codex-handoff begin --create-worktree --summary "<concise task summary>"
+   parallel-integrator begin --create-worktree --summary "<concise task summary>"
    ```
 
    From an ordinary checkout, `--create-worktree` creates a unique task branch
@@ -92,7 +97,7 @@ Before editing:
    never copy that state into the task worktree unless the user explicitly
    makes it part of the task.
 
-5. Never begin on `codex-handoff/integration` (or the repository's configured
+5. Never begin on `parallel-integrator/integration` (or the repository's configured
    integration branch). Pass `--depends-on` only for explicit dependencies.
 
 At completion:
@@ -102,30 +107,30 @@ At completion:
 2. Create one focused source commit through:
 
    ```bash
-   codex-handoff commit --message "<focused commit message>"
+   parallel-integrator commit --message "<focused commit message>"
    ```
 
-3. Run `codex-handoff validate`. Treat the complete failure output and exit code
+3. Run `parallel-integrator validate`. Treat the complete failure output and exit code
    as evidence, not a verdict about whether the failure is deterministic. If
    retrying is plausibly safe, rerun the unchanged validation for at most three
    total attempts. Stop after repeated failure or evidence of a code defect; do
    not integrate without successful validation or edit code merely to make a
    retry pass.
-4. Run `codex-handoff integrate --summary "<concise completion summary>"
+4. Run `parallel-integrator integrate --summary "<concise completion summary>"
 --rollout <none|applied|automated|manual>`. Every integration must classify
    external-state rollout. `manual` also requires one or more explicit
    `--follow-up "<required action>"` arguments. Source promotion never implies
    external state was applied.
 5. For a resumable conflict, resolve and stage the preserved integration
-   worktree without committing there, then run `codex-handoff resume` from the
+   worktree without committing there, then run `parallel-integrator resume` from the
    original source checkout. Preserve compatible intent and continue
    autonomously unless the conflict is genuinely ambiguous or validation fails.
 6. For `promotion_pending`, preserve the validated staging commit, correct only
    the reported blocking condition without disturbing user state, and run
-   `codex-handoff resume`. Do not claim success until promotion and configured
+   `parallel-integrator resume`. Do not claim success until promotion and configured
    post-integration checks complete.
 7. For `validation_pending`, inspect the preserved evidence and incident, then
-   autonomously run `codex-handoff resume` in the same session when retrying is
+   autonomously run `parallel-integrator resume` in the same session when retrying is
    safe, for at most three total attempts. Do not start a new session merely to
    retry integration.
 8. Report the session, source commit, staging integration commit, target branch
@@ -142,7 +147,7 @@ say to configure them on a trusted machine. Never request, read, store, or print
 secret values, including in CLI arguments or session records.
 
 Before the final response, use the latest `Completion summary` (available again
-with `codex-handoff status --session <session-id>`) and check every recorded
+with `parallel-integrator status --session <session-id>`) and check every recorded
 action against the response. Preserve every outstanding action and its essential
 details, even when concise: action, destination, exact names, and prerequisites.
 Do not collapse setup into a label such as “complete CWS setup.” Documentation

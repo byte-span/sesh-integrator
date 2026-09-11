@@ -57,7 +57,7 @@ export async function doctorCommand(cwd = process.cwd()): Promise<void> {
       ? pass("Runtime", paths.root)
       : fail(
           "Runtime",
-          `missing ${missingPaths.join(", ")}; run codex-handoff init`,
+          `missing ${missingPaths.join(", ")}; run parallel-integrator init`,
         ),
   );
   let config: Config | undefined;
@@ -91,14 +91,19 @@ export async function doctorCommand(cwd = process.cwd()): Promise<void> {
     );
   }
 
-  const home = process.env.CODEX_HANDOFF_DOCTOR_HOME ?? homedir();
-  const skillRoot = join(home, ".agents", "skills", "codex-handoff-workflow");
+  const home = process.env.PARALLEL_INTEGRATOR_DOCTOR_HOME ?? homedir();
+  const skillRoot = join(
+    home,
+    ".agents",
+    "skills",
+    "parallel-integrator-workflow",
+  );
   const skillFiles = [
     join(skillRoot, "SKILL.md"),
     join(skillRoot, "agents", "openai.yaml"),
   ];
   const bundledSkillRoot = fileURLToPath(
-    new URL("../skill/codex-handoff-workflow", import.meta.url),
+    new URL("../skill/parallel-integrator-workflow", import.meta.url),
   );
   const bundledSkillFiles = [
     join(bundledSkillRoot, "SKILL.md"),
@@ -183,7 +188,7 @@ export async function doctorCommand(cwd = process.cwd()): Promise<void> {
   checks.push(await lockCheck(paths.locks));
   checks.push(...legacyChecks(await collectLegacyFindings()));
 
-  process.stdout.write("codex-handoff doctor (read-only)\n\n");
+  process.stdout.write("parallel-integrator doctor (read-only)\n\n");
   for (const check of checks) {
     process.stdout.write(
       `${check.state.padEnd(5)} ${check.label}: ${check.detail}\n`,
@@ -205,7 +210,7 @@ async function repositoryChecks(config: Config, cwd: string): Promise<Check[]> {
     return [
       skip(
         "Current repository",
-        "codex-handoff is intentionally self-managed and excluded from registration",
+        "parallel-integrator is intentionally self-managed and excluded from registration",
       ),
     ];
   }
@@ -213,7 +218,7 @@ async function repositoryChecks(config: Config, cwd: string): Promise<Check[]> {
     return [
       fail(
         "Repositories",
-        "none registered; run codex-handoff register from a project",
+        "none registered; run parallel-integrator register from a project",
       ),
     ];
   }
@@ -231,7 +236,10 @@ async function repositoryChecks(config: Config, cwd: string): Promise<Check[]> {
     : config.repositories;
   if (currentCommonDir && repositories.length === 0) {
     return [
-      fail("Current repository", "not registered; run codex-handoff register"),
+      fail(
+        "Current repository",
+        "not registered; run parallel-integrator register",
+      ),
     ];
   }
 
@@ -397,7 +405,7 @@ async function branchDestinationCheck(
   if (targetBehind.code === 0) {
     return warn(
       `Branch destinations (${repository.path})`,
-      `staging ${repository.integrationBranch} is ahead of target ${target}; run codex-handoff reconcile`,
+      `staging ${repository.integrationBranch} is ahead of target ${target}; run parallel-integrator reconcile`,
     );
   }
   return fail(
@@ -431,7 +439,7 @@ async function lockCheck(path: string): Promise<Check> {
       ? pass("Integration locks", "none")
       : warn(
           "Integration locks",
-          `${locks.length} active; run codex-handoff status`,
+          `${locks.length} active; run parallel-integrator status`,
         );
   } catch (error) {
     return fail("Integration locks", errorMessage(error));
@@ -460,7 +468,7 @@ function legacyChecks(
     return [
       fail(
         "Legacy automation",
-        `${conflicts.map((finding) => finding.label).join(", ")}; run codex-handoff audit-legacy`,
+        `${conflicts.map((finding) => finding.label).join(", ")}; run parallel-integrator audit-legacy`,
       ),
     ];
   }
@@ -468,7 +476,7 @@ function legacyChecks(
     return [
       warn(
         "Legacy automation",
-        `could not verify ${uncertain.map((finding) => finding.label).join(", ")}; run codex-handoff audit-legacy`,
+        `could not verify ${uncertain.map((finding) => finding.label).join(", ")}; run parallel-integrator audit-legacy`,
       ),
     ];
   }

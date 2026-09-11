@@ -25,7 +25,7 @@ export async function benchmarkCommand(options: {
   json: boolean;
   check: boolean;
 }): Promise<void> {
-  const root = await mkdtemp(join(tmpdir(), "codex-handoff-benchmark-"));
+  const root = await mkdtemp(join(tmpdir(), "parallel-integrator-benchmark-"));
   try {
     const repository = join(root, "repo");
     await initializeRepository(repository);
@@ -83,7 +83,7 @@ export async function benchmarkCommand(options: {
         );
       }
       process.stdout.write(
-        "Times measure codex-handoff/Git overhead only; configured setup and validation commands are excluded.\n",
+        "Times measure parallel-integrator/Git overhead only; configured setup and validation commands are excluded.\n",
       );
     }
     if (options.check) {
@@ -113,7 +113,9 @@ async function benchmarkScenario(
     samples.push(Number(process.hrtime.bigint() - started) / 1_000_000);
   }
   samples.sort((left, right) => left - right);
-  const scale = Number(process.env.CODEX_HANDOFF_BENCHMARK_BUDGET_SCALE ?? "1");
+  const scale = Number(
+    process.env.PARALLEL_INTEGRATOR_BENCHMARK_BUDGET_SCALE ?? "1",
+  );
   return {
     scenario,
     medianMs: percentile(samples, 0.5),

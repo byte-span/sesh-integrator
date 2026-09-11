@@ -129,6 +129,7 @@ async function findPackageManifests(
       if (
         entry.isDirectory() &&
         !SKIPPED_DIRECTORIES.has(entry.name) &&
+        !entry.name.startsWith(".parallel-integrator") &&
         !entry.name.startsWith(".codex-handoff")
       ) {
         await visit(path);

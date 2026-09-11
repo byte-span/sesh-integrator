@@ -1,4 +1,4 @@
-# codex-handoff — One-Shot Integration Specification
+# parallel-integrator — One-Shot Integration Specification
 
 ## 1. Problem
 
@@ -13,20 +13,20 @@ The difficult part is integrating their completed changes without repeatedly:
 - checking which session started first
 - babysitting a long-running watcher/daemon
 
-`codex-handoff` removes the long-running daemon. Integration happens exactly when a Codex session finishes.
+`parallel-integrator` removes the long-running daemon. Integration happens exactly when a Codex session finishes.
 
 ## 2. Architecture
 
 ```text
 SESSION 1                         SESSION 2
    │                                 │
-   ├─ codex-handoff begin            ├─ codex-handoff begin
+   ├─ parallel-integrator begin            ├─ parallel-integrator begin
    │                                 │
    ├─ work                            ├─ work
    │                                 │
    ├─ validate + commit              ├─ validate + commit
    │                                 │
-   └─ codex-handoff integrate        └─ codex-handoff integrate
+   └─ parallel-integrator integrate        └─ parallel-integrator integrate
                  │                              │
                  └────────────┬─────────────────┘
                               │
@@ -76,13 +76,13 @@ This means the system has no idle background process and no polling state to mai
 Project source:
 
 ```text
-~/Developer/tools/codex-handoff/
+~/Developer/tools/parallel-integrator/
 ```
 
 Runtime data:
 
 ```text
-~/.codex-handoff/
+~/.parallel-integrator/
 ```
 
 Every integration attempt first creates a session-isolated recovery bundle in
@@ -104,7 +104,7 @@ unrecoverable.
 User skill:
 
 ```text
-~/.agents/skills/codex-handoff-workflow/
+~/.agents/skills/parallel-integrator-workflow/
 ```
 
 Global Codex guidance:
@@ -122,7 +122,7 @@ Existing old system remains separate:
 
 ## 5. Configuration
 
-Example `~/.codex-handoff/config.json`:
+Example `~/.parallel-integrator/config.json`:
 
 ```json
 {
@@ -138,7 +138,7 @@ Example `~/.codex-handoff/config.json`:
     {
       "path": "/Users/you/Developer/my-app",
       "defaultBranch": "main",
-      "integrationBranch": "codex-handoff/integration",
+      "integrationBranch": "parallel-integrator/integration",
       "targetBranch": "main",
       "promotion": {
         "type": "pull-request",
@@ -262,7 +262,7 @@ deletion and require fast-forward-compatible shared-target updates.
 Create:
 
 ```text
-~/.codex-handoff/
+~/.parallel-integrator/
 ├── config.json
 ├── state.json
 ├── codex-home/
@@ -293,14 +293,14 @@ Usage:
 
 ```bash
 cd <repo>
-codex-handoff register [--auto-config]
+parallel-integrator register [--auto-config]
 ```
 
 Add a repository entry using:
 
 - real repository path
 - registered default branch
-- internal integration branch `codex-handoff/integration`
+- internal integration branch `parallel-integrator/integration`
 - no explicit target override, so the effective target is the global
   `defaultTargetBranch` when configured, otherwise `defaultBranch`
 - empty validation command arrays
@@ -345,13 +345,13 @@ Unknown ecosystems may supply repeatable JSON argument arrays with
 Usage:
 
 ```bash
-codex-handoff begin --create-worktree --summary "Implement comment editing"
+parallel-integrator begin --create-worktree --summary "Implement comment editing"
 ```
 
 Optional:
 
 ```bash
-codex-handoff begin \
+parallel-integrator begin \
   --summary "Add API endpoint" \
   --depends-on session_abc
 ```
@@ -416,10 +416,10 @@ Before integration, the skill:
 1. Reads repository instructions.
 2. Inspects `git status` and diff.
 3. Stages only intended task paths and creates a focused source-branch commit
-   with `codex-handoff commit --message "..."` if task changes remain
+   with `parallel-integrator commit --message "..."` if task changes remain
    uncommitted. When signing is enabled, this performs a real OpenPGP preflight
    immediately before the commit and scopes the configured GPG program to Git.
-4. Runs `codex-handoff validate` to compare the source against its recorded
+4. Runs `parallel-integrator validate` to compare the source against its recorded
    baseline and select a path-based tier for the exact task commit range.
 5. Stops if validation fails.
 6. Requires no newly introduced working-tree changes; observably unchanged,
@@ -427,8 +427,8 @@ Before integration, the skill:
 7. Calls:
 
 ```bash
-codex-handoff validate
-codex-handoff integrate --summary "Implemented edit flow and tests" --rollout none
+parallel-integrator validate
+parallel-integrator integrate --summary "Implemented edit flow and tests" --rollout none
 ```
 
 The CLI itself should not broadly stage arbitrary user files.
@@ -451,7 +451,7 @@ changed since session start matches one of that tier's patterns. No match uses
 the repository's full validation commands.
 
 A tier may explicitly request `bypassIntegrationWorktree`. The bypass requires
-the exact ready commit to have passed `codex-handoff validate`, zero integration
+the exact ready commit to have passed `parallel-integrator validate`, zero integration
 commands for the tier, and zero post-integration commands. It still acquires the
 repository lock, merges against the current integration HEAD using Git plumbing,
 atomically advances the dedicated staging branch, and then uses the same safe
@@ -508,7 +508,7 @@ Dependencies override timing.
 Acquire:
 
 ```text
-~/.codex-handoff/locks/<repo-id>.lock/
+~/.parallel-integrator/locks/<repo-id>.lock/
 ```
 
 Use atomic directory creation.
@@ -537,7 +537,7 @@ If lock exists:
 Use one dedicated worktree:
 
 ```text
-~/.codex-handoff/worktrees/<repo-id>/
+~/.parallel-integrator/worktrees/<repo-id>/
 ```
 
 Rules:
@@ -635,7 +635,7 @@ Build a conflict prompt containing:
 
 Persist the prompt and merge metadata, release the lock, and instruct the
 current Codex session to resolve and stage the integration worktree. The skill
-then invokes `codex-handoff resume` from the source worktree. `resume` reacquires
+then invokes `parallel-integrator resume` from the source worktree. `resume` reacquires
 the lock and verifies the source snapshot, integration branch and HEAD,
 `MERGE_HEAD`, and absence of unmerged paths before continuing.
 
@@ -662,7 +662,7 @@ If unresolved or validation fails:
   separate user-approved session
 
 Incident proposals may improve the workflow skill or global instructions, but
-a failed session never edits its own policy. `codex-handoff incident <ticket>`
+a failed session never edits its own policy. `parallel-integrator incident <ticket>`
 is read-only and exposes the stored diagnosis for a later session. Release the
 repository lock before invoking an ephemeral, read-only Codex investigation.
 Validate its response against a narrow schema; deterministic code captures
@@ -748,13 +748,13 @@ Print:
 FOUND / NOT FOUND / UNKNOWN
 ```
 
-For each found component, explain whether it can conflict with `codex-handoff`.
+For each found component, explain whether it can conflict with `parallel-integrator`.
 
 Do not disable anything automatically.
 
 ### 14.1 `reconcile`
 
-`codex-handoff reconcile` is read-only by default. For each selected registered
+`parallel-integrator reconcile` is read-only by default. For each selected registered
 repository it compares staging and target ancestry and finds recorded
 `succeeded` integrations absent from the target. It offers a fast-forward only
 when the target is an ancestor of staging, the staging head is an exact recorded

@@ -16,8 +16,8 @@ afterEach(async () => {
 it("serializes exclusive resource users across sessions while allowing shared users", async () => {
   const root = await mkdtemp(join(tmpdir(), "handoff-resources-"));
   roots.push(root);
-  const previous = process.env.CODEX_HANDOFF_HOME;
-  process.env.CODEX_HANDOFF_HOME = join(root, "runtime");
+  const previous = process.env.PARALLEL_INTEGRATOR_HOME;
+  process.env.PARALLEL_INTEGRATOR_HOME = join(root, "runtime");
   const events = join(root, "events.log");
   const command = (
     label: string,
@@ -52,7 +52,7 @@ it("serializes exclusive resource users across sessions while allowing shared us
       new Set(["shared-a-start", "shared-b-start"]),
     );
   } finally {
-    if (previous === undefined) delete process.env.CODEX_HANDOFF_HOME;
-    else process.env.CODEX_HANDOFF_HOME = previous;
+    if (previous === undefined) delete process.env.PARALLEL_INTEGRATOR_HOME;
+    else process.env.PARALLEL_INTEGRATOR_HOME = previous;
   }
 });

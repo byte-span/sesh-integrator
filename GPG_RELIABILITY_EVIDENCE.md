@@ -33,7 +33,7 @@ certificate, or private-key directory was included.
 
 ## Implemented
 
-- `codex-handoff commit --message "..."` owns source commit creation for an
+- `parallel-integrator commit --message "..."` owns source commit creation for an
   active session, requires explicitly staged task paths, rejects mixed
   staged/unstaged task paths, and checks the recorded worktree baseline.
 - Source, normal integration, resumed integration, and direct `commit-tree`
@@ -94,7 +94,7 @@ The required native GnuPG installation was attempted with:
 
 ```text
 /opt/homebrew/bin/brew install gnupg pinentry-mac
-env HOMEBREW_CACHE=/private/tmp/codex-handoff-homebrew-cache \
+env HOMEBREW_CACHE=/private/tmp/parallel-integrator-homebrew-cache \
   HOMEBREW_TEMP=/private/tmp \
   /opt/homebrew/bin/brew install gnupg pinentry-mac
 ```
@@ -117,18 +117,18 @@ made until all of those checks pass.
 Run outside the Codex sandbox:
 
 ```bash
-cd /Users/j/Developer/tools/codex-handoff
+cd /Users/j/Developer/tools/parallel-integrator
 /opt/homebrew/bin/brew install gnupg pinentry-mac
 ./scripts/install-gpg-reliability.sh
-CODEX_HANDOFF_REAL_GPG_E2E=1 ./scripts/test-real-gpg-e2e.sh initial
+PARALLEL_INTEGRATOR_REAL_GPG_E2E=1 ./scripts/test-real-gpg-e2e.sh initial
 ```
 
 After waking the Mac and after a fresh login, respectively:
 
 ```bash
-cd /Users/j/Developer/tools/codex-handoff
-CODEX_HANDOFF_REAL_GPG_E2E=1 ./scripts/test-real-gpg-e2e.sh after-wake
-CODEX_HANDOFF_REAL_GPG_E2E=1 ./scripts/test-real-gpg-e2e.sh after-fresh-login
+cd /Users/j/Developer/tools/parallel-integrator
+PARALLEL_INTEGRATOR_REAL_GPG_E2E=1 ./scripts/test-real-gpg-e2e.sh after-wake
+PARALLEL_INTEGRATOR_REAL_GPG_E2E=1 ./scripts/test-real-gpg-e2e.sh after-fresh-login
 ```
 
 Each successful run prints and retains exact source/integration commit IDs,

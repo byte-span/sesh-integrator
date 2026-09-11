@@ -2,7 +2,7 @@
 
 ## Project
 
-Build a new personal tool named **codex-handoff**.
+Build a new personal tool named **parallel-integrator**.
 
 This project must remain separate from the existing watcher/daemon project at:
 
@@ -14,7 +14,7 @@ Do not refactor, delete, or overwrite the existing `codex-integrator` source tre
 
 ## Goal
 
-`codex-handoff` is a one-shot Git integration tool for Codex CLI sessions. The
+`parallel-integrator` is a one-shot Git integration tool for Codex CLI sessions. The
 CLI is the primary interface; global instructions and the bundled skill
 coordinate the same lifecycle without relying on application-specific execution
 mode labels.
@@ -26,7 +26,7 @@ Codex CLI task starts in an existing checkout
 → inspect or begin the handoff session and record the base commit
 → Codex works
 → Codex creates a focused commit and validates its task
-→ Codex runs `codex-handoff integrate`
+→ Codex runs `parallel-integrator integrate`
 → tool acquires repo lock
 → merge exact session commit into dedicated integration worktree
 → Codex resolves conflicts if necessary
@@ -41,14 +41,14 @@ There is no permanent watcher, polling loop, queue daemon, LaunchAgent, or backg
 
 ## Self-hosting workflow
 
-Do not register this repository with `codex-handoff`; it is intentionally
+Do not register this repository with `parallel-integrator`; it is intentionally
 self-managed to avoid depending on the executable while modifying it.
 
 For changes to this repository, work and commit directly on local `dev`, then
 run the normal validation suite and rebuild `dist`. Push `dev` without force.
 If no open `dev` to `main` pull request exists, open one. If one already exists,
 push the exact completed `dev` commit to a unique remote branch such as
-`codex/handoff-<timestamp-or-task-id>` and open a new pull request from that
+`codex/parallel-integrator-<timestamp-or-task-id>` and open a new pull request from that
 branch to `main`. Never reuse, update, close, merge, delete, or force-push an
 existing pull request or remote branch for a different task.
 
@@ -66,7 +66,7 @@ Before implementing, read:
 2. `TASKS.md`
 3. `LEGACY_MIGRATION.md`
 4. `README.md`
-5. `skill/codex-handoff-workflow/SKILL.md`
+5. `skill/parallel-integrator-workflow/SKILL.md`
 
 ## Technical Direction
 
@@ -88,19 +88,19 @@ Do not use a database.
 Implement:
 
 ```text
-codex-handoff init
-codex-handoff register [repo-path]
-codex-handoff begin [--summary "..."] [--depends-on <session-id>]
-codex-handoff integrate --summary "..." --rollout <none|applied|automated|manual> [--follow-up "..."]...
-codex-handoff status
-codex-handoff audit-legacy
-codex-handoff doctor
+parallel-integrator init
+parallel-integrator register [repo-path]
+parallel-integrator begin [--summary "..."] [--depends-on <session-id>]
+parallel-integrator integrate --summary "..." --rollout <none|applied|automated|manual> [--follow-up "..."]...
+parallel-integrator status
+parallel-integrator audit-legacy
+parallel-integrator doctor
 ```
 
 Optional only if it remains small:
 
 ```text
-codex-handoff abort-session
+parallel-integrator abort-session
 ```
 
 Do not add a `run`, `daemon`, `watch`, or background-service command.
@@ -110,7 +110,7 @@ Do not add a `run`, `daemon`, `watch`, or background-service command.
 Use a new namespace:
 
 ```text
-~/.codex-handoff/
+~/.parallel-integrator/
 ├── config.json
 ├── state.json
 ├── sessions/
@@ -127,7 +127,7 @@ Never reuse `~/.codex-integrator/`.
 The internal staging branch defaults to:
 
 ```text
-codex-handoff/integration
+parallel-integrator/integration
 ```
 
 Do not reuse the old daemon's integration branch by default.
@@ -138,19 +138,19 @@ repository.
 
 ## Session Start
 
-For most code-changing tasks in a Git repository, use `codex-handoff`. Skip it
-for read-only work, non-Git directories, and work on this `codex-handoff`
+For most code-changing tasks in a Git repository, use `parallel-integrator`. Skip it
+for read-only work, non-Git directories, and work on this `parallel-integrator`
 repository itself. Do not gate the workflow on application mode metadata or
 require a linked worktree.
 
 Operate autonomously by default. Registration and normal lifecycle commands do
 not require routine approval. If a repository is unregistered, run
-`codex-handoff register --auto-config` and continue. Before beginning, inspect
-`codex-handoff status`: continue an active or recoverable session attached to
+`parallel-integrator register --auto-config` and continue. Before beginning, inspect
+`parallel-integrator status`: continue an active or recoverable session attached to
 the current checkout when it belongs to the same task; otherwise begin a new
 session. Never replace or overwrite a session for a different task.
 
-`codex-handoff begin` records:
+`parallel-integrator begin` records:
 
 - session ID
 - repository path
@@ -163,9 +163,9 @@ session. Never replace or overwrite a session for a different task.
 - optional dependencies
 
 For Codex CLI tasks, run
-`codex-handoff begin --create-worktree --summary "..."`. From an ordinary
+`parallel-integrator begin --create-worktree --summary "..."`. From an ordinary
 checkout it creates a unique task branch in a separate, tool-managed source
-worktree under `~/.codex-handoff/source-worktrees/`, records both the launch and
+worktree under `~/.parallel-integrator/source-worktrees/`, records both the launch and
 source paths, and prints the source path. All subsequent edits and lifecycle
 commands must run from that source path. If the session already starts in a
 linked worktree, `--create-worktree` reuses it instead of nesting another one.
@@ -199,7 +199,7 @@ The Codex CLI workflow is responsible for validating and creating a focused
 source-branch commit before invoking:
 
 ```bash
-codex-handoff integrate --summary "<completion summary>" --rollout <none|applied|automated|manual> [--follow-up "<required action>"]...
+parallel-integrator integrate --summary "<completion summary>" --rollout <none|applied|automated|manual> [--follow-up "<required action>"]...
 ```
 
 `integrate` must:
@@ -210,7 +210,7 @@ codex-handoff integrate --summary "<completion summary>" --rollout <none|applied
 4. Record ready timestamp, completion summary, and the mandatory external-state
    rollout classification. Manual rollout requires explicit follow-up actions.
 5. Acquire a per-repository lock.
-6. Wait if another `codex-handoff` process is integrating the same repo.
+6. Wait if another `parallel-integrator` process is integrating the same repo.
 7. Create/reuse a dedicated integration worktree.
 8. Merge the exact `readyCommit`.
 9. On conflict, preserve the merge for the current Codex session.
@@ -312,7 +312,7 @@ The old `codex-integrator` system may currently have:
 - config/state directories
 - an integration branch/worktree
 
-`codex-handoff` must not silently disable or delete these.
+`parallel-integrator` must not silently disable or delete these.
 
 Implement `audit-legacy` to detect likely conflicts and print recommended actions.
 
@@ -323,7 +323,7 @@ See `LEGACY_MIGRATION.md`.
 One global skill:
 
 ```text
-codex-handoff-workflow
+parallel-integrator-workflow
 ```
 
 The global policy and skill must be CLI-first. They record or continue the task

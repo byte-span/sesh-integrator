@@ -1,9 +1,10 @@
 {
-  "name": "codex-handoff",
+  "name": "parallel-integrator",
   "version": "0.1.0",
   "description": "One-shot Git integration for parallel Codex worktrees",
   "type": "module",
   "bin": {
+    "parallel-integrator": "dist/cli.js",
     "codex-handoff": "dist/cli.js"
   },
   "files": [
@@ -13,7 +14,7 @@
     "scripts/install-skill.sh",
     "scripts/install-machine-safeguards.sh",
     "scripts/sync-managed-guidance.mjs",
-    "scripts/codex-handoff-health-check",
+    "scripts/parallel-integrator-health-check",
     "scripts/self-hosting-pre-push",
     "scripts/self-hosting-post-merge",
     "scripts/self-hosting-sync-dev",

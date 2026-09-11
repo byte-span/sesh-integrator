@@ -84,7 +84,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
       }
       case "incident": {
         if (args.length !== 1 || !args[0])
-          throw new Error("Usage: codex-handoff incident <ticket-id>");
+          throw new Error("Usage: parallel-integrator incident <ticket-id>");
         await incidentCommand(args[0]);
         break;
       }
@@ -302,7 +302,7 @@ function parseCommand(value: string): [string, ...string[]] {
 
 function registerUsageError(): Error {
   return new Error(
-    "Usage: codex-handoff register [repo-path] [--auto-config] [--setup-command '<json-array>']...",
+    "Usage: parallel-integrator register [repo-path] [--auto-config] [--setup-command '<json-array>']...",
   );
 }
 
@@ -316,33 +316,35 @@ function parseReconcileOptions(args: string[]): {
     if (argument === "--apply" && !apply) apply = true;
     else if (!argument.startsWith("--") && path === undefined) path = argument;
     else
-      throw new Error("Usage: codex-handoff reconcile [repo-path] [--apply]");
+      throw new Error(
+        "Usage: parallel-integrator reconcile [repo-path] [--apply]",
+      );
   }
   return { apply, path };
 }
 
-const helpText = `codex-handoff - one-shot Git integration
+const helpText = `parallel-integrator - one-shot Git integration
 
 Usage:
-  codex-handoff init
-  codex-handoff register [repo-path] [--auto-config] [--setup-command '<json-array>']...
-  codex-handoff begin --summary "..." [--create-worktree] [--no-auto-branch] [--depends-on <session-id>]...
-  codex-handoff commit --message "..." [--session <session-id>]
-  codex-handoff validate [--session <session-id>]
-  codex-handoff integrate --summary "..." --rollout <none|applied|automated|manual> [--follow-up "<action, destination, exact configuration names; no secret values>"]... [--session <session-id>]
-  codex-handoff resume [--session <session-id>]
-  codex-handoff status [--session <session-id>]
-  codex-handoff incident <ticket-id>
-  codex-handoff reconcile [repo-path] [--apply]
-  codex-handoff audit-legacy
-  codex-handoff doctor
-  codex-handoff benchmark [--runs <n>] [--json] [--check]
+  parallel-integrator init
+  parallel-integrator register [repo-path] [--auto-config] [--setup-command '<json-array>']...
+  parallel-integrator begin --summary "..." [--create-worktree] [--no-auto-branch] [--depends-on <session-id>]...
+  parallel-integrator commit --message "..." [--session <session-id>]
+  parallel-integrator validate [--session <session-id>]
+  parallel-integrator integrate --summary "..." --rollout <none|applied|automated|manual> [--follow-up "<action, destination, exact configuration names; no secret values>"]... [--session <session-id>]
+  parallel-integrator resume [--session <session-id>]
+  parallel-integrator status [--session <session-id>]
+  parallel-integrator incident <ticket-id>
+  parallel-integrator reconcile [repo-path] [--apply]
+  parallel-integrator audit-legacy
+  parallel-integrator doctor
+  parallel-integrator benchmark [--runs <n>] [--json] [--check]
 `;
 
 if (isMainModule()) {
   main().catch((error: unknown) => {
     process.stderr.write(
-      `codex-handoff: ${
+      `parallel-integrator: ${
         error instanceof Error ? error.message : String(error)
       }\n`,
     );

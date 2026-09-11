@@ -82,7 +82,7 @@ async function investigateFailure(
     fixScope: "project",
     investigationSource: "fallback",
   };
-  if (process.env.CODEX_HANDOFF_TEST_INCIDENT_FALLBACK === "1")
+  if (process.env.PARALLEL_INTEGRATOR_TEST_INCIDENT_FALLBACK === "1")
     return {
       ...fallback,
       investigationError: "Agent investigation disabled by test harness",
@@ -159,7 +159,7 @@ function buildInvestigationPrompt(
   fingerprint: string,
   priorCount: number,
 ): string {
-  return `Investigate why this codex-handoff session did not complete. This is read-only analysis: do not modify files, Git state, runtime state, instructions, or external systems. Base conclusions on the supplied evidence and repository structure; avoid inventing facts. Prefer a systemic instruction fix when workflow behavior caused the failure, and a code fix only when evidence identifies a tool defect. Return only the requested JSON object.\n\nFingerprint: ${fingerprint}\nPrior incidents with fingerprint: ${priorCount}\nSession evidence:\n${JSON.stringify({ sessionId: session.id, status: session.status, phase: session.recoveryPhase, taskSummary: session.taskSummary, completionSummary: session.completionSummary, readyCommit: session.readyCommit, integratedCommit: session.integratedCommit, awaitingConflictResolution: session.awaitingConflictResolution, validationFailure: session.validationFailure, error }, null, 2)}`;
+  return `Investigate why this parallel-integrator session did not complete. This is read-only analysis: do not modify files, Git state, runtime state, instructions, or external systems. Base conclusions on the supplied evidence and repository structure; avoid inventing facts. Prefer a systemic instruction fix when workflow behavior caused the failure, and a code fix only when evidence identifies a tool defect. Return only the requested JSON object.\n\nFingerprint: ${fingerprint}\nPrior incidents with fingerprint: ${priorCount}\nSession evidence:\n${JSON.stringify({ sessionId: session.id, status: session.status, phase: session.recoveryPhase, taskSummary: session.taskSummary, completionSummary: session.completionSummary, readyCommit: session.readyCommit, integratedCommit: session.integratedCommit, awaitingConflictResolution: session.awaitingConflictResolution, validationFailure: session.validationFailure, error }, null, 2)}`;
 }
 
 function validateDiagnosis(value: unknown): Diagnosis {

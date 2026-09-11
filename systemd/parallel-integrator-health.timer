@@ -1,5 +1,5 @@
 [Unit]
-Description=Run bounded codex-handoff health checks
+Description=Run bounded parallel-integrator health checks
 
 [Timer]
 OnBootSec=5min

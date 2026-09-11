@@ -30,7 +30,7 @@ export async function auditLegacyCommand(): Promise<Finding[]> {
 }
 
 export async function collectLegacyFindings(): Promise<Finding[]> {
-  const home = process.env.CODEX_HANDOFF_AUDIT_HOME ?? homedir();
+  const home = process.env.PARALLEL_INTEGRATOR_AUDIT_HOME ?? homedir();
   const findings: Finding[] = [];
   const oldSource = join(home, "Developer", "tools", "codex-integrator");
   const oldState = join(home, ".codex-integrator");
@@ -135,7 +135,7 @@ export async function collectLegacyFindings(): Promise<Finding[]> {
         ? {
             label: "Registered repository audit",
             state: "NOT FOUND",
-            detail: `No codex-handoff config at ${
+            detail: `No parallel-integrator config at ${
               runtimePaths().config
             }; no repositories to inspect.`,
           }

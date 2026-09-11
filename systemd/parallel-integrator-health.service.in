@@ -1,9 +1,9 @@
 [Unit]
-Description=Check codex-handoff machine health
+Description=Check parallel-integrator machine health
 
 [Service]
 Type=oneshot
-Environment=CODEX_HANDOFF_NODE=@NODE_BINARY@
+Environment=PARALLEL_INTEGRATOR_NODE=@NODE_BINARY@
 ExecStart=@HEALTH_CHECK@
 TimeoutStartSec=130
 StandardOutput=journal

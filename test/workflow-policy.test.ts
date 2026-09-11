@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 describe("bundled workflow trigger policy", () => {
-  it("requires scram-j review for codex-handoff self-hosting pull requests", async () => {
+  it("requires scram-j review for parallel-integrator self-hosting pull requests", async () => {
     const policy = await readFile(join(process.cwd(), "AGENTS.md"), "utf8");
 
     expect(policy).toContain("Every pull request opened for this repository");
@@ -14,7 +14,12 @@ describe("bundled workflow trigger policy", () => {
     const [guidance, skill] = await Promise.all([
       readFile(join(process.cwd(), "GLOBAL_AGENTS_SNIPPET.md"), "utf8"),
       readFile(
-        join(process.cwd(), "skill", "codex-handoff-workflow", "SKILL.md"),
+        join(
+          process.cwd(),
+          "skill",
+          "parallel-integrator-workflow",
+          "SKILL.md",
+        ),
         "utf8",
       ),
     ]);
@@ -32,7 +37,12 @@ describe("bundled workflow trigger policy", () => {
       readFile(join(process.cwd(), "GLOBAL_AGENTS_SNIPPET.md"), "utf8"),
       readFile(join(process.cwd(), "REPOSITORY_AGENTS_SNIPPET.md"), "utf8"),
       readFile(
-        join(process.cwd(), "skill", "codex-handoff-workflow", "SKILL.md"),
+        join(
+          process.cwd(),
+          "skill",
+          "parallel-integrator-workflow",
+          "SKILL.md",
+        ),
         "utf8",
       ),
     ]);
@@ -59,7 +69,12 @@ describe("bundled workflow trigger policy", () => {
       readFile(join(process.cwd(), "GLOBAL_AGENTS_SNIPPET.md"), "utf8"),
       readFile(join(process.cwd(), "REPOSITORY_AGENTS_SNIPPET.md"), "utf8"),
       readFile(
-        join(process.cwd(), "skill", "codex-handoff-workflow", "SKILL.md"),
+        join(
+          process.cwd(),
+          "skill",
+          "parallel-integrator-workflow",
+          "SKILL.md",
+        ),
         "utf8",
       ),
     ]);
@@ -91,11 +106,15 @@ describe("bundled workflow trigger policy", () => {
       await Promise.all([
         readFile(join(process.cwd(), "REPOSITORY_AGENTS_SNIPPET.md"), "utf8"),
         readFile(
-          join(process.cwd(), "systemd", "codex-handoff-health.timer"),
+          join(process.cwd(), "systemd", "parallel-integrator-health.timer"),
           "utf8",
         ),
         readFile(
-          join(process.cwd(), "systemd", "codex-handoff-health.service.in"),
+          join(
+            process.cwd(),
+            "systemd",
+            "parallel-integrator-health.service.in",
+          ),
           "utf8",
         ),
         readFile(
