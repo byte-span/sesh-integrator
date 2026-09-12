@@ -86,11 +86,55 @@ it("includes empty repositories and orphan sessions, inherits target policy, and
   );
   const rows = await loadDashboard();
   expect(rows).toHaveLength(2);
-  expect(rows[0]!.session).toBeUndefined();
-  expect(detailLines(rows[0]!)).toContain("Target: dev");
-  expect(actionReason(rows[1]!, "resume")).toContain("no longer registered");
+  expect(rows[1]!.session).toBeUndefined();
+  expect(detailLines(rows[1]!)).toContain("Target: dev");
+  expect(actionReason(rows[0]!, "resume")).toContain("no longer registered");
   expect(await readFile(join(path, "config.json"), "utf8")).toBe(config);
   expect((await readdir(path)).sort()).toEqual(["config.json", "sessions"]);
+});
+it("orders all sessions newest first across repositories, including orphan sessions", async () => {
+  const { path } = await runtime();
+  await mkdir(join(path, "sessions"), { recursive: true });
+  const sample = row();
+  await writeFile(
+    join(path, "config.json"),
+    JSON.stringify({
+      ...defaultConfig(),
+      repositories: ["/a", "/empty", "/b"].map((path) => ({
+        ...sample.repository,
+        path,
+      })),
+    }),
+  );
+  const fixtures = [
+    ["old-a", "/a", "2026-09-10T09:00:00.000Z"],
+    ["new-b", "/b", "2026-09-12T09:00:00.000Z"],
+    ["middle-a", "/a", "2026-09-11T09:00:00.000Z"],
+    ["newest-orphan", "/removed", "2026-09-12T10:00:00.000Z"],
+  ];
+  for (const [id, repositoryPath, startedAt] of fixtures) {
+    await writeFile(
+      join(path, "sessions", `${id}.json`),
+      JSON.stringify({
+        ...sample.session,
+        id,
+        repositoryPath,
+        startedAt,
+      }),
+    );
+  }
+  const rows = await loadDashboard();
+  expect(rows.map((r) => r.session?.id)).toEqual([
+    "newest-orphan",
+    "new-b",
+    "middle-a",
+    "old-a",
+    undefined,
+  ]);
+  expect(
+    rows.filter((r) => r.repository?.path === "/a").map((r) => r.session?.id),
+  ).toEqual(["middle-a", "old-a"]);
+  expect(rows.at(-1)?.repository?.path).toBe("/empty");
 });
 it("reports corrupt state instead of initializing over it", async () => {
   const { path } = await runtime();

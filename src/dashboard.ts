@@ -30,18 +30,17 @@ export async function loadDashboard(): Promise<DashboardRow[]> {
     readConfig(true),
     readSessions(true),
   ]);
-  const rows: DashboardRow[] = [];
+  const repositories = new Map(config.repositories.map((r) => [r.path, r]));
+  // readSessions returns chronological order. Reverse before associating each
+  // session with its repository so directory grouping never affects recency.
+  const rows: DashboardRow[] = sessions.reverse().map((session) => ({
+    repository: repositories.get(session.repositoryPath),
+    session,
+  }));
+  const occupied = new Set(sessions.map((session) => session.repositoryPath));
   for (const repository of config.repositories) {
-    const matching = sessions.filter(
-      (s) => s.repositoryPath === repository.path,
-    );
-    for (const session of matching.reverse())
-      rows.push({ repository, session });
-    if (!matching.length) rows.push({ repository, session: undefined });
-  }
-  for (const session of sessions) {
-    if (!config.repositories.some((r) => r.path === session.repositoryPath))
-      rows.push({ repository: undefined, session });
+    if (!occupied.has(repository.path))
+      rows.push({ repository, session: undefined });
   }
   return rows;
 }

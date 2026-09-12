@@ -152,7 +152,9 @@ There are no `run`, `daemon`, `watch`, or service-management commands.
 ### `dashboard`
 
 Run `parallel-integrator dashboard` in an interactive terminal to browse all
-registered repositories and their sessions. Browsing uses the existing runtime
+registered repositories and their sessions. Sessions appear newest first by start
+time across all repositories; repositories without sessions appear at the bottom.
+Browsing uses the existing runtime
 without writing configuration or session state. There is no automatic polling.
 
 Use Up/Down to select a session, Enter for details, `r` to refresh, and `q` to
