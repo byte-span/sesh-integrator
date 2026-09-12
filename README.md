@@ -63,7 +63,7 @@ name** to `parallel-integrator`, and select **Rename**. Then update each clone:
 
 ```bash
 cd ~/code/parallel-integrator
-git remote set-url origin https://github.com/Run-It-Back-Group/parallel-integrator.git
+git remote set-url origin https://github.com/Shuga-Bytes/parallel-integrator.git
 git remote -v
 ```
 
