@@ -122,9 +122,16 @@ export async function prepareCodexResolverHome(): Promise<string> {
   return paths.codexHome;
 }
 
-export async function readConfig(): Promise<Config> {
-  const paths = await ensureRuntime();
-  const value = await readJson<Config>(paths.config);
+export async function readConfig(readOnly = false): Promise<Config> {
+  const paths = readOnly ? runtimePaths() : await ensureRuntime();
+  let value: Config;
+  try {
+    value = await readJson<Config>(paths.config);
+  } catch (error) {
+    if (readOnly && isNodeError(error) && error.code === "ENOENT")
+      return defaultConfig();
+    throw error;
+  }
   if (
     !Array.isArray(value.repositories) ||
     typeof value.lockWaitSeconds !== "number" ||
@@ -260,11 +267,16 @@ export async function writeConfig(config: Config): Promise<void> {
   await writeJsonAtomic(paths.config, config);
 }
 
-export async function readSessions(): Promise<Session[]> {
-  const paths = await ensureRuntime();
-  const names = (await readdir(paths.sessions)).filter((name) =>
-    name.endsWith(".json"),
-  );
+export async function readSessions(readOnly = false): Promise<Session[]> {
+  const paths = readOnly ? runtimePaths() : await ensureRuntime();
+  let entries: string[];
+  try {
+    entries = await readdir(paths.sessions);
+  } catch (error) {
+    if (readOnly && isNodeError(error) && error.code === "ENOENT") return [];
+    throw error;
+  }
+  const names = entries.filter((name) => name.endsWith(".json"));
   const sessions = await Promise.all(
     names.map((name) => readJson<Session>(join(paths.sessions, name))),
   );
