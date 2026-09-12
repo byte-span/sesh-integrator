@@ -25,6 +25,27 @@ export function terminalText(value: string): string {
   return stripVTControlCharacters(value).replace(/[^\x20-\x7e]/g, "?");
 }
 
+export function relativeStartTime(startedAt: string, now = Date.now()): string {
+  const start = Date.parse(startedAt);
+  if (!Number.isFinite(start)) return "unknown";
+  const elapsed = now - start;
+  if (elapsed < 0) return "in future";
+  if (elapsed < 60_000) return "just now";
+  if (elapsed < 3_600_000) return `${Math.floor(elapsed / 60_000)}m ago`;
+  if (elapsed < 86_400_000) return `${Math.floor(elapsed / 3_600_000)}h ago`;
+  return `${Math.floor(elapsed / 86_400_000)}d ago`;
+}
+
+export function exactTime(value: string | number): string {
+  const date = new Date(value);
+  return Number.isFinite(date.getTime())
+    ? date
+        .toISOString()
+        .replace("T", " ")
+        .replace(/\.\d{3}Z$/, " UTC")
+    : "unknown";
+}
+
 export async function loadDashboard(): Promise<DashboardRow[]> {
   const [config, sessions] = await Promise.all([
     readConfig(true),
@@ -117,6 +138,7 @@ export function detailLines(row: DashboardRow): string[] {
   lines.push(
     `Session: ${s.id}`,
     `Task: ${s.taskSummary}`,
+    `Started: ${exactTime(s.startedAt)}`,
     `Status: ${s.status}${s.waitingForLock ? " (waiting for lock)" : ""}`,
     `Source branch: ${s.branch}`,
     `Source worktree: ${s.worktreePath}`,
@@ -175,10 +197,11 @@ export function renderDashboard(
   selected: number,
   width: number,
   height: number,
+  now = Date.now(),
 ): string[] {
   const lines = [
     "parallel-integrator",
-    "Repository / target | Status | Branch | Task",
+    "Started | Repository / target | Status | Branch | Task",
     "",
   ];
   const count = Math.max(1, height - 7);
@@ -190,7 +213,7 @@ export function renderDashboard(
   ) {
     const { repository: r, session: s } = rows[index]!;
     lines.push(
-      `${index === selected ? ">" : " "} ${basename(r?.path ?? s?.repositoryPath ?? "-")} / ${r ? targetBranch(r) : "?"} | ${s?.waitingForLock ? "waiting for lock" : (s?.status ?? "no sessions")} | ${s?.branch ?? "-"} | ${s?.taskSummary ?? "Run begin to start a task"}`,
+      `${index === selected ? ">" : " "} ${s ? relativeStartTime(s.startedAt, now) : "-"} | ${basename(r?.path ?? s?.repositoryPath ?? "-")} / ${r ? targetBranch(r) : "?"} | ${s?.waitingForLock ? "waiting for lock" : (s?.status ?? "no sessions")} | ${s?.branch ?? "-"} | ${s?.taskSummary ?? "Run begin to start a task"}`,
     );
   }
   if (!rows.length)
@@ -217,6 +240,8 @@ export async function dashboardCommand(): Promise<void> {
       "dashboard requires an interactive terminal; use parallel-integrator status for plain output",
     );
   let rows = await loadDashboard();
+  let refreshedAt = Date.now();
+  let clockTimer: ReturnType<typeof setInterval> | undefined;
   let selected = 0;
   let mode: "list" | "details" | "form" | "confirm" | "output" = "list";
   let scroll = 0;
@@ -250,15 +275,20 @@ export async function dashboardCommand(): Promise<void> {
     enter();
     const width = Math.max(1, (stdout.columns || 80) - 1);
     const height = Math.max(1, stdout.rows || 24);
+    const tooSmall = width < 35 || height < 10;
+    const freshness = tooSmall
+      ? []
+      : wrapLines([`Status refreshed at ${exactTime(refreshedAt)}`], width);
+    const contentHeight = height - freshness.length;
     let lines: string[];
-    if (width < 35 || height < 10) {
+    if (tooSmall) {
       lines = ["Terminal too small.", "Resize to at least 36 x 10.", "q quit"];
     } else if (mode === "list") {
       lines = renderDashboard(
         rows,
         selected,
         width,
-        height - (message ? 1 : 0),
+        contentHeight - (message ? 1 : 0),
       );
     } else {
       const row = rows[selected];
@@ -320,7 +350,7 @@ export async function dashboardCommand(): Promise<void> {
       const controls = wrapLines(footer, width);
       const count = Math.max(
         1,
-        height - controls.length - 2 - (message ? 1 : 0),
+        contentHeight - controls.length - 2 - (message ? 1 : 0),
       );
       if (mode === "form") scroll = Math.max(0, wrapped.length - count);
       scroll = Math.min(scroll, Math.max(0, wrapped.length - count));
@@ -332,6 +362,7 @@ export async function dashboardCommand(): Promise<void> {
         ...controls,
       ];
     }
+    lines.push(...freshness);
     if (message) lines.push(message);
     stdout.write(
       "\x1b[H\x1b[2J" +
@@ -345,6 +376,7 @@ export async function dashboardCommand(): Promise<void> {
     const id = rows[selected]?.session?.id;
     const path = rows[selected]?.repository?.path;
     rows = await loadDashboard();
+    refreshedAt = Date.now();
     const found = rows.findIndex((r) =>
       id ? r.session?.id === id : r.repository?.path === path,
     );
@@ -355,6 +387,7 @@ export async function dashboardCommand(): Promise<void> {
   const close = () => {
     if (closed) return;
     closed = true;
+    clearInterval(clockTimer);
     leave();
     stdin.setRawMode(wasRaw);
     stdin.off("keypress", onKey);
@@ -572,6 +605,9 @@ export async function dashboardCommand(): Promise<void> {
     stdin.setRawMode(true);
     stdin.resume();
     draw();
+    // Only redraw cached timestamps. Session/Git state still refreshes on demand.
+    clockTimer = setInterval(draw, 60_000);
+    clockTimer.unref();
     await done;
   } finally {
     close();

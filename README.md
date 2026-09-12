@@ -154,8 +154,11 @@ There are no `run`, `daemon`, `watch`, or service-management commands.
 Run `parallel-integrator dashboard` in an interactive terminal to browse all
 registered repositories and their sessions. Sessions appear newest first by start
 time across all repositories; repositories without sessions appear at the bottom.
-Browsing uses the existing runtime
-without writing configuration or session state. There is no automatic polling.
+Browsing uses the existing runtime without writing configuration or session state.
+The Started column shows relative age (for example, `5m ago`), redrawn every minute
+from cached timestamps without polling runtime files or Git. Details show the
+exact start date/time in UTC. A separate `Status refreshed at` timestamp in UTC
+shows when session data was last loaded; press `r` to update that data.
 
 Use Up/Down to select a session, Enter for details, `r` to refresh, and `q` to
 quit. In details, Up/Down scrolls the complete record, including long follow-ups;
