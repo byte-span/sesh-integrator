@@ -3,12 +3,10 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { resolveRuntimeRoot } from "../dist/runtime.js";
 
 const START = "<!-- codex-handoff:managed:start -->";
 const END = "<!-- codex-handoff:managed:end -->";
 const project = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const runtime = resolveRuntimeRoot();
 const doctorHome =
   process.env.PARALLEL_INTEGRATOR_DOCTOR_HOME ??
   process.env.CODEX_HANDOFF_DOCTOR_HOME ??
@@ -55,18 +53,10 @@ async function update(path, managed) {
 const globalManaged = block(
   await readFile(join(project, "GLOBAL_AGENTS_SNIPPET.md"), "utf8"),
 );
-const repositoryManaged = block(
-  await readFile(join(project, "REPOSITORY_AGENTS_SNIPPET.md"), "utf8"),
-);
 const changed = [];
 if (await update(join(doctorHome, ".codex", "AGENTS.md"), globalManaged))
   changed.push("global guidance");
 
-const config = JSON.parse(await readFile(join(runtime, "config.json"), "utf8"));
-for (const repository of config.repositories ?? []) {
-  const path = join(repository.path, "AGENTS.md");
-  if (await update(path, repositoryManaged)) changed.push(path);
-}
 console.log(
   changed.length
     ? `Synchronized ${changed.join(", ")}`
