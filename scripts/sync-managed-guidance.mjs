@@ -3,13 +3,16 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
+import { resolveRuntimeRoot } from "../dist/runtime.js";
 
 const START = "<!-- codex-handoff:managed:start -->";
 const END = "<!-- codex-handoff:managed:end -->";
 const project = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const runtime =
-  process.env.CODEX_HANDOFF_HOME ?? join(homedir(), ".codex-handoff");
-const doctorHome = process.env.CODEX_HANDOFF_DOCTOR_HOME ?? homedir();
+const runtime = resolveRuntimeRoot();
+const doctorHome =
+  process.env.PARALLEL_INTEGRATOR_DOCTOR_HOME ??
+  process.env.CODEX_HANDOFF_DOCTOR_HOME ??
+  homedir();
 
 async function optional(path) {
   try {
@@ -29,7 +32,7 @@ function replaceManaged(existing, managed) {
   const start = existing.indexOf(START);
   const end = existing.indexOf(END);
   if (start < 0 !== end < 0 || (start >= 0 && end < start)) {
-    throw new Error("malformed codex-handoff managed markers");
+    throw new Error("malformed parallel-integrator managed markers");
   }
   const next =
     start >= 0
@@ -43,7 +46,7 @@ async function update(path, managed) {
   const next = replaceManaged(current, managed);
   if (current === next) return false;
   await mkdir(dirname(path), { recursive: true });
-  const temporary = `${path}.codex-handoff-${process.pid}`;
+  const temporary = `${path}.parallel-integrator-${process.pid}`;
   await writeFile(temporary, next, { mode: 0o644 });
   await rename(temporary, path);
   return true;

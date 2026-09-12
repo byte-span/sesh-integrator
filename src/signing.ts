@@ -27,7 +27,7 @@ export async function preflightCommitSigning(
   if (signing.signingKey) args.push("--local-user", signing.signingKey);
   const result = await run(program, args, {
     cwd,
-    input: `codex-handoff ${purpose} signing preflight\n`,
+    input: `parallel-integrator ${purpose} signing preflight\n`,
   });
   if (
     result.code !== 0 ||

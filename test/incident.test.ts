@@ -16,7 +16,7 @@ import type { Session } from "../src/types.js";
 const roots: string[] = [];
 
 afterEach(async () => {
-  delete process.env.CODEX_HANDOFF_HOME;
+  delete process.env.PARALLEL_INTEGRATOR_HOME;
   await Promise.all(
     roots.splice(0).map((path) => rm(path, { recursive: true, force: true })),
   );
@@ -49,7 +49,7 @@ describe("failure incidents", () => {
   it("stores a schema-validated agent diagnosis and links its ticket", async () => {
     const root = await mkdtemp(join(tmpdir(), "handoff-incident-"));
     roots.push(root);
-    process.env.CODEX_HANDOFF_HOME = root;
+    process.env.PARALLEL_INTEGRATOR_HOME = root;
     const fake = join(root, "fake-codex");
     await writeFile(
       fake,
@@ -82,7 +82,7 @@ fs.writeFileSync(output,JSON.stringify({category:"workflow gap",confidence:"high
   it("records a neutral fallback when investigation is unavailable", async () => {
     const root = await mkdtemp(join(tmpdir(), "handoff-incident-"));
     roots.push(root);
-    process.env.CODEX_HANDOFF_HOME = root;
+    process.env.PARALLEL_INTEGRATOR_HOME = root;
     await configureCodex(join(root, "missing-codex"));
     const incident = await recordIncident(session(), "novel failure 42");
     expect(incident.investigationSource).toBe("fallback");

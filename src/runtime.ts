@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
+import { existsSync } from "node:fs";
 import {
   chmod,
   copyFile,
@@ -20,11 +21,24 @@ import type {
 } from "./types.js";
 import { isValidationStepList } from "./validation.js";
 
-export const DEFAULT_INTEGRATION_BRANCH = "codex-handoff/integration";
+export const DEFAULT_INTEGRATION_BRANCH = "parallel-integrator/integration";
+
+export function resolveRuntimeRoot(
+  env: NodeJS.ProcessEnv = process.env,
+  home = homedir(),
+): string {
+  // Keep existing worktrees, locks, and session paths together after a rename.
+  return (
+    env.PARALLEL_INTEGRATOR_HOME ??
+    env.CODEX_HANDOFF_HOME ??
+    (existsSync(join(home, ".codex-handoff"))
+      ? join(home, ".codex-handoff")
+      : join(home, ".parallel-integrator"))
+  );
+}
 
 export function runtimePaths(): RuntimePaths {
-  const root =
-    process.env.CODEX_HANDOFF_HOME ?? join(homedir(), ".codex-handoff");
+  const root = resolveRuntimeRoot();
   return {
     root,
     config: join(root, "config.json"),

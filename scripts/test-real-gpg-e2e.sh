@@ -1,8 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 
-if [[ "${CODEX_HANDOFF_REAL_GPG_E2E:-}" != "1" ]]; then
-  echo "Opt-in required: CODEX_HANDOFF_REAL_GPG_E2E=1 $0 [acceptance-label]" >&2
+if [[ "${PARALLEL_INTEGRATOR_REAL_GPG_E2E:-}" != "1" ]]; then
+  echo "Opt-in required: PARALLEL_INTEGRATOR_REAL_GPG_E2E=1 $0 [acceptance-label]" >&2
   exit 64
 fi
 
@@ -17,7 +17,7 @@ wrapper=${CODEX_GPG_WRAPPER:-$HOME/.local/bin/codex-gpg}
 canonical_home=${CODEX_GPG_CANONICAL_HOME:-$HOME/.gnupg}
 bridge_home=${CODEX_GPG_BRIDGE_HOME:-$HOME/.codex-gpg}
 launch_domain="gui/$(id -u)/com.codex.gpg-agent"
-trial_root=$(mktemp -d "${TMPDIR:-/tmp}/codex-handoff-real-gpg.XXXXXX")
+trial_root=$(mktemp -d "${TMPDIR:-/tmp}/parallel-integrator-real-gpg.XXXXXX")
 repo="$trial_root/repo"
 runtime="$trial_root/runtime"
 profile="$trial_root/codex-sandbox.sb"
@@ -52,15 +52,15 @@ git --version
 
 pnpm --dir "$project_dir" build
 git init -b main "$repo"
-git -C "$repo" config user.name "Codex Handoff Real GPG"
-git -C "$repo" config user.email "codex-handoff-real-gpg@local.invalid"
+git -C "$repo" config user.name "Parallel Integrator Real GPG"
+git -C "$repo" config user.email "parallel-integrator-real-gpg@local.invalid"
 git -C "$repo" config commit.gpgSign false
 printf 'base\n' >"$repo/base.txt"
 git -C "$repo" add base.txt
 git -C "$repo" commit -m base
 
-CODEX_HANDOFF_HOME="$runtime" node "$cli" init
-CODEX_HANDOFF_HOME="$runtime" node "$cli" register "$repo"
+PARALLEL_INTEGRATOR_HOME="$runtime" node "$cli" init
+PARALLEL_INTEGRATOR_HOME="$runtime" node "$cli" register "$repo"
 node -e '
 const fs = require("fs");
 const path = process.argv[1];
@@ -77,7 +77,7 @@ run_round() {
   local worktree="$trial_root/worktree-$round"
   git -C "$repo" worktree add -b "codex/real-gpg-$round" "$worktree" main
   cd "$worktree"
-  CODEX_HANDOFF_HOME="$runtime" node "$cli" begin --summary "real GPG $round $mode"
+  PARALLEL_INTEGRATOR_HOME="$runtime" node "$cli" begin --summary "real GPG $round $mode"
   printf '%s\n' "$round $mode" >"$worktree/$round.txt"
   git -C "$worktree" add "$round.txt"
 
@@ -87,16 +87,16 @@ run_round() {
     /bin/launchctl kickstart -k "$launch_domain"
   fi
 
-  sandbox-exec -f "$profile" env CODEX_HANDOFF_HOME="$runtime" \
+  sandbox-exec -f "$profile" env PARALLEL_INTEGRATOR_HOME="$runtime" \
     node "$cli" commit --message "Real signed source $round"
   local source_commit
   source_commit=$(git -C "$worktree" rev-parse HEAD)
-  sandbox-exec -f "$profile" env CODEX_HANDOFF_HOME="$runtime" \
+  sandbox-exec -f "$profile" env PARALLEL_INTEGRATOR_HOME="$runtime" \
     node "$cli" validate
-  sandbox-exec -f "$profile" env CODEX_HANDOFF_HOME="$runtime" \
+  sandbox-exec -f "$profile" env PARALLEL_INTEGRATOR_HOME="$runtime" \
     node "$cli" integrate --summary "Real signed integration $round" --rollout none
   local integration_commit
-  integration_commit=$(git -C "$repo" rev-parse codex-handoff/integration)
+  integration_commit=$(git -C "$repo" rev-parse parallel-integrator/integration)
   local target_commit
   target_commit=$(git -C "$repo" rev-parse main)
   [[ "$target_commit" == "$integration_commit" ]] || {
