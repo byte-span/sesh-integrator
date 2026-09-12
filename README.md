@@ -139,6 +139,7 @@ parallel-integrator integrate --summary "Implemented feature and tests" --rollou
 parallel-integrator resume [--session <session-id>]
 parallel-integrator incident <ticket-id>
 parallel-integrator status [--session <session-id>]
+parallel-integrator dashboard
 parallel-integrator reconcile [repo-path] [--apply]
 parallel-integrator audit-legacy
 parallel-integrator cleanup-guidance [--apply]
@@ -147,6 +148,33 @@ parallel-integrator benchmark [--runs <n>] [--json] [--check]
 ```
 
 There are no `run`, `daemon`, `watch`, or service-management commands.
+
+### `dashboard`
+
+Run `parallel-integrator dashboard` in an interactive terminal to browse all
+registered repositories and their sessions. Browsing uses the existing runtime
+without writing configuration or session state. There is no automatic polling.
+
+Use Up/Down to select a session, Enter for details, `r` to refresh, and `q` to
+quit. In details, Up/Down scrolls the complete record, including long follow-ups;
+`v` validates, `i` integrates, and `s` resumes a preserved integration. Unavailable
+actions show a reason. Escape returns or cancels a form. The dashboard requires
+at least 36 columns and 10 rows; resize the terminal if prompted. Saved text is
+shown as terminal-safe ASCII; original Unicode data remains unchanged.
+
+Actions require confirmation and run the existing CLI in the selected source
+worktree with an explicit session ID. Integration collects a completion summary,
+one of `none`, `applied`, `automated`, or `manual`, and one or more separate
+follow-ups for manual rollout. A ready session retains its saved rollout contract.
+Review the confirmation with Up/Down, then press `y` to run. The CLI retains its
+normal Git, dependency, validation, recovery, and configured PR-promotion checks.
+Changes to saved session/configuration data cancel a stale confirmation.
+
+Command output stays in the normal terminal scrollback. After completion, Enter
+returns to refreshed details and `q` quits. Ctrl-C interrupts a running command
+using normal terminal signals; inspect its preserved result before retrying.
+Resolve and stage conflicts outside the dashboard before choosing Resume.
+For redirected output or a noninteractive terminal, use `parallel-integrator status`.
 
 ### `init`
 

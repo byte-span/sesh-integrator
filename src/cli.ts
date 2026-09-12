@@ -19,6 +19,7 @@ import { finishPerformance, startPerformance } from "./performance.js";
 import type { RolloutDisposition } from "./types.js";
 import { incidentCommand } from "./incident.js";
 import { cleanupGuidanceCommand } from "./cleanup-guidance.js";
+import { dashboardCommand } from "./dashboard.js";
 
 export async function main(argv = process.argv.slice(2)): Promise<void> {
   const [command, ...args] = argv;
@@ -32,6 +33,10 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   if (instrument) startPerformance(command!);
   try {
     switch (command) {
+      case "dashboard":
+        rejectArguments(args);
+        await dashboardCommand();
+        break;
       case "init":
         rejectArguments(args);
         await initCommand();
@@ -342,6 +347,7 @@ Usage:
   parallel-integrator integrate --summary "..." --rollout <none|applied|automated|manual> [--follow-up "<action, destination, exact configuration names; no secret values>"]... [--session <session-id>]
   parallel-integrator resume [--session <session-id>]
   parallel-integrator status [--session <session-id>]
+  parallel-integrator dashboard
   parallel-integrator incident <ticket-id>
   parallel-integrator reconcile [repo-path] [--apply]
   parallel-integrator audit-legacy
