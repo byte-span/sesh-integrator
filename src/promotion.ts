@@ -100,7 +100,7 @@ export async function promoteValidatedCommit(
     if (holders.length === 0) {
       if (requireCheckedOutTarget) {
         throw new PromotionBlockedError(
-          `Target branch ${branch} must be checked out in one clean worktree to run post-integration commands. Check it out, then run parallel-integrator resume from the source worktree.`,
+          `Target branch ${branch} must be checked out in one clean worktree to run post-integration commands. Check it out, then run pintx resume from the source worktree.`,
         );
       }
       return undefined;
@@ -155,7 +155,7 @@ export async function promoteValidatedCommit(
   if (!holder) {
     if (requireCheckedOutTarget) {
       throw new PromotionBlockedError(
-        `Target branch ${branch} must be checked out in one clean worktree to run post-integration commands. Check it out, then run parallel-integrator resume from the source worktree.`,
+        `Target branch ${branch} must be checked out in one clean worktree to run post-integration commands. Check it out, then run pintx resume from the source worktree.`,
       );
     }
     const update = await run(
@@ -193,7 +193,7 @@ export async function promoteValidatedCommit(
     !(await isClean(holder.path))
   ) {
     throw new PromotionBlockedError(
-      `Target worktree ${holder.path} is dirty or has an unfinished merge. Clean it without discarding user changes, then run parallel-integrator resume from the source worktree. Validated commit: ${validatedCommit}.`,
+      `Target worktree ${holder.path} is dirty or has an unfinished merge. Clean it without discarding user changes, then run pintx resume from the source worktree. Validated commit: ${validatedCommit}.`,
     );
   }
 

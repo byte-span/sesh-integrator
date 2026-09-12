@@ -1832,7 +1832,7 @@ describe.sequential("parallel-integrator repository workflow", () => {
     expect(doctor.stdout).toContain(
       "staging parallel-integrator/integration is ahead",
     );
-    expect(doctor.stdout).toContain("parallel-integrator reconcile");
+    expect(doctor.stdout).toContain("pintx reconcile");
 
     const applied = await runCli(fixture, fixture.repo, [
       "reconcile",
@@ -3002,7 +3002,7 @@ describe.sequential("parallel-integrator repository workflow", () => {
     expect(result.stderr).toContain(
       "Merge conflict requires resolution by the current Codex session",
     );
-    expect(result.stderr).toContain("parallel-integrator resume");
+    expect(result.stderr).toContain("pintx resume");
     const failed = (await sessions(fixture)).find(
       (session) => session.worktreePath === second,
     )!;
@@ -3310,7 +3310,7 @@ describe.sequential("parallel-integrator repository workflow", () => {
     const result = await runCli(fixture, fixture.repo, ["doctor"]);
 
     expect(result.code, result.stderr).toBe(0);
-    expect(result.stdout).toContain("parallel-integrator doctor (read-only)");
+    expect(result.stdout).toContain("pintx doctor (read-only)");
     expect(result.stdout).toContain("PASS  Workflow skill");
     expect(result.stdout).toContain("PASS  Registered repository");
     expect(result.stdout).toContain("READY");

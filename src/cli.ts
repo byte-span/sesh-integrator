@@ -90,7 +90,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
       }
       case "incident": {
         if (args.length !== 1 || !args[0])
-          throw new Error("Usage: parallel-integrator incident <ticket-id>");
+          throw new Error("Usage: pintx incident <ticket-id>");
         await incidentCommand(args[0]);
         break;
       }
@@ -105,9 +105,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
         break;
       case "cleanup-guidance":
         if (args.length > 1 || (args.length === 1 && args[0] !== "--apply"))
-          throw new Error(
-            "Usage: parallel-integrator cleanup-guidance [--apply]",
-          );
+          throw new Error("Usage: pintx cleanup-guidance [--apply]");
         await cleanupGuidanceCommand(args[0] === "--apply");
         break;
       case "doctor":
@@ -315,7 +313,7 @@ function parseCommand(value: string): [string, ...string[]] {
 
 function registerUsageError(): Error {
   return new Error(
-    "Usage: parallel-integrator register [repo-path] [--auto-config] [--setup-command '<json-array>']...",
+    "Usage: pintx register [repo-path] [--auto-config] [--setup-command '<json-array>']...",
   );
 }
 
@@ -328,40 +326,37 @@ function parseReconcileOptions(args: string[]): {
   for (const argument of args) {
     if (argument === "--apply" && !apply) apply = true;
     else if (!argument.startsWith("--") && path === undefined) path = argument;
-    else
-      throw new Error(
-        "Usage: parallel-integrator reconcile [repo-path] [--apply]",
-      );
+    else throw new Error("Usage: pintx reconcile [repo-path] [--apply]");
   }
   return { apply, path };
 }
 
-const helpText = `parallel-integrator - one-shot Git integration
+const helpText = `pintx - one-shot Git integration (parallel-integrator)
+
+Compatibility commands: parallel-integrator, codex-handoff
 
 Usage:
-  parallel-integrator init
-  parallel-integrator register [repo-path] [--auto-config] [--setup-command '<json-array>']...
-  parallel-integrator begin --summary "..." [--create-worktree] [--no-auto-branch] [--depends-on <session-id>]...
-  parallel-integrator commit --message "..." [--session <session-id>]
-  parallel-integrator validate [--session <session-id>]
-  parallel-integrator integrate --summary "..." --rollout <none|applied|automated|manual> [--follow-up "<action, destination, exact configuration names; no secret values>"]... [--session <session-id>]
-  parallel-integrator resume [--session <session-id>]
-  parallel-integrator status [--session <session-id>]
-  parallel-integrator dashboard
-  parallel-integrator incident <ticket-id>
-  parallel-integrator reconcile [repo-path] [--apply]
-  parallel-integrator audit-legacy
-  parallel-integrator cleanup-guidance [--apply]
-  parallel-integrator doctor
-  parallel-integrator benchmark [--runs <n>] [--json] [--check]
+  pintx init
+  pintx register [repo-path] [--auto-config] [--setup-command '<json-array>']...
+  pintx begin --summary "..." [--create-worktree] [--no-auto-branch] [--depends-on <session-id>]...
+  pintx commit --message "..." [--session <session-id>]
+  pintx validate [--session <session-id>]
+  pintx integrate --summary "..." --rollout <none|applied|automated|manual> [--follow-up "<action, destination, exact configuration names; no secret values>"]... [--session <session-id>]
+  pintx resume [--session <session-id>]
+  pintx status [--session <session-id>]
+  pintx dashboard
+  pintx incident <ticket-id>
+  pintx reconcile [repo-path] [--apply]
+  pintx audit-legacy
+  pintx cleanup-guidance [--apply]
+  pintx doctor
+  pintx benchmark [--runs <n>] [--json] [--check]
 `;
 
 if (isMainModule()) {
   main().catch((error: unknown) => {
     process.stderr.write(
-      `parallel-integrator: ${
-        error instanceof Error ? error.message : String(error)
-      }\n`,
+      `pintx: ${error instanceof Error ? error.message : String(error)}\n`,
     );
     process.exitCode = 1;
   });

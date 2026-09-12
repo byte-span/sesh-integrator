@@ -9,6 +9,10 @@ Operate autonomously by default. Do not ask for routine approval to register,
 begin, validate, commit, integrate, resume, or safely promote local work that is
 already within the user's request.
 
+Use `pintx` as the preferred command; `parallel-integrator` remains a compatible
+alias. The package, workflow skill, runtime paths, and branch names retain their
+existing names.
+
 Runtime paths below use the fresh-install default. If `PARALLEL_INTEGRATOR_HOME`
 or compatibility `CODEX_HANDOFF_HOME` is set, use that directory instead.
 Otherwise, when `~/.codex-handoff/` already exists, use it in place of
@@ -63,7 +67,7 @@ Before editing:
 
 1. Inspect the repository instructions and Git state. Preserve all pre-existing
    user changes; never reset, overwrite, discard, clean, or silently stash them.
-2. Inspect `parallel-integrator status`. Continue an active or recoverable session
+2. Inspect `pintx status`. Continue an active or recoverable session
    attached to the current source worktree when it belongs to the same task.
    An unrelated session launched from the same ordinary checkout does not block
    a new isolated task; begin another managed worktree. Never replace or
@@ -71,12 +75,12 @@ Before editing:
 3. If the repository is unregistered, run:
 
    ```bash
-   parallel-integrator register --auto-config
+   pintx register --auto-config
    ```
 
    Registration is automatic and does not require routine approval.
    Before beginning, compare the effective target shown by
-   `parallel-integrator status` with the repository's branch policy. If agents must
+   `pintx status` with the repository's branch policy. If agents must
    work on a branch such as `dev` while `main` remains stable, set the global
    `defaultTargetBranch` to `dev` in `~/.parallel-integrator/config.json`. This policy
    applies automatically to existing and new registrations that omit a
@@ -86,7 +90,7 @@ Before editing:
 4. If no appropriate session exists, run:
 
    ```bash
-   parallel-integrator begin --create-worktree --summary "<concise task summary>"
+   pintx begin --create-worktree --summary "<concise task summary>"
    ```
 
    From an ordinary checkout, `--create-worktree` creates a unique task branch
@@ -107,30 +111,30 @@ At completion:
 2. Create one focused source commit through:
 
    ```bash
-   parallel-integrator commit --message "<focused commit message>"
+   pintx commit --message "<focused commit message>"
    ```
 
-3. Run `parallel-integrator validate`. Treat the complete failure output and exit code
+3. Run `pintx validate`. Treat the complete failure output and exit code
    as evidence, not a verdict about whether the failure is deterministic. If
    retrying is plausibly safe, rerun the unchanged validation for at most three
    total attempts. Stop after repeated failure or evidence of a code defect; do
    not integrate without successful validation or edit code merely to make a
    retry pass.
-4. Run `parallel-integrator integrate --summary "<concise completion summary>"
+4. Run `pintx integrate --summary "<concise completion summary>"
 --rollout <none|applied|automated|manual>`. Every integration must classify
    external-state rollout. `manual` also requires one or more explicit
    `--follow-up "<required action>"` arguments. Source promotion never implies
    external state was applied.
 5. For a resumable conflict, resolve and stage the preserved integration
-   worktree without committing there, then run `parallel-integrator resume` from the
+   worktree without committing there, then run `pintx resume` from the
    original source checkout. Preserve compatible intent and continue
    autonomously unless the conflict is genuinely ambiguous or validation fails.
 6. For `promotion_pending`, preserve the validated staging commit, correct only
    the reported blocking condition without disturbing user state, and run
-   `parallel-integrator resume`. Do not claim success until promotion and configured
+   `pintx resume`. Do not claim success until promotion and configured
    post-integration checks complete.
 7. For `validation_pending`, inspect the preserved evidence and incident, then
-   autonomously run `parallel-integrator resume` in the same session when retrying is
+   autonomously run `pintx resume` in the same session when retrying is
    safe, for at most three total attempts. Do not start a new session merely to
    retry integration.
 8. Report the session, source commit, staging integration commit, target branch
@@ -147,7 +151,7 @@ say to configure them on a trusted machine. Never request, read, store, or print
 secret values, including in CLI arguments or session records.
 
 Before the final response, use the latest `Completion summary` (available again
-with `parallel-integrator status --session <session-id>`) and check every recorded
+with `pintx status --session <session-id>`) and check every recorded
 action against the response. Preserve every outstanding action and its essential
 details, even when concise: action, destination, exact names, and prerequisites.
 Do not collapse setup into a label such as “complete CWS setup.” Documentation

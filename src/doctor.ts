@@ -55,10 +55,7 @@ export async function doctorCommand(cwd = process.cwd()): Promise<void> {
   checks.push(
     missingPaths.length === 0
       ? pass("Runtime", paths.root)
-      : fail(
-          "Runtime",
-          `missing ${missingPaths.join(", ")}; run parallel-integrator init`,
-        ),
+      : fail("Runtime", `missing ${missingPaths.join(", ")}; run pintx init`),
   );
   let config: Config | undefined;
   try {
@@ -165,7 +162,7 @@ export async function doctorCommand(cwd = process.cwd()): Promise<void> {
   checks.push(await lockCheck(paths.locks));
   checks.push(...legacyChecks(await collectLegacyFindings()));
 
-  process.stdout.write("parallel-integrator doctor (read-only)\n\n");
+  process.stdout.write("pintx doctor (read-only)\n\n");
   for (const check of checks) {
     process.stdout.write(
       `${check.state.padEnd(5)} ${check.label}: ${check.detail}\n`,
@@ -195,7 +192,7 @@ async function repositoryChecks(config: Config, cwd: string): Promise<Check[]> {
     return [
       fail(
         "Repositories",
-        "none registered; run parallel-integrator register from a project",
+        "none registered; run pintx register from a project",
       ),
     ];
   }
@@ -212,12 +209,7 @@ async function repositoryChecks(config: Config, cwd: string): Promise<Check[]> {
       )
     : config.repositories;
   if (currentCommonDir && repositories.length === 0) {
-    return [
-      fail(
-        "Current repository",
-        "not registered; run parallel-integrator register",
-      ),
-    ];
+    return [fail("Current repository", "not registered; run pintx register")];
   }
 
   const checks: Check[] = [];
@@ -382,7 +374,7 @@ async function branchDestinationCheck(
   if (targetBehind.code === 0) {
     return warn(
       `Branch destinations (${repository.path})`,
-      `staging ${repository.integrationBranch} is ahead of target ${target}; run parallel-integrator reconcile`,
+      `staging ${repository.integrationBranch} is ahead of target ${target}; run pintx reconcile`,
     );
   }
   return fail(
@@ -414,10 +406,7 @@ async function lockCheck(path: string): Promise<Check> {
     );
     return locks.length === 0
       ? pass("Integration locks", "none")
-      : warn(
-          "Integration locks",
-          `${locks.length} active; run parallel-integrator status`,
-        );
+      : warn("Integration locks", `${locks.length} active; run pintx status`);
   } catch (error) {
     return fail("Integration locks", errorMessage(error));
   }
@@ -445,7 +434,7 @@ function legacyChecks(
     return [
       fail(
         "Legacy automation",
-        `${conflicts.map((finding) => finding.label).join(", ")}; run parallel-integrator audit-legacy`,
+        `${conflicts.map((finding) => finding.label).join(", ")}; run pintx audit-legacy`,
       ),
     ];
   }
@@ -453,7 +442,7 @@ function legacyChecks(
     return [
       warn(
         "Legacy automation",
-        `could not verify ${uncertain.map((finding) => finding.label).join(", ")}; run parallel-integrator audit-legacy`,
+        `could not verify ${uncertain.map((finding) => finding.label).join(", ")}; run pintx audit-legacy`,
       ),
     ];
   }

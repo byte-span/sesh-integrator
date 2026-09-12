@@ -110,10 +110,7 @@ export function detailLines(row: DashboardRow): string[] {
     `Target: ${r ? targetBranch(r) : (s?.targetBranch ?? "unregistered")}`,
   ];
   if (!s)
-    return [
-      ...lines,
-      "No sessions. Run parallel-integrator begin from this repository.",
-    ];
+    return [...lines, "No sessions. Run pintx begin from this repository."];
   lines.push(
     `Session: ${s.id}`,
     `Task: ${s.taskSummary}`,
@@ -170,54 +167,354 @@ export function wrapLines(lines: string[], width: number): string[] {
   });
 }
 
+export function needsAttention(row: DashboardRow): boolean {
+  const s = row.session;
+  return (
+    !!s &&
+    s.status !== "succeeded" &&
+    (!row.repository ||
+      !!s.validationFailure ||
+      !!s.latestError ||
+      ["needs_review", "validation_pending", "promotion_pending"].includes(
+        s.status,
+      ))
+  );
+}
+
+export function orderDashboard(rows: DashboardRow[]): DashboardRow[] {
+  return [...rows].sort(
+    (a, b) => Number(needsAttention(b)) - Number(needsAttention(a)),
+  );
+}
+
+function stateLabel(row: DashboardRow): string {
+  const s = row.session;
+  if (!s) return "no sessions";
+  if (!row.repository) return "unregistered";
+  if (s.status === "succeeded") return "completed";
+  if (s.waitingForLock) return "waiting for lock";
+  if (s.awaitingConflictResolution) return "merge conflict";
+  if (s.validationFailure) return "validation failed";
+  return s.status.replaceAll("_", " ");
+}
+
+function nextStep(row: DashboardRow): string {
+  const s = row.session;
+  if (!s) return "Run begin in this repository";
+  if (!row.repository) return "Restore repository registration";
+  if (s.status === "succeeded") {
+    if (s.pullRequestUrl) return "Review and merge PR; Enter for follow-ups";
+    if (s.rolloutFollowUps?.length)
+      return "Complete external follow-ups; Enter details";
+    return "Enter to inspect completion and rollout";
+  }
+  if (s.waitingForLock) return "Wait for the current command; r refresh";
+  if (s.awaitingConflictResolution)
+    return "Resolve and stage conflicts, then R resume";
+  if (s.status === "promotion_pending")
+    return "Inspect promotion blocker, then R resume";
+  if (s.status === "validation_pending")
+    return "Inspect failed check, then R resume when safe";
+  if (s.status === "needs_review")
+    return "Inspect recovery details before R resume";
+  if (s.validationFailure) return "Inspect failed check, then v validate";
+  if (s.latestError) return "Enter to inspect the last error";
+  return s.sourceValidatedCommit
+    ? "i integrate (CLI rechecks saved validation)"
+    : "Commit source changes, then v validate";
+}
+
+export function dashboardActivity(
+  rows: DashboardRow[],
+): { at: string; text: string }[] {
+  return rows
+    .flatMap(({ session: s }) => {
+      if (!s) return [];
+      return (
+        [
+          [s.sourceValidatedAt, "validated"],
+          [s.integratedAt, "integrated"],
+          [s.promotedAt, "promoted"],
+        ] as const
+      ).flatMap(([at, action]) =>
+        at && Number.isFinite(Date.parse(at))
+          ? [
+              {
+                at,
+                text: `${action} | ${basename(s.repositoryPath)} | ${s.taskSummary}`,
+              },
+            ]
+          : [],
+      );
+    })
+    .sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+}
+
+export interface DashboardNavigation {
+  focus: "sessions" | "attention";
+  sessions: number;
+  attention: number;
+}
+
+export function dashboardSelection(
+  rows: DashboardRow[],
+  nav: DashboardNavigation,
+): number {
+  return nav.focus === "sessions"
+    ? nav.sessions
+    : rows.indexOf(rows.filter(needsAttention)[nav.attention]!);
+}
+
+export function navigateDashboard(
+  rows: DashboardRow[],
+  nav: DashboardNavigation,
+  key: "tab" | "up" | "down",
+): DashboardNavigation {
+  const next = { ...nav };
+  if (key === "tab") {
+    next.focus =
+      nav.focus === "sessions" && rows.some(needsAttention)
+        ? "attention"
+        : "sessions";
+  } else {
+    const count =
+      nav.focus === "sessions"
+        ? rows.length
+        : rows.filter(needsAttention).length;
+    next[nav.focus] = Math.max(
+      0,
+      Math.min(count - 1, nav[nav.focus] + (key === "down" ? 1 : -1)),
+    );
+  }
+  return next;
+}
+
 export function renderDashboard(
   rows: DashboardRow[],
   selected: number,
   width: number,
   height: number,
+  refreshedAt = new Date(),
+  navigation: DashboardNavigation = {
+    focus: "sessions",
+    sessions: selected,
+    attention: 0,
+  },
 ): string[] {
-  const lines = [
-    "parallel-integrator",
-    "Repository / target | Status | Branch | Task",
-    "",
+  width = Math.max(1, Math.floor(width));
+  height = Math.max(1, Math.floor(height));
+  const clip = (value: string, size: number) => {
+    const safe = terminalText(value);
+    return safe.length <= size
+      ? safe
+      : size > 3
+        ? safe.slice(0, size - 3) + "..."
+        : safe.slice(0, size);
+  };
+  const fit = (value: string, size: number) => clip(value, size).padEnd(size);
+  const panel = (
+    title: string,
+    content: string[],
+    size: number,
+    count: number,
+    focused = false,
+  ) => [
+    `${focused ? "+= " : "+- "}${fit(title + (focused ? " [focused]" : ""), size - 5)}${focused ? "=+" : "-+"}`,
+    ...Array.from(
+      { length: count },
+      (_, i) => `| ${fit(content[i] ?? "", size - 4)} |`,
+    ),
+    `+${(focused ? "=" : "-").repeat(size - 2)}+`,
   ];
-  const count = Math.max(1, height - 7);
-  const start = Math.max(0, selected - count + 1);
-  for (
-    let index = start;
-    index < Math.min(rows.length, start + count);
-    index++
-  ) {
-    const { repository: r, session: s } = rows[index]!;
-    lines.push(
-      `${index === selected ? ">" : " "} ${basename(r?.path ?? s?.repositoryPath ?? "-")} / ${r ? targetBranch(r) : "?"} | ${s?.waitingForLock ? "waiting for lock" : (s?.status ?? "no sessions")} | ${s?.branch ?? "-"} | ${s?.taskSummary ?? "Run begin to start a task"}`,
-    );
+  const sessions = rows.flatMap((r) => (r.session ? [r.session] : []));
+  const blocked = rows.filter(needsAttention).length;
+  const active = rows.filter(
+    (r) => r.session?.status === "active" && !needsAttention(r),
+  ).length;
+  const ready = rows.filter(
+    (r) => r.session?.status === "ready" && !needsAttention(r),
+  ).length;
+  const today = refreshedAt.toISOString().slice(0, 10);
+  const completed = sessions.filter(
+    (s) =>
+      s.status === "succeeded" &&
+      (s.remotePromotedAt ?? s.promotedAt)?.slice(0, 10) === today,
+  ).length;
+  const selectedRow = rows[selected];
+  const summary = `${active} active | ${ready} ready | ${blocked} blocked | ${completed} completed today (UTC)`;
+  const attention = rows.filter(needsAttention);
+  const focusedRows = navigation.focus === "attention" ? attention : rows;
+  const cursor = navigation[navigation.focus];
+  const position = `${focusedRows.length ? cursor + 1 : 0}/${focusedRows.length}`;
+  const footer = `${position} Tab panel | Up/Down select | Enter details | r refresh | q quit`;
+  const actions = "v validate | i integrate | R resume";
+  const name = (r: DashboardRow) =>
+    basename(r.repository?.path ?? r.session?.repositoryPath ?? "-");
+  const target = (r: DashboardRow) =>
+    r.repository
+      ? targetBranch(r.repository)
+      : (r.session?.targetBranch ?? "?");
+  // Small terminals retain every session and full details via Enter.
+  if (width < 100 || height < 28) {
+    const count = Math.max(1, height - 7);
+    const start = Math.max(0, cursor - count + 1);
+    return [
+      "parallel-integrator",
+      summary,
+      `${navigation.focus === "attention" ? "Needs attention" : "Sessions"} [focused] - Tab panel`,
+      ...focusedRows
+        .slice(start, start + count)
+        .map(
+          (r, i) =>
+            `${start + i === cursor ? ">" : " "} ${name(r)} | ${stateLabel(r)} | ${r.session?.taskSummary ?? "Run begin"}`,
+        ),
+      ...(!rows.length ? ["No repositories or sessions. Run register."] : []),
+      selectedRow ? `Next: ${nextStep(selectedRow)}` : "",
+      actions,
+      footer,
+    ]
+      .slice(0, height)
+      .map((l) => clip(l, width));
   }
-  if (!rows.length)
-    lines.push(
-      "No repositories or sessions. Run parallel-integrator register in a repository.",
+  const attentionCount = Math.min(4, Math.max(1, attention.length));
+  const selectedAttention = navigation.attention;
+  const attentionStart = Math.max(0, selectedAttention - attentionCount + 1);
+  const col = Math.floor((width - 10) * 0.19);
+  const attentionLines = attention
+    .slice(attentionStart, attentionStart + attentionCount)
+    .map(
+      (r) =>
+        `${navigation.focus === "attention" && r === attention[navigation.attention] ? ">" : " "} ${fit(stateLabel(r), col)} ${fit(name(r), col)} ${fit(r.session!.taskSummary, col + 6)} ${nextStep(r)}`,
     );
-  lines.push(
-    "",
-    `${rows.length ? selected + 1 : 0}/${rows.length}  Up/Down select | Enter details`,
-    "r refresh | q quit",
+  const lines = [
+    `parallel-integrator${" ".repeat(Math.max(1, width - 53))}Last refresh ${refreshedAt.toISOString().slice(11, 19)} UTC`,
+    ...panel(summary, [], width, 0),
+    ...panel(
+      `Needs attention (${attention.length})${attention.length > attentionCount ? " - scroll for more" : ""}`,
+      attention.length ? attentionLines : ["No integration blockers recorded."],
+      width,
+      attentionCount,
+      navigation.focus === "attention",
+    ),
+  ];
+  const bodyHeight = height - lines.length - 2;
+  const leftWidth = Math.floor(width * 0.48);
+  const rightWidth = width - leftWidth - 1;
+  const repoHeight = Math.max(5, Math.floor(bodyHeight * 0.48));
+  const sessionHeight = bodyHeight - repoHeight;
+  const repositories = new Map<string, DashboardRow[]>();
+  for (const r of rows) {
+    const path = r.repository?.path ?? r.session!.repositoryPath;
+    repositories.set(path, [...(repositories.get(path) ?? []), r]);
+  }
+  const repoRows = [...repositories.values()];
+  const selectedRepo = repoRows.findIndex(
+    (group) => selectedRow && group.includes(selectedRow),
   );
-  return lines.map((line) => {
-    const text = terminalText(line);
-    return text.length <= width
-      ? text
-      : text.slice(0, Math.max(0, width - 3)) + "...";
-  });
+  const repoCount = repoHeight - 3;
+  const repoStart = Math.max(0, selectedRepo - repoCount + 1);
+  const repoLines = repoRows
+    .slice(repoStart, repoStart + repoCount)
+    .map((group) => {
+      const r =
+        group.find(needsAttention) ??
+        group.find((r) => r.session && r.session.status !== "succeeded") ??
+        group[0]!;
+      return `${fit(name(r), 18)} ${fit(target(r), 10)} ${stateLabel(r)}`;
+    });
+  const sessionCount = sessionHeight - 2;
+  const sessionStart = Math.max(0, navigation.sessions - sessionCount + 1);
+  const left = [
+    ...panel(
+      `Repository overview (${repoRows.length})`,
+      ["REPOSITORY         TARGET     STATE", ...repoLines],
+      leftWidth,
+      repoHeight - 2,
+    ),
+    ...panel(
+      `Sessions ${rows.length ? navigation.sessions + 1 : 0}/${rows.length}`,
+      rows.length
+        ? rows
+            .slice(sessionStart, sessionStart + sessionCount)
+            .map(
+              (r, i) =>
+                `${navigation.focus === "sessions" && sessionStart + i === navigation.sessions ? ">" : " "} ${name(r)} | ${stateLabel(r)} | ${r.session?.taskSummary ?? "Run begin"}`,
+            )
+        : ["No repositories. Run register to start."],
+      leftWidth,
+      sessionCount,
+      navigation.focus === "sessions",
+    ),
+  ];
+  const activityHeight = Math.max(5, Math.floor(bodyHeight * 0.42));
+  const events = dashboardActivity(rows);
+  const activity = events.map(
+    (e) => `${e.at.slice(0, 10)} ${e.at.slice(11, 19)} ${e.text}`,
+  );
+  const s = selectedRow?.session;
+  const details = selectedRow
+    ? [
+        `Repository: ${name(selectedRow)} / ${target(selectedRow)}`,
+        `Task: ${s?.taskSummary ?? "No session"}`,
+        `Branch: ${s?.branch ?? "-"}`,
+        `Session: ${s?.id ?? "-"}`,
+        `Status: ${stateLabel(selectedRow)}`,
+        `Next: ${nextStep(selectedRow)}`,
+        ...(s?.latestError ? [`Error: ${s.latestError}`] : []),
+        "Enter for full details, errors and follow-ups",
+      ]
+    : ["Select a session to inspect its next action."];
+  const right = [
+    ...panel(
+      "Recent activity (UTC, saved milestones)",
+      events.length ? activity : ["No recorded activity."],
+      rightWidth,
+      activityHeight - 2,
+    ),
+    ...panel(
+      "Selected item",
+      details,
+      rightWidth,
+      bodyHeight - activityHeight - 2,
+    ),
+  ];
+  lines.push(...left.map((line, i) => `${line} ${right[i]}`), actions, footer);
+  return lines.map((l) => clip(l, width));
+}
+
+// Only paint sanitized, clipped renderer output; persisted text cannot inject ANSI.
+export function colorDashboardLine(line: string): string {
+  const safe = terminalText(line);
+  const color = /(?:^|\| )> /.test(safe)
+    ? "44;97"
+    : /Needs attention|merge conflict|validation failed/.test(safe)
+      ? "91"
+      : /pending|blocked/.test(safe)
+        ? "93"
+        : /completed|validated|promoted/.test(safe)
+          ? "92"
+          : /parallel-integrator|Repository overview|Recent activity|Selected item|Sessions/.test(
+                safe,
+              )
+            ? "96"
+            : "";
+  return color ? `\x1b[${color}m${safe}\x1b[0m` : safe;
 }
 
 export async function dashboardCommand(): Promise<void> {
   const { stdin, stdout } = process;
   if (!stdin.isTTY || !stdout.isTTY || process.env.TERM === "dumb")
     throw new Error(
-      "dashboard requires an interactive terminal; use parallel-integrator status for plain output",
+      "dashboard requires an interactive terminal; use pintx status for plain output",
     );
-  let rows = await loadDashboard();
+  let rows = orderDashboard(await loadDashboard());
+  let refreshedAt = new Date();
   let selected = 0;
+  let navigation: DashboardNavigation = {
+    focus: "sessions",
+    sessions: 0,
+    attention: 0,
+  };
   let mode: "list" | "details" | "form" | "confirm" | "output" = "list";
   let scroll = 0;
   let message = "";
@@ -259,6 +556,8 @@ export async function dashboardCommand(): Promise<void> {
         selected,
         width,
         height - (message ? 1 : 0),
+        refreshedAt,
+        navigation,
       );
     } else {
       const row = rows[selected];
@@ -271,11 +570,11 @@ export async function dashboardCommand(): Promise<void> {
           "",
           ...(["validate", "integrate", "resume"] as const).map(
             (a) =>
-              `${a === "resume" ? "s" : a[0]} ${a}: ${actionReason(row, a) ?? "available"}`,
+              `${a === "resume" ? "R" : a[0]} ${a}: ${actionReason(row, a) ?? "available"}`,
           ),
         ];
         footer = [
-          "v validate | i integrate | s resume",
+          "v validate | i integrate | R resume",
           "Esc back | r refresh | q quit",
         ];
       } else if (mode === "confirm") {
@@ -337,19 +636,53 @@ export async function dashboardCommand(): Promise<void> {
       "\x1b[H\x1b[2J" +
         lines
           .slice(0, height)
-          .map((line) => terminalText(line).slice(0, width))
+          .map((line) => {
+            const safe = terminalText(line).slice(0, width);
+            return mode === "list" && process.env.NO_COLOR === undefined
+              ? colorDashboardLine(safe)
+              : safe;
+          })
           .join("\r\n"),
     );
   };
   const refresh = async () => {
+    const oldSession = rows[navigation.sessions];
+    const oldAttention = rows.filter(needsAttention)[navigation.attention];
     const id = rows[selected]?.session?.id;
     const path = rows[selected]?.repository?.path;
-    rows = await loadDashboard();
+    rows = orderDashboard(await loadDashboard());
+    refreshedAt = new Date();
     const found = rows.findIndex((r) =>
       id ? r.session?.id === id : r.repository?.path === path,
     );
     selected =
       found >= 0 ? found : Math.min(selected, Math.max(0, rows.length - 1));
+    const preserve = (
+      list: DashboardRow[],
+      old: DashboardRow | undefined,
+      fallback: number,
+    ) => {
+      const index = list.findIndex((r) =>
+        old?.session
+          ? r.session?.id === old.session.id
+          : old?.repository && r.repository?.path === old.repository.path,
+      );
+      return index >= 0
+        ? index
+        : Math.max(0, Math.min(fallback, list.length - 1));
+    };
+    navigation.sessions = preserve(rows, oldSession, navigation.sessions);
+    const attention = rows.filter(needsAttention);
+    navigation.attention = preserve(
+      attention,
+      oldAttention,
+      navigation.attention,
+    );
+    if (!attention.length) {
+      if (navigation.focus === "attention") navigation.sessions = selected;
+      navigation.focus = "sessions";
+    }
+    selected = dashboardSelection(rows, navigation);
     if (!rows.length) mode = "list";
   };
   const close = () => {
@@ -496,19 +829,29 @@ export async function dashboardCommand(): Promise<void> {
       close();
       return;
     }
-    if (key.name === "r") {
+    if (key.name === "r" && !key.shift) {
       await refresh();
+      return;
+    }
+    if (mode === "list" && key.name === "tab") {
+      navigation = navigateDashboard(rows, navigation, "tab");
+      selected = dashboardSelection(rows, navigation);
       return;
     }
     if (key.name === "down" || key.name === "up") {
       const delta = key.name === "down" ? 1 : -1;
-      if (mode === "list")
-        selected = Math.max(0, Math.min(rows.length - 1, selected + delta));
-      else scroll = Math.max(0, scroll + delta);
+      if (mode === "list") {
+        navigation = navigateDashboard(rows, navigation, key.name);
+        selected = dashboardSelection(rows, navigation);
+      } else scroll = Math.max(0, scroll + delta);
     } else if (key.name === "return" && rows[selected]) {
       mode = "details";
       scroll = 0;
-    } else if (mode === "details" && ["v", "i", "s"].includes(key.name ?? "")) {
+    } else if (
+      rows[selected] &&
+      (["v", "i", "s"].includes(key.name ?? "") ||
+        (key.name === "r" && key.shift))
+    ) {
       pending =
         key.name === "v"
           ? "validate"
