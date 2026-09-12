@@ -163,8 +163,12 @@ smaller terminals use a compact session overview. `NO_COLOR` disables color.
 Browsing uses the existing runtime
 without writing configuration or session state. There is no automatic polling.
 
-Use Up/Down to select a session, Enter for details, `r` to refresh, and `q` to
-quit. In details, Up/Down scrolls the complete record, including long follow-ups.
+Use Tab (or Shift-Tab) to switch between Sessions and Needs attention. Each
+panel remembers its own selection; Up/Down moves only within the focused panel.
+The focused panel has a double-line border and a `[focused]` label, and only its
+selected row is highlighted. Details and actions follow that selection. Empty
+attention panels are skipped. Compact terminals show the focused list.
+Use Enter for details, `r` to refresh, and `q` to quit. In details, Up/Down scrolls the complete record, including long follow-ups.
 From either the overview or details, `v` validates, `i` integrates, and `R`
 resumes a preserved integration (`s` remains an alias). Unavailable
 actions show a reason. Escape returns or cancels a form. The dashboard requires

@@ -11,6 +11,9 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { afterEach, expect, it, vi } from "vitest";
 import {
+  dashboardSelection,
+  navigateDashboard,
+  type DashboardNavigation,
   colorDashboardLine,
   dashboardActivity,
   orderDashboard,
@@ -330,4 +333,73 @@ it("only emits its own terminal color sequences", () => {
   expect(colored).toContain("\x1b[44;97m");
   expect(colored).not.toContain("\x1b[2J");
   expect(colored).not.toContain("52;c;");
+});
+
+it("keeps panel cursors independent and details tied to the focused panel", () => {
+  const rows = Array.from({ length: 8 }, (_, i) => {
+    const r = row();
+    r.session = {
+      ...r.session!,
+      id: `session-${i}`,
+      taskSummary: `unique-task-${i}`,
+      status: i < 6 ? "needs_review" : "active",
+    };
+    return r;
+  });
+  let nav: DashboardNavigation = {
+    focus: "sessions",
+    sessions: 7,
+    attention: 0,
+  };
+  nav = navigateDashboard(rows, nav, "tab");
+  nav = navigateDashboard(rows, nav, "down");
+  expect(nav).toEqual({ focus: "attention", sessions: 7, attention: 1 });
+  expect(dashboardSelection(rows, nav)).toBe(1);
+  const draw = (state: DashboardNavigation) =>
+    renderDashboard(
+      rows,
+      dashboardSelection(rows, state),
+      140,
+      36,
+      new Date(),
+      state,
+    );
+  const before = draw(nav);
+  nav = navigateDashboard(rows, nav, "down");
+  const after = draw(nav);
+  const sessionPanel = (lines: string[]) =>
+    lines
+      .slice(
+        lines.findIndex((l) => l.includes("Sessions 8/8")),
+        -2,
+      )
+      .map((l) => l.slice(0, 67));
+  expect(sessionPanel(after)).toEqual(sessionPanel(before));
+  expect(after.join("\n")).toContain("Task: unique-task-2");
+  expect(after.filter((l) => /(?:^|\| )> /.test(l))).toHaveLength(1);
+  expect(after.find((l) => l.includes("Needs attention"))).toContain(
+    "[focused]",
+  );
+  expect(after.find((l) => l.includes("Sessions 8/8"))).not.toContain(
+    "[focused]",
+  );
+  nav = navigateDashboard(rows, nav, "tab");
+  expect(dashboardSelection(rows, nav)).toBe(7);
+  expect(draw(nav).join("\n")).toContain("Task: unique-task-7");
+  expect(
+    renderDashboard(rows, 2, 79, 24, new Date(), {
+      ...nav,
+      focus: "attention",
+    }).join("\n"),
+  ).toContain("Needs attention [focused]");
+});
+it("skips an empty attention panel and clamps navigation at panel boundaries", () => {
+  const nav: DashboardNavigation = {
+    focus: "sessions",
+    sessions: 0,
+    attention: 0,
+  };
+  expect(navigateDashboard([row()], nav, "tab")).toEqual(nav);
+  expect(navigateDashboard([], nav, "down")).toEqual(nav);
+  expect(navigateDashboard([row()], nav, "up")).toEqual(nav);
 });
