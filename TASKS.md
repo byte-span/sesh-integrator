@@ -4,6 +4,8 @@ Complete personal MVP implementation checklist.
 
 ## Foundation
 
+- [x] Expose `pintx` as the preferred command while preserving compatibility aliases
+
 - [x] Initialize pnpm + TypeScript + ESM
 - [x] Enable strict TypeScript
 - [x] Add build, typecheck, test, and formatting scripts

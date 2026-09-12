@@ -2,7 +2,9 @@
 
 ## Project
 
-Build a new personal tool named **parallel-integrator**.
+Build a personal tool named **parallel-integrator**, with **`pintx`** as its
+preferred CLI command. Keep `parallel-integrator` and `codex-handoff` as
+compatibility commands.
 
 This project must remain separate from the existing watcher/daemon project at:
 
@@ -26,7 +28,7 @@ Codex CLI task starts in an existing checkout
 → inspect or begin the handoff session and record the base commit
 → Codex works
 → Codex creates a focused commit and validates its task
-→ Codex runs `parallel-integrator integrate`
+→ Codex runs `pintx integrate`
 → tool acquires repo lock
 → merge exact session commit into dedicated integration worktree
 → Codex resolves conflicts if necessary
@@ -88,19 +90,19 @@ Do not use a database.
 Implement:
 
 ```text
-parallel-integrator init
-parallel-integrator register [repo-path]
-parallel-integrator begin [--summary "..."] [--depends-on <session-id>]
-parallel-integrator integrate --summary "..." --rollout <none|applied|automated|manual> [--follow-up "..."]...
-parallel-integrator status
-parallel-integrator audit-legacy
-parallel-integrator doctor
+pintx init
+pintx register [repo-path]
+pintx begin [--summary "..."] [--depends-on <session-id>]
+pintx integrate --summary "..." --rollout <none|applied|automated|manual> [--follow-up "..."]...
+pintx status
+pintx audit-legacy
+pintx doctor
 ```
 
 Optional only if it remains small:
 
 ```text
-parallel-integrator abort-session
+pintx abort-session
 ```
 
 Do not add a `run`, `daemon`, `watch`, or background-service command.
@@ -145,12 +147,12 @@ require a linked worktree.
 
 Operate autonomously by default. Registration and normal lifecycle commands do
 not require routine approval. If a repository is unregistered, run
-`parallel-integrator register --auto-config` and continue. Before beginning, inspect
-`parallel-integrator status`: continue an active or recoverable session attached to
+`pintx register --auto-config` and continue. Before beginning, inspect
+`pintx status`: continue an active or recoverable session attached to
 the current checkout when it belongs to the same task; otherwise begin a new
 session. Never replace or overwrite a session for a different task.
 
-`parallel-integrator begin` records:
+`pintx begin` records:
 
 - session ID
 - repository path
@@ -163,7 +165,7 @@ session. Never replace or overwrite a session for a different task.
 - optional dependencies
 
 For Codex CLI tasks, run
-`parallel-integrator begin --create-worktree --summary "..."`. From an ordinary
+`pintx begin --create-worktree --summary "..."`. From an ordinary
 checkout it creates a unique task branch in a separate, tool-managed source
 worktree under `~/.parallel-integrator/source-worktrees/`, records both the launch and
 source paths, and prints the source path. All subsequent edits and lifecycle
@@ -199,7 +201,7 @@ The Codex CLI workflow is responsible for validating and creating a focused
 source-branch commit before invoking:
 
 ```bash
-parallel-integrator integrate --summary "<completion summary>" --rollout <none|applied|automated|manual> [--follow-up "<required action>"]...
+pintx integrate --summary "<completion summary>" --rollout <none|applied|automated|manual> [--follow-up "<required action>"]...
 ```
 
 `integrate` must:

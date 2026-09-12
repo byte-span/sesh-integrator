@@ -230,7 +230,7 @@ export async function cleanupGuidanceCommand(apply: boolean): Promise<void> {
   );
   if (!apply && changed)
     process.stdout.write(
-      "Run parallel-integrator cleanup-guidance --apply to clean all eligible registered checkouts.\n",
+      "Run pintx cleanup-guidance --apply to clean all eligible registered checkouts.\n",
     );
   if (apply && changed)
     process.stdout.write(

@@ -1,17 +1,17 @@
-# parallel-integrator
+# parallel-integrator (`pintx`)
 
 `parallel-integrator` is a personal, one-shot Git integration CLI for Codex sessions working in parallel worktrees. It has no daemon, watcher, polling service, LaunchAgent, or background queue.
 
 ```text
-parallel-integrator begin
+pintx begin
 → create/reuse an isolated source worktree for Codex CLI
 → Codex changes and commits its source branch
-→ parallel-integrator validate
-→ parallel-integrator integrate
+→ pintx validate
+→ pintx integrate
 → acquire the repository lock
 → merge the exact ready commit in a dedicated integration worktree
 → let the current Codex session resolve conflicts if needed
-→ parallel-integrator resume
+→ pintx resume
 → validate and commit on the internal staging branch
 → safely promote the exact validated commit to the configured target branch
 → run post-integration checks from that target branch's clean worktree
@@ -25,14 +25,19 @@ new: ~/.parallel-integrator/       parallel-integrator/integration
 old: ~/.codex-integrator/    codex/integration
 ```
 
+Use **`pintx`** as the short command. `parallel-integrator` and `codex-handoff`
+remain supported aliases for the same CLI.
+
 ## Requirements and installation
 
 ### Renaming an existing installation
 
-This project was previously named `codex-handoff`. The package, primary CLI,
-source folder, bundled skill, and health timer are now named
-`parallel-integrator`. The installer also supplies `codex-handoff` as a
-compatibility command for existing scripts and guidance.
+This project was previously named `codex-handoff`. The package and repository
+remain named `parallel-integrator`; the preferred command is now `pintx`.
+Rebuild and rerun `./scripts/install-cli.sh` to add the short command to an
+existing installation. Both `parallel-integrator` and `codex-handoff` remain
+compatibility commands for existing scripts and guidance. No runtime migration
+or repository rename is needed to adopt `pintx`.
 
 Runtime selection uses `PARALLEL_INTEGRATOR_HOME`, then the compatibility
 `CODEX_HANDOFF_HOME` variable. Without either override, an existing
@@ -78,10 +83,10 @@ corepack enable
 pnpm install
 pnpm build
 ./scripts/install-cli.sh
-parallel-integrator init
+pintx init
 ```
 
-The CLI installer creates an idempotent symlink in `~/.local/bin`, which must be on `PATH`. Set `PARALLEL_INTEGRATOR_BIN_DIR` to choose another user-writable bin directory. It also installs the machine safeguards: the bundled skill, global managed guidance, conservative self-hosting Git hooks, and a bounded six-hourly user systemd health check. The health check safely fetches `origin/main` and fast-forwards a clean local `dev` after a remote dev-to-main merge; dirty or divergent state is reported and preserved.
+The CLI installer creates idempotent `pintx`, `parallel-integrator`, and `codex-handoff` symlinks in `~/.local/bin`, which must be on `PATH`. Set `PARALLEL_INTEGRATOR_BIN_DIR` to choose another user-writable bin directory. It also installs the machine safeguards: the bundled skill, global managed guidance, conservative self-hosting Git hooks, and a bounded six-hourly user systemd health check. The health check safely fetches `origin/main` and fast-forwards a clean local `dev` after a remote dev-to-main merge; dirty or divergent state is reported and preserved.
 
 `scripts/install-skill.sh` idempotently installs the supplied skill at `~/.agents/skills/parallel-integrator-workflow/`. It accepts an alternate destination for testing:
 
@@ -102,7 +107,7 @@ project instructions with a bundled template. To remove the old generated blocks
 from every registered checkout on a machine, run:
 
 ```bash
-parallel-integrator cleanup-guidance --apply
+pintx cleanup-guidance --apply
 ```
 
 Omit `--apply` to preview. The command reads the selected runtime's repository
@@ -130,28 +135,28 @@ its original file back to the recorded path without overwriting newer edits.
 These are the complete commands implemented by the MVP:
 
 ```bash
-parallel-integrator init
-parallel-integrator register [repo-path] [--auto-config] [--setup-command '<json-array>']...
-parallel-integrator begin --summary "Implement feature" [--create-worktree] [--no-auto-branch] [--depends-on <session-id>]...
-parallel-integrator commit --message "Implement feature" [--session <session-id>]
-parallel-integrator validate [--session <session-id>]
-parallel-integrator integrate --summary "Implemented feature and tests" --rollout <none|applied|automated|manual> [--follow-up "..."]... [--session <session-id>]
-parallel-integrator resume [--session <session-id>]
-parallel-integrator incident <ticket-id>
-parallel-integrator status [--session <session-id>]
-parallel-integrator dashboard
-parallel-integrator reconcile [repo-path] [--apply]
-parallel-integrator audit-legacy
-parallel-integrator cleanup-guidance [--apply]
-parallel-integrator doctor
-parallel-integrator benchmark [--runs <n>] [--json] [--check]
+pintx init
+pintx register [repo-path] [--auto-config] [--setup-command '<json-array>']...
+pintx begin --summary "Implement feature" [--create-worktree] [--no-auto-branch] [--depends-on <session-id>]...
+pintx commit --message "Implement feature" [--session <session-id>]
+pintx validate [--session <session-id>]
+pintx integrate --summary "Implemented feature and tests" --rollout <none|applied|automated|manual> [--follow-up "..."]... [--session <session-id>]
+pintx resume [--session <session-id>]
+pintx incident <ticket-id>
+pintx status [--session <session-id>]
+pintx dashboard
+pintx reconcile [repo-path] [--apply]
+pintx audit-legacy
+pintx cleanup-guidance [--apply]
+pintx doctor
+pintx benchmark [--runs <n>] [--json] [--check]
 ```
 
 There are no `run`, `daemon`, `watch`, or service-management commands.
 
 ### `dashboard`
 
-Run `parallel-integrator dashboard` in an interactive terminal to browse all
+Run `pintx dashboard` in an interactive terminal to browse all
 registered repositories and their sessions. The overview shows session counts,
 blockers and next steps, repository state, recent saved milestones, and selected
 session details. Blocked sessions appear first, then newest first by start time
@@ -187,7 +192,7 @@ Command output stays in the normal terminal scrollback. After completion, Enter
 returns to refreshed details and `q` quits. Ctrl-C interrupts a running command
 using normal terminal signals; inspect its preserved result before retrying.
 Resolve and stage conflicts outside the dashboard before choosing Resume.
-For redirected output or a noninteractive terminal, use `parallel-integrator status`.
+For redirected output or a noninteractive terminal, use `pintx status`.
 
 ### `init`
 
@@ -228,7 +233,7 @@ Run once for each repository:
 
 ```bash
 cd ~/Developer/my-project
-parallel-integrator register
+pintx register
 ```
 
 Registration records the real Git common directory, branches, and central
@@ -240,7 +245,7 @@ validation scripts. It works during initial registration and for an existing
 registration:
 
 ```bash
-parallel-integrator register --auto-config
+pintx register --auto-config
 ```
 
 Setup detection prefers an executable `scripts/bootstrap`, `scripts/setup`, or `bin/setup`.
@@ -275,7 +280,7 @@ For an unknown ecosystem, provide one or more argument arrays once during
 registration:
 
 ```bash
-parallel-integrator register --setup-command '["make","bootstrap"]'
+pintx register --setup-command '["make","bootstrap"]'
 ```
 
 Edit `~/.parallel-integrator/config.json` to add validation and conflict settings. Commands are argument arrays and are never passed through a shell:
@@ -363,14 +368,14 @@ assignees. Omit
 `productionBranch` to use `defaultBranch`, omit `remote` to use `origin`, and
 omit `reviewers` when CODEOWNERS or another GitHub policy assigns reviewers.
 The remote step requires authenticated `git` and `gh` access. Failures remain
-resumable with `parallel-integrator resume`.
+resumable with `pintx resume`.
 
 In shared-target mode, a non-fast-forward push caused by an advanced remote
 target is recovered automatically. The tool fetches the exact remote target,
 merges it into the validated staging integration, runs full integration
 validation and post-integration checks again, promotes the rebuilt commit
 locally, and retries the normal push. Recovery is limited to three attempts.
-Conflicts are preserved for `parallel-integrator resume`; validation failures,
+Conflicts are preserved for `pintx resume`; validation failures,
 ambiguous ancestry, and continued remote movement stop safely. The fetched
 commit and attempt count are persisted so interrupted recovery is resumable.
 
@@ -494,7 +499,7 @@ Auto-configured setup is `advisory` during `begin`: failure prints a warning but
 does not block branch or session creation. Explicit `--setup-command` setup is
 `required` and still blocks `begin` on failure. Integration normally requires
 successful setup before its selected validation commands. The workflow skill
-commits the focused change, then runs `parallel-integrator validate` against that exact
+commits the focused change, then runs `pintx validate` against that exact
 commit. After the staging branch advances, the CLI promotes the validated
 commit and runs `postIntegrationCommands` from the clean worktree checking out
 the target branch. Configuring these commands therefore requires exactly one
@@ -517,7 +522,7 @@ an existing repository with no tiers configured.
 
 An explicitly configured tier may set `bypassIntegrationWorktree` to `true`.
 The bypass is used only for the exact commit previously checked by
-`parallel-integrator validate`, and only when the tier has no integration commands and
+`pintx validate`, and only when the tier has no integration commands and
 the repository has no post-integration commands. Under the repository lock, the
 CLI uses Git plumbing and atomically advances the staging ref, then promotes
 through the normal checked-target safety path. Conflicts or
@@ -572,7 +577,7 @@ For a Codex CLI task launched from an ordinary checkout, create the session in
 a separate source worktree:
 
 ```bash
-parallel-integrator begin --create-worktree --summary "Implement comment editing"
+pintx begin --create-worktree --summary "Implement comment editing"
 ```
 
 The command creates a unique branch and linked worktree below
@@ -633,9 +638,9 @@ After staging only the focused task paths, create the source commit and run
 tiered validation:
 
 ```bash
-parallel-integrator commit --message "Implement comment editing"
-parallel-integrator validate
-parallel-integrator integrate --summary "Implemented comment editing and tests" --rollout none
+pintx commit --message "Implement comment editing"
+pintx validate
+pintx integrate --summary "Implemented comment editing and tests" --rollout none
 ```
 
 Every integration must classify external-state rollout as `none`, `applied`,
@@ -647,7 +652,7 @@ was applied.
 Integration and recovery results print a `Completion summary` containing the session
 ID, source commit, staging integration commit, target promotion, pull request
 URL when present, and every recorded manual action in full. Retrieve it again
-with `parallel-integrator status --session <session-id>`. Status also separates current
+with `pintx status --session <session-id>`. Status also separates current
 integration prerequisites from external actions. Successful recovery removes
 resolved integration blockers; it does not imply that external setup occurred.
 `automated` reports delegation, not verified external completion. Legacy sessions
@@ -702,7 +707,7 @@ still run. Retries reuse successes only while every fingerprint remains exact.
 
 On conflict, `integrate` preserves the merge and saves a contextual prompt under
 `~/.parallel-integrator/logs/`. The workflow skill directs the current Codex session to
-resolve and stage the preserved worktree, then runs `parallel-integrator resume` from
+resolve and stage the preserved worktree, then runs `pintx resume` from
 the source worktree. `resume` reacquires the repository lock, verifies the exact
 source commit, integration HEAD, merge target, branch, and resolved index, then
 validates and commits. This default path makes no nested model request.
@@ -717,7 +722,7 @@ After the workflow has resolved and staged a preserved merge, it runs this from
 the original source worktree:
 
 ```bash
-parallel-integrator resume
+pintx resume
 ```
 
 Do not run it from the integration worktree. It resumes only the matching
@@ -741,7 +746,7 @@ the clean merge, reacquires its resources, and retries validation.
 ### `status`
 
 ```bash
-parallel-integrator status
+pintx status
 ```
 
 Shows every session, active/ready/waiting/succeeded/`needs_review`/`promotion_pending` state, staging and promoted commits, target branch, recovery phase, worktree paths, latest error, and current lock owners.
@@ -754,7 +759,7 @@ ticket, concise diagnosis, and proposed fix. Inspect its complete stored record
 without mutation with:
 
 ```bash
-parallel-integrator incident CH-YYYYMMDD-XXXXXX
+pintx incident CH-YYYYMMDD-XXXXXX
 ```
 
 Instruction or code fixes proposed by an incident are implemented only in a
@@ -767,7 +772,7 @@ fallback instead of guessing. The failed session never edits its own policy.
 
 ### `reconcile`
 
-`parallel-integrator reconcile` audits registered repositories for historical session
+`pintx reconcile` audits registered repositories for historical session
 records marked succeeded whose staging commits are absent from the effective
 target. It is read-only unless `--apply` is passed. Apply is offered only for a
 recorded, ancestry-safe fast-forward whose staging head is an exact successful
@@ -782,7 +787,7 @@ If a process dies, a same-host dead-PID lock is removed automatically only when 
 Run one read-only readiness check from the project you intend to use:
 
 ```bash
-parallel-integrator doctor
+pintx doctor
 ```
 
 It checks Node.js, Git, the configured Codex executable, runtime/config files, the installed workflow skill, synchronized managed global guidance without stale concurrency prohibitions, current-project registration, separate staging/target branch ancestry, source and integration validation commands, active locks, and conflicting legacy automation. It prints `READY`, `READY WITH ... WARNINGS`, or `NOT READY` with actionable details. A `NOT READY` result exits nonzero. Warnings cover checks that could not be confirmed safely, such as an unavailable `launchctl` query.
@@ -810,7 +815,7 @@ merge, integration validation, commit, promotion, and post-integration timing;
 they also include subprocess counts, validation tier, changed-path count, and
 cache hits.
 
-`parallel-integrator benchmark` creates disposable small, large, dirty, conflicting,
+`pintx benchmark` creates disposable small, large, dirty, conflicting,
 and concurrent repositories and reports median, p95, and maximum tool/Git
 overhead separately from user-configured commands. `--check` enforces CI
 regression budgets. `PARALLEL_INTEGRATOR_BENCHMARK_BUDGET_SCALE` scales them for a
@@ -858,15 +863,15 @@ git -C "$trial_dir/repo" config user.email "handoff@example.com"
 touch "$trial_dir/repo/base.txt"
 git -C "$trial_dir/repo" add base.txt
 git -C "$trial_dir/repo" commit -m base
-parallel-integrator register "$trial_dir/repo"
+pintx register "$trial_dir/repo"
 git -C "$trial_dir/repo" worktree add -b codex/demo "$trial_dir/demo" main
 cd "$trial_dir/demo"
-parallel-integrator begin --summary "Disposable demo"
+pintx begin --summary "Disposable demo"
 echo demo > demo.txt
 git add demo.txt
-parallel-integrator commit --message "Add demo"
-parallel-integrator validate
-parallel-integrator integrate --summary "Added disposable demo" --rollout none
+pintx commit --message "Add demo"
+pintx validate
+pintx integrate --summary "Added disposable demo" --rollout none
 git -C "$trial_dir/repo" log --oneline --graph parallel-integrator/integration
 git -C "$trial_dir/repo" log --oneline --graph main
 ```
@@ -876,7 +881,7 @@ git -C "$trial_dir/repo" log --oneline --graph main
 First run the read-only audit:
 
 ```bash
-parallel-integrator audit-legacy
+pintx audit-legacy
 ```
 
 It reports `FOUND`, `NOT FOUND`, or `UNKNOWN` for the old source/runtime, skill, global instructions, Codex config, likely LaunchAgent, loaded launchctl jobs, registered-repository hooks, and old integration branches/worktrees. It changes none of them.
@@ -896,7 +901,7 @@ For rollback, stop invoking the new skill, restore the previous global guidance,
 ## Known limitations
 
 - Skill invocation remains instruction-driven. Source commit creation itself is
-  controlled by `parallel-integrator commit`; a crashed Codex session must still be
+  controlled by `pintx commit`; a crashed Codex session must still be
   resumed manually.
 - A running Codex CLI process cannot change its parent shell directory. The
   agent must honor the `Continue task in:` path for all subsequent tool calls.

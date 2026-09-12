@@ -4,6 +4,7 @@
   "description": "One-shot Git integration for parallel Codex worktrees",
   "type": "module",
   "bin": {
+    "pintx": "dist/cli.js",
     "parallel-integrator": "dist/cli.js",
     "codex-handoff": "dist/cli.js"
   },

@@ -110,10 +110,7 @@ export function detailLines(row: DashboardRow): string[] {
     `Target: ${r ? targetBranch(r) : (s?.targetBranch ?? "unregistered")}`,
   ];
   if (!s)
-    return [
-      ...lines,
-      "No sessions. Run parallel-integrator begin from this repository.",
-    ];
+    return [...lines, "No sessions. Run pintx begin from this repository."];
   lines.push(
     `Session: ${s.id}`,
     `Task: ${s.taskSummary}`,
@@ -508,7 +505,7 @@ export async function dashboardCommand(): Promise<void> {
   const { stdin, stdout } = process;
   if (!stdin.isTTY || !stdout.isTTY || process.env.TERM === "dumb")
     throw new Error(
-      "dashboard requires an interactive terminal; use parallel-integrator status for plain output",
+      "dashboard requires an interactive terminal; use pintx status for plain output",
     );
   let rows = orderDashboard(await loadDashboard());
   let refreshedAt = new Date();

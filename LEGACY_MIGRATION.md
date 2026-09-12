@@ -41,7 +41,7 @@ The source code of the old tool does not need to be deleted.
 Run:
 
 ```bash
-parallel-integrator audit-legacy
+pintx audit-legacy
 ```
 
 It should report, without changing anything:
@@ -153,7 +153,7 @@ Keep the old daemon source/config available for rollback, but leave the old runt
 Before a real trial, audit older handoff state:
 
 ```bash
-parallel-integrator reconcile
+pintx reconcile
 ```
 
 Review every `PENDING` result. Use `reconcile --apply` only when the command
@@ -198,5 +198,5 @@ reused exactly as before.
 To adopt independent review per handoff, set `mode` to `session-branch`. New or
 resumed sessions then push their own source branch and use a session-marked PR;
 existing shared-target PRs are not closed, merged, edited, or deleted. Confirm
-the remote base exists and run `parallel-integrator doctor` to verify branch syntax,
+the remote base exists and run `pintx doctor` to verify branch syntax,
 remote configuration, and GitHub CLI authentication before first use.

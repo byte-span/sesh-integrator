@@ -1,5 +1,9 @@
 # parallel-integrator — One-Shot Integration Specification
 
+The preferred executable is `pintx`. The npm package remains `parallel-integrator`;
+`parallel-integrator` and `codex-handoff` are compatibility executables pointing
+to the same CLI. Runtime paths, configuration variables, and Git refs are unchanged.
+
 ## 1. Problem
 
 Multiple Codex sessions can work concurrently in separate Git worktrees.
@@ -20,13 +24,13 @@ The difficult part is integrating their completed changes without repeatedly:
 ```text
 SESSION 1                         SESSION 2
    │                                 │
-   ├─ parallel-integrator begin            ├─ parallel-integrator begin
+   ├─ pintx begin            ├─ pintx begin
    │                                 │
    ├─ work                            ├─ work
    │                                 │
    ├─ validate + commit              ├─ validate + commit
    │                                 │
-   └─ parallel-integrator integrate        └─ parallel-integrator integrate
+   └─ pintx integrate        └─ pintx integrate
                  │                              │
                  └────────────┬─────────────────┘
                               │
@@ -298,7 +302,7 @@ Usage:
 
 ```bash
 cd <repo>
-parallel-integrator register [--auto-config]
+pintx register [--auto-config]
 ```
 
 Add a repository entry using:
@@ -350,13 +354,13 @@ Unknown ecosystems may supply repeatable JSON argument arrays with
 Usage:
 
 ```bash
-parallel-integrator begin --create-worktree --summary "Implement comment editing"
+pintx begin --create-worktree --summary "Implement comment editing"
 ```
 
 Optional:
 
 ```bash
-parallel-integrator begin \
+pintx begin \
   --summary "Add API endpoint" \
   --depends-on session_abc
 ```
@@ -421,10 +425,10 @@ Before integration, the skill:
 1. Reads repository instructions.
 2. Inspects `git status` and diff.
 3. Stages only intended task paths and creates a focused source-branch commit
-   with `parallel-integrator commit --message "..."` if task changes remain
+   with `pintx commit --message "..."` if task changes remain
    uncommitted. When signing is enabled, this performs a real OpenPGP preflight
    immediately before the commit and scopes the configured GPG program to Git.
-4. Runs `parallel-integrator validate` to compare the source against its recorded
+4. Runs `pintx validate` to compare the source against its recorded
    baseline and select a path-based tier for the exact task commit range.
 5. Stops if validation fails.
 6. Requires no newly introduced working-tree changes; observably unchanged,
@@ -432,8 +436,8 @@ Before integration, the skill:
 7. Calls:
 
 ```bash
-parallel-integrator validate
-parallel-integrator integrate --summary "Implemented edit flow and tests" --rollout none
+pintx validate
+pintx integrate --summary "Implemented edit flow and tests" --rollout none
 ```
 
 The CLI itself should not broadly stage arbitrary user files.
@@ -456,7 +460,7 @@ changed since session start matches one of that tier's patterns. No match uses
 the repository's full validation commands.
 
 A tier may explicitly request `bypassIntegrationWorktree`. The bypass requires
-the exact ready commit to have passed `parallel-integrator validate`, zero integration
+the exact ready commit to have passed `pintx validate`, zero integration
 commands for the tier, and zero post-integration commands. It still acquires the
 repository lock, merges against the current integration HEAD using Git plumbing,
 atomically advances the dedicated staging branch, and then uses the same safe
@@ -640,7 +644,7 @@ Build a conflict prompt containing:
 
 Persist the prompt and merge metadata, release the lock, and instruct the
 current Codex session to resolve and stage the integration worktree. The skill
-then invokes `parallel-integrator resume` from the source worktree. `resume` reacquires
+then invokes `pintx resume` from the source worktree. `resume` reacquires
 the lock and verifies the source snapshot, integration branch and HEAD,
 `MERGE_HEAD`, and absence of unmerged paths before continuing.
 
@@ -667,7 +671,7 @@ If unresolved or validation fails:
   separate user-approved session
 
 Incident proposals may improve the workflow skill or global instructions, but
-a failed session never edits its own policy. `parallel-integrator incident <ticket>`
+a failed session never edits its own policy. `pintx incident <ticket>`
 is read-only and exposes the stored diagnosis for a later session. Release the
 repository lock before invoking an ephemeral, read-only Codex investigation.
 Validate its response against a narrow schema; deterministic code captures
@@ -731,7 +735,7 @@ Git state, or legacy components.
 
 ### Explicit repository guidance cleanup
 
-`parallel-integrator cleanup-guidance` previews removal of recognized historical
+`pintx cleanup-guidance` previews removal of recognized historical
 managed repository blocks across registered checkout roots. `--apply` performs
 the cleanup with original-file backups under the selected runtime. Preserve
 all text outside the block and remove generated-only files. Skip staged files,
@@ -770,7 +774,7 @@ Do not disable anything automatically.
 
 ### 14.1 `reconcile`
 
-`parallel-integrator reconcile` is read-only by default. For each selected registered
+`pintx reconcile` is read-only by default. For each selected registered
 repository it compares staging and target ancestry and finds recorded
 `succeeded` integrations absent from the target. It offers a fast-forward only
 when the target is an ancestor of staging, the staging head is an exact recorded

@@ -502,7 +502,7 @@ export async function commitCommand(
   const stagedPaths = stagedOutput.split("\n").filter(Boolean);
   if (stagedPaths.length === 0) {
     throw new Error(
-      "No staged task changes. Stage only the intended task paths before running parallel-integrator commit",
+      "No staged task changes. Stage only the intended task paths before running pintx commit",
     );
   }
   for (const path of stagedPaths) {
@@ -1211,7 +1211,7 @@ async function mergeAndValidate(
     } else {
       throw new Error(
         `Merge conflict requires resolution by the current Codex session. ` +
-          `Resolve and stage files in ${worktree} using ${promptPath}, then run parallel-integrator resume from ${session.worktreePath}`,
+          `Resolve and stage files in ${worktree} using ${promptPath}, then run pintx resume from ${session.worktreePath}`,
       );
     }
     const remaining = await unmergedFiles(worktree);
@@ -1443,7 +1443,7 @@ async function tryDirectIntegration(
   if (!validation.bypassIntegrationWorktree) return false;
   if (session.sourceValidatedCommit !== session.readyCommit) {
     process.stdout.write(
-      "Direct integration bypass skipped: ready commit was not validated by parallel-integrator validate.\n",
+      "Direct integration bypass skipped: ready commit was not validated by pintx validate.\n",
     );
     return false;
   }
@@ -1658,7 +1658,7 @@ async function alignIntegrationBranchWithTarget(
   );
   const relation = targetBehind.code === 0 ? "ahead of" : "divergent from";
   throw new Error(
-    `Staging branch ${repository.integrationBranch} at ${staging} is ${relation} target ${session.targetBranch} at ${target}. Run parallel-integrator reconcile to audit historical integrations before starting new work.`,
+    `Staging branch ${repository.integrationBranch} at ${staging} is ${relation} target ${session.targetBranch} at ${target}. Run pintx reconcile to audit historical integrations before starting new work.`,
   );
 }
 
@@ -1789,7 +1789,7 @@ async function recoverMovedRemoteTarget(
     session.status = "needs_review";
     session.latestError =
       `Remote target recovery conflicts with ${remoteCommit}: ${conflicted.join(", ")}. ` +
-      `Resolve and stage files in ${worktree}, then run parallel-integrator resume from ${session.worktreePath}`;
+      `Resolve and stage files in ${worktree}, then run pintx resume from ${session.worktreePath}`;
     await writeSession(session);
     throw new Error(session.latestError);
   }
@@ -2111,9 +2111,7 @@ function findRepository(
     (item) => item.gitCommonDir === gitCommonDir,
   );
   if (!repository)
-    throw new Error(
-      "Repository is not registered. Run parallel-integrator register first.",
-    );
+    throw new Error("Repository is not registered. Run pintx register first.");
   return repository;
 }
 
