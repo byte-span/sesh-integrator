@@ -11,6 +11,9 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { afterEach, expect, it, vi } from "vitest";
 import {
+  colorDashboardLine,
+  dashboardActivity,
+  orderDashboard,
   actionArguments,
   actionReason,
   detailLines,
@@ -233,4 +236,98 @@ it("rejects redirected dashboard use with a plain-output alternative", async () 
   expect(result.status).toBe(1);
   expect(result.stderr).toContain("parallel-integrator status");
   expect(await readdir(root)).toEqual([]);
+});
+
+it("prioritizes blockers without losing sessions and shows recorded milestones", () => {
+  const active = row();
+  const conflict = row();
+  conflict.session = {
+    ...conflict.session!,
+    id: "conflict",
+    status: "needs_review",
+    awaitingConflictResolution: true,
+  };
+  const done = row();
+  done.session = {
+    ...done.session!,
+    id: "done",
+    status: "succeeded",
+    promotedAt: "2026-09-12T11:00:00Z",
+    integratedAt: "2026-09-12T10:59:00Z",
+  };
+  const ready = row();
+  ready.session = { ...ready.session!, id: "ready", status: "ready" };
+  const rows = orderDashboard([active, done, conflict, ready]);
+  expect(rows.map((r) => r.session!.id)).toEqual([
+    "conflict",
+    "session_example",
+    "done",
+    "ready",
+  ]);
+  const output = renderDashboard(
+    rows,
+    0,
+    160,
+    40,
+    new Date("2026-09-12T12:00:00Z"),
+  ).join("\n");
+  for (const label of [
+    "1 active",
+    "1 ready",
+    "1 blocked",
+    "1 completed today",
+    "Needs attention",
+    "Repository overview (1)",
+    "Recent activity",
+    "Selected item",
+    "merge conflict",
+    "R resume",
+  ])
+    expect(output).toContain(label);
+  expect(dashboardActivity(rows).map((e) => e.at)).toEqual([
+    "2026-09-12T11:00:00Z",
+    "2026-09-12T10:59:00Z",
+  ]);
+  expect(
+    renderDashboard(rows, 0, 160, 40, new Date("2026-09-13T12:00:00Z")).join(
+      "\n",
+    ),
+  ).toContain("0 completed today");
+});
+it("fits empty, crowded and narrow terminals with the selected session reachable", () => {
+  const rows = Array.from({ length: 50 }, (_, i) => {
+    const r = row();
+    r.session = {
+      ...r.session!,
+      id: `session-${i}`,
+      taskSummary: `task-${i}`,
+      repositoryPath: `/repo-${i}`,
+    };
+    r.repository = { ...r.repository!, path: `/repo-${i}` };
+    return r;
+  });
+  for (const [width, height] of [
+    [35, 10],
+    [79, 24],
+    [100, 28],
+    [160, 40],
+  ]) {
+    for (const data of [[], rows]) {
+      const lines = renderDashboard(data, data.length - 1, width!, height!);
+      expect(lines.length).toBeLessThanOrEqual(height!);
+      expect(lines.every((l) => l.length <= width!)).toBe(true);
+      expect(lines.join("\n")).not.toContain("undefined");
+      if (data.length) {
+        expect(lines.join("\n")).toContain("50/50");
+        expect(lines.join("\n")).toContain("repo-49");
+      }
+    }
+  }
+});
+it("only emits its own terminal color sequences", () => {
+  const unsafe = "> task\x1b[2J\x1b]52;c;clipboard\x07";
+  const colored = colorDashboardLine(unsafe);
+  expect(colored).toContain("\x1b[44;97m");
+  expect(colored).not.toContain("\x1b[2J");
+  expect(colored).not.toContain("52;c;");
 });

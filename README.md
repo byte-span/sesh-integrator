@@ -152,14 +152,21 @@ There are no `run`, `daemon`, `watch`, or service-management commands.
 ### `dashboard`
 
 Run `parallel-integrator dashboard` in an interactive terminal to browse all
-registered repositories and their sessions. Sessions appear newest first by start
-time across all repositories; repositories without sessions appear at the bottom.
+registered repositories and their sessions. The overview shows session counts,
+blockers and next steps, repository state, recent saved milestones, and selected
+session details. Blocked sessions appear first, then newest first by start time
+within each group. All sessions remain accessible in the session panel.
+Completion counts use the recorded promotion date in UTC; activity is saved
+validation/integration/promotion evidence, not a live process monitor.
+Wide terminals (at least 101 columns and 28 rows) show the full panel layout;
+smaller terminals use a compact session overview. `NO_COLOR` disables color.
 Browsing uses the existing runtime
 without writing configuration or session state. There is no automatic polling.
 
 Use Up/Down to select a session, Enter for details, `r` to refresh, and `q` to
-quit. In details, Up/Down scrolls the complete record, including long follow-ups;
-`v` validates, `i` integrates, and `s` resumes a preserved integration. Unavailable
+quit. In details, Up/Down scrolls the complete record, including long follow-ups.
+From either the overview or details, `v` validates, `i` integrates, and `R`
+resumes a preserved integration (`s` remains an alias). Unavailable
 actions show a reason. Escape returns or cancels a form. The dashboard requires
 at least 36 columns and 10 rows; resize the terminal if prompted. Saved text is
 shown as terminal-safe ASCII; original Unicode data remains unchanged.
