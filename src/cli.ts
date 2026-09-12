@@ -18,6 +18,7 @@ import { benchmarkCommand } from "./benchmark.js";
 import { finishPerformance, startPerformance } from "./performance.js";
 import type { RolloutDisposition } from "./types.js";
 import { incidentCommand } from "./incident.js";
+import { cleanupGuidanceCommand } from "./cleanup-guidance.js";
 
 export async function main(argv = process.argv.slice(2)): Promise<void> {
   const [command, ...args] = argv;
@@ -96,6 +97,13 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
       case "audit-legacy":
         rejectArguments(args);
         await auditLegacyCommand();
+        break;
+      case "cleanup-guidance":
+        if (args.length > 1 || (args.length === 1 && args[0] !== "--apply"))
+          throw new Error(
+            "Usage: parallel-integrator cleanup-guidance [--apply]",
+          );
+        await cleanupGuidanceCommand(args[0] === "--apply");
         break;
       case "doctor":
         rejectArguments(args);
@@ -337,6 +345,7 @@ Usage:
   parallel-integrator incident <ticket-id>
   parallel-integrator reconcile [repo-path] [--apply]
   parallel-integrator audit-legacy
+  parallel-integrator cleanup-guidance [--apply]
   parallel-integrator doctor
   parallel-integrator benchmark [--runs <n>] [--json] [--check]
 `;

@@ -112,6 +112,8 @@ Complete personal MVP implementation checklist.
 
 ## Skill and global guidance
 
+- [x] Provide explicit, previewable bulk cleanup of old repository blocks with backups
+
 - [x] Synchronize global guidance only; leave repository instructions optional and untouched
 
 - [x] Preserve and clarify `parallel-integrator-workflow`
