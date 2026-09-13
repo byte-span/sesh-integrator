@@ -299,7 +299,7 @@ export const defaultDashboardView: DashboardView = {
   filter: "all",
   repository: "",
   query: "",
-  sort: "priority",
+  sort: "updated",
 };
 
 function updatedAt(row: DashboardRow): number {

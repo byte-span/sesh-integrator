@@ -411,7 +411,12 @@ it("filters across task, branch and repository and sorts by saved event time", (
     filterDashboard(rows, { ...defaultDashboardView, ...view }).map(
       (r) => r.session!.id,
     );
-  expect(ids({})).toEqual(["blocked", "done", "session_example"]);
+  expect(ids({})).toEqual(["done", "session_example", "blocked"]);
+  expect(ids({ sort: "priority" })).toEqual([
+    "blocked",
+    "done",
+    "session_example",
+  ]);
   expect(ids({ sort: "updated" })).toEqual([
     "done",
     "session_example",

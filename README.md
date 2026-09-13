@@ -160,7 +160,8 @@ Run `pintx dashboard` in an interactive terminal to browse all
 registered repositories and their sessions. The dashboard shows a compact session
 table with repository, status, task, and time since the latest saved event.
 A selected-item pane contains deterministic next-action guidance and recent saved
-milestones. Priority sorting puts blockers first, then the latest saved event.
+milestones. Sessions default to most recent saved event first. Optional priority sorting
+puts blockers first, then the latest saved event.
 Activity and update times reflect recorded evidence, not a live process monitor.
 Wide terminals (at least 111 columns and 20 rows) show the split layout;
 smaller terminals use a compact list with full details available through Enter.
