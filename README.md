@@ -157,28 +157,30 @@ There are no `run`, `daemon`, `watch`, or service-management commands.
 ### `dashboard`
 
 Run `pintx dashboard` in an interactive terminal to browse all
-registered repositories and their sessions. The overview shows session counts,
-blockers and next steps, repository state, recent saved milestones, and selected
-session details. Blocked sessions appear first, then newest first by start time
-within each group. All sessions remain accessible in the session panel.
-Completion counts use the recorded promotion date in UTC; activity is saved
-validation/integration/promotion evidence, not a live process monitor.
-Wide terminals (at least 101 columns and 28 rows) show the full panel layout;
-smaller terminals use a compact session overview. `NO_COLOR` disables color.
-Browsing uses the existing runtime
-without writing configuration or session state. There is no automatic polling.
+registered repositories and their sessions. The dashboard shows a compact session
+table with repository, status, task, and time since the latest saved event.
+A selected-item pane contains deterministic next-action guidance and recent saved
+milestones. Priority sorting puts blockers first, then the latest saved event.
+Activity and update times reflect recorded evidence, not a live process monitor.
+Wide terminals (at least 111 columns and 20 rows) show the split layout;
+smaller terminals use a compact list with full details available through Enter.
+Truecolor terminals get a dark navy palette; other terminals use basic ANSI
+colors. UTF-8 terminals use a subtle Unicode divider, with ASCII as the fallback.
+`NO_COLOR` disables styling. Browsing never writes configuration or session state,
+and there is no automatic polling.
 
-Use Tab (or Shift-Tab) to switch between Sessions and Needs attention. Each
-panel remembers its own selection; Up/Down moves only within the focused panel.
-The focused panel has a double-line border and a `[focused]` label, and only its
-selected row is highlighted. Details and actions follow that selection. Empty
-attention panels are skipped. Compact terminals show the focused list.
-Use Enter for details, `r` to refresh, and `q` to quit. In details, Up/Down scrolls the complete record, including long follow-ups.
-From either the overview or details, `v` validates, `i` integrates, and `R`
-resumes a preserved integration (`s` remains an alias). Unavailable
-actions show a reason. Escape returns or cancels a form. The dashboard requires
-at least 36 columns and 10 rows; resize the terminal if prompted. Saved text is
-shown as terminal-safe ASCII; original Unicode data remains unchanged.
+Use Up/Down to select, `/` to search task/repository/branch/session text, `f` to
+cycle status filters, `p` to cycle repositories, and `s` to cycle priority,
+updated, and repository sorting. Search applies as you type; Enter finishes and
+Escape restores the previous query. Tab switches between the filtered session
+list and its attention subset, remembering each selection.
+Use Enter for details, `r` to refresh, and `q` to quit. In details, Up/Down scrolls
+the complete record, including long follow-ups. From either view, `v` validates,
+`i` integrates, and `R` resumes a preserved integration (`s` remains a resume
+alias in details). Unavailable actions show a reason. Escape returns or cancels
+a form. The dashboard requires at least 36 columns and 10 rows; resize the
+terminal if prompted. Saved text is shown as terminal-safe ASCII; original
+Unicode data remains unchanged.
 
 Actions require confirmation and run the existing CLI in the selected source
 worktree with an explicit session ID. Integration collects a completion summary,
