@@ -164,6 +164,8 @@ milestones. Priority sorting puts blockers first, then the latest saved event.
 Activity and update times reflect recorded evidence, not a live process monitor.
 Wide terminals (at least 111 columns and 20 rows) show the split layout;
 smaller terminals use a compact list with full details available through Enter.
+At 115 columns and 27 rows, a framed header and main area, a table heading rule,
+detail-section dividers, and a separated footer give each section a clear boundary.
 Truecolor terminals get a dark navy palette; other terminals use basic ANSI
 colors. UTF-8 terminals use a subtle Unicode divider, with ASCII as the fallback.
 `NO_COLOR` disables styling. Browsing never writes configuration or session state,

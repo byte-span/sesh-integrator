@@ -358,7 +358,68 @@ export function filterDashboard(
   );
 }
 
+// Keep the compact layout usable; framing needs room for its seven extra rows.
 export function renderDashboard(
+  rows: DashboardRow[],
+  selected: number,
+  width: number,
+  height: number,
+  refreshedAt = new Date(),
+  navigation: DashboardNavigation = {
+    focus: "sessions",
+    sessions: selected,
+    attention: 0,
+  },
+  view: DashboardView = defaultDashboardView,
+): string[] {
+  const framed = width >= 114 && height >= 27;
+  if (!framed)
+    return renderDashboardContent(
+      rows,
+      selected,
+      width,
+      height,
+      refreshedAt,
+      navigation,
+      view,
+    );
+  width = Math.floor(width);
+  height = Math.floor(height);
+  const innerWidth = width - 4;
+  const content = renderDashboardContent(
+    rows,
+    selected,
+    innerWidth,
+    height - 7,
+    refreshedAt,
+    navigation,
+    view,
+  );
+  const border = "+" + "-".repeat(width - 2) + "+";
+  const top = "/" + "-".repeat(width - 2) + "\\";
+  const bottom = "\\" + "-".repeat(width - 2) + "/";
+  const frame = (line: string) => "| " + line.padEnd(innerWidth) + " |";
+  const leftWidth = Math.floor(innerWidth * 0.68);
+  const tableRule =
+    "-".repeat(leftWidth) + " | " + " ".repeat(innerWidth - leftWidth - 3);
+  return [
+    top,
+    frame(content[0]!),
+    frame(content[1]!),
+    bottom,
+    " ".repeat(width),
+    top,
+    frame(content[2]!),
+    frame(content[3]!),
+    frame(tableRule),
+    ...content.slice(4, -2).map(frame),
+    border,
+    ...content.slice(-2).map(frame),
+    bottom,
+  ];
+}
+
+function renderDashboardContent(
   rows: DashboardRow[],
   selected: number,
   width: number,
@@ -413,7 +474,7 @@ export function renderDashboard(
   const title = `parallel-integrator  ${visible.length} visible | ${attention} attention | ${active} active`;
   const refresh = `Last refresh ${refreshedAt.toISOString().slice(11, 19)} UTC`;
   const wide = width >= 110 && height >= 20;
-  const leftWidth = wide ? Math.floor(width * 0.62) : width;
+  const leftWidth = wide ? Math.floor(width * 0.68) : width;
   const rightWidth = wide ? width - leftWidth - 3 : width;
   const repoWidth = Math.min(25, Math.max(10, Math.floor(leftWidth * 0.25)));
   const statusWidth = 18;
@@ -470,10 +531,10 @@ export function renderDashboard(
         `Branch      ${s?.branch ?? "-"}`,
         `Session     ${s?.id ?? "-"}`,
         `Updated     ${age(selectedRow)} (saved event)`,
-        "",
+        "-".repeat(rightWidth),
         "Next action",
         ...wrapLines([nextStep(selectedRow)], rightWidth),
-        "",
+        "-".repeat(rightWidth),
         "Recent activity",
         ...(s?.validationFailure
           ? wrapLines(
@@ -538,26 +599,49 @@ export function colorDashboardLine(
   const selected = rich ? "38;2;240;248;252;48;2;48;86;109" : "44;97";
   const paint = (text: string, style: string) =>
     `\x1b[${style}m${text}\x1b[${base}m`;
-  const split = Math.floor(safe.length * 0.62);
+  if (/^[+\/\\]-+[+\/\\]$/.test(safe)) {
+    const corners = safe.startsWith("/")
+      ? ["┌", "┐"]
+      : safe.startsWith("\\")
+        ? ["└", "┘"]
+        : ["├", "┤"];
+    return (
+      paint(
+        unicode ? corners[0] + "─".repeat(safe.length - 2) + corners[1] : safe,
+        muted,
+      ) + "\x1b[0m"
+    );
+  }
+  if (safe.startsWith("| ") && safe.endsWith(" |")) {
+    return (
+      paint(unicode ? "│ " : "| ", muted) +
+      colorDashboardLine(safe.slice(2, -2), rich, unicode) +
+      paint(unicode ? " │" : " |", muted) +
+      "\x1b[0m"
+    );
+  }
+  const split = Math.floor(safe.length * 0.68);
   const divider =
     safe.length >= 110 && safe.slice(split, split + 3) === " | " ? split : -1;
   const left = divider >= 0 ? safe.slice(0, divider) : safe;
   const right = divider >= 0 ? safe.slice(divider + 3) : "";
   const decorate = (text: string) =>
-    text.replace(
-      /\b(validation failed|merge conflict|needs review|needs attention|promotion pending|validation pending|active|ready|completed)\b/g,
-      (match) =>
-        paint(
-          match,
-          /failed|conflict|pending|attention/.test(match)
-            ? "91"
-            : match === "completed"
-              ? "92"
-              : /active|ready/.test(match)
-                ? "93"
-                : "94",
-        ),
-    );
+    /^-{3,}\s*$/.test(text)
+      ? paint(unicode ? text.replace(/-/g, "─") : text, muted)
+      : text.replace(
+          /\b(validation failed|merge conflict|needs review|needs attention|promotion pending|validation pending|active|ready|completed)\b/g,
+          (match) =>
+            paint(
+              match,
+              /failed|conflict|pending|attention/.test(match)
+                ? "91"
+                : match === "completed"
+                  ? "92"
+                  : /active|ready/.test(match)
+                    ? "93"
+                    : "94",
+            ),
+        );
   const style =
     /^(parallel-integrator|Sessions|Next action|Selected item|Recent activity)/.test(
       safe.trim(),
@@ -644,10 +728,16 @@ export async function dashboardCommand(): Promise<void> {
         navigation,
         view,
       );
-      if (searching)
-        lines[1] = terminalText(
+      if (searching) {
+        const framed = lines[0]?.startsWith("/");
+        const available = width - (framed ? 4 : 0);
+        const search = terminalText(
           `Search: ${view.query}_  Enter apply / Esc cancel`,
-        ).slice(0, width);
+        )
+          .slice(0, available)
+          .padEnd(available);
+        lines[framed ? 2 : 1] = framed ? `| ${search} |` : search;
+      }
     } else {
       const row = rows[selected];
       if (!row) return;

@@ -366,7 +366,7 @@ it("keeps panel cursors independent and details tied to the focused panel", () =
   const after = draw(nav);
   expect(before.join("\n")).toContain("unique-task-1");
   expect(after.join("\n")).toContain("unique-task-2");
-  expect(after.filter((l) => l.startsWith("> "))).toHaveLength(1);
+  expect(after.filter((l) => /^(?:\| )?> /.test(l))).toHaveLength(1);
   expect(after.join("\n")).toContain("filter: [needs attention]");
   nav = navigateDashboard(rows, nav, "tab");
   expect(dashboardSelection(rows, nav)).toBe(7);
@@ -437,7 +437,7 @@ it("keeps selection and next action visible at compact and split sizes", () => {
   ]) {
     const output = renderDashboard([r], 0, width!, height!);
     expect(output.join("\n")).toContain("1/1");
-    expect(output.some((line) => line.startsWith("> "))).toBe(true);
+    expect(output.some((line) => /^(?:\| )?> /.test(line))).toBe(true);
     expect(output.join("\n")).toContain(
       width! >= 110 ? "Next action" : "Next:",
     );
@@ -447,11 +447,28 @@ it("keeps selection and next action visible at compact and split sizes", () => {
 });
 it("paints the selected table row without highlighting the detail pane", () => {
   const line = renderDashboard([row()], 0, 160, 30).find((l) =>
-    l.startsWith("> "),
+    /^(?:\| )?> /.test(l),
   )!;
   const painted = colorDashboardLine(line, true, true);
   expect(painted).toContain("│");
   expect(painted).toContain("48;2;48;86;109");
-  expect(painted.slice(painted.indexOf("│"))).not.toContain("48;2;48;86;109");
-  expect(terminalText(painted)).toBe(line.replace(" | ", " ? "));
+  expect(painted.split("│")[2]).not.toContain("48;2;48;86;109");
+  expect(terminalText(painted)).toBe(line.replaceAll("|", "?"));
+});
+
+it("separates the header, table, detail sections and footer without overflow", () => {
+  const lines = renderDashboard([row()], 0, 160, 40);
+  expect(lines).toHaveLength(40);
+  expect(lines.every((line) => line.length === 160)).toBe(true);
+  expect(lines[0]).toMatch(/^\/-+\\$/);
+  expect(lines[3]).toMatch(/^\\-+\/$/);
+  expect(lines[4]!.trim()).toBe("");
+  expect(lines[8]).toMatch(/^\| -+ \| /);
+  for (const title of ["Next action", "Recent activity"]) {
+    const index = lines.findIndex((line) => line.includes(title));
+    expect(lines[index - 1]).toMatch(/\| -+ \|$/);
+  }
+  expect(lines.at(-4)).toMatch(/^\+-+\+$/);
+  expect(colorDashboardLine(lines[0]!, true, true)).toContain("┌");
+  expect(colorDashboardLine(lines.at(-1)!, true, true)).toContain("┘");
 });
