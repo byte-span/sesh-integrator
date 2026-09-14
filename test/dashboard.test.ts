@@ -24,6 +24,7 @@ import {
   detailLines,
   loadDashboard,
   renderDashboard,
+  renderDashboardPicker,
   terminalText,
   wrapLines,
   type DashboardRow,
@@ -476,4 +477,30 @@ it("separates the header, table, detail sections and footer without overflow", (
   expect(lines.at(-4)).toMatch(/^\+-+\+$/);
   expect(colorDashboardLine(lines[0]!, true, true)).toContain("┌");
   expect(colorDashboardLine(lines.at(-1)!, true, true)).toContain("┘");
+});
+
+it("keeps scrolling pickers inside compact and framed dashboards", () => {
+  for (const [width, height] of [
+    [35, 10],
+    [79, 24],
+    [159, 40],
+  ]) {
+    const background = renderDashboard([], 0, width!, height!);
+    const lines = renderDashboardPicker(
+      background,
+      {
+        kind: "repository",
+        options: Array.from({ length: 50 }, (_, i) => ({
+          value: String(i),
+          label: `repo-${i}`,
+        })),
+        selected: 49,
+      },
+      width!,
+    );
+    expect(lines).toHaveLength(background.length);
+    expect(lines.every((line) => line.length <= width!)).toBe(true);
+    expect(lines.join("\n")).toContain("> repo-49");
+    expect(lines.join("\n")).toContain("Esc cancel");
+  }
 });
