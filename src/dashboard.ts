@@ -289,6 +289,76 @@ export function navigateDashboard(
   return next;
 }
 
+export interface DashboardView {
+  filter: "all" | "needs attention" | "active" | "review" | "completed";
+  repository: string;
+  query: string;
+  sort: "priority" | "updated" | "repository";
+}
+export const defaultDashboardView: DashboardView = {
+  filter: "all",
+  repository: "",
+  query: "",
+  sort: "updated",
+};
+
+function updatedAt(row: DashboardRow): number {
+  const s = row.session;
+  if (!s) return 0;
+  return Math.max(
+    0,
+    ...[
+      s.startedAt,
+      s.readyAt,
+      s.sourceValidatedAt,
+      s.integratedAt,
+      s.promotedAt,
+      s.remotePromotedAt,
+      s.validationFailure?.failedAt,
+    ].map((value) => (value ? Date.parse(value) || 0 : 0)),
+  );
+}
+
+export function filterDashboard(
+  rows: DashboardRow[],
+  view: DashboardView,
+): DashboardRow[] {
+  const result = rows.filter((row) => {
+    const s = row.session;
+    const path = row.repository?.path ?? s?.repositoryPath ?? "";
+    const matches =
+      view.filter === "all" ||
+      (view.filter === "needs attention" && needsAttention(row)) ||
+      (view.filter === "active" &&
+        !!s &&
+        ["active", "ready"].includes(s.status) &&
+        !needsAttention(row)) ||
+      (view.filter === "review" &&
+        (s?.status === "needs_review" || !!s?.pullRequestUrl)) ||
+      (view.filter === "completed" && s?.status === "succeeded");
+    return (
+      matches &&
+      (!view.repository || path === view.repository) &&
+      terminalText(
+        [path, s?.taskSummary, s?.id, s?.branch, stateLabel(row)].join(" "),
+      )
+        .toLowerCase()
+        .includes(view.query.toLowerCase())
+    );
+  });
+  const name = (r: DashboardRow) =>
+    r.repository?.path ?? r.session?.repositoryPath ?? "";
+  return result.sort(
+    (a, b) =>
+      (view.sort === "priority"
+        ? Number(needsAttention(b)) - Number(needsAttention(a))
+        : view.sort === "repository"
+          ? name(a).localeCompare(name(b))
+          : 0) || updatedAt(b) - updatedAt(a),
+  );
+}
+
+// Keep the compact layout usable; framing needs room for its seven extra rows.
 export function renderDashboard(
   rows: DashboardRow[],
   selected: number,
@@ -300,205 +370,299 @@ export function renderDashboard(
     sessions: selected,
     attention: 0,
   },
+  view: DashboardView = defaultDashboardView,
+): string[] {
+  const framed = width >= 114 && height >= 27;
+  if (!framed)
+    return renderDashboardContent(
+      rows,
+      selected,
+      width,
+      height,
+      refreshedAt,
+      navigation,
+      view,
+    );
+  width = Math.floor(width);
+  height = Math.floor(height);
+  const innerWidth = width - 4;
+  const content = renderDashboardContent(
+    rows,
+    selected,
+    innerWidth,
+    height - 7,
+    refreshedAt,
+    navigation,
+    view,
+  );
+  const border = "+" + "-".repeat(width - 2) + "+";
+  const top = "/" + "-".repeat(width - 2) + "\\";
+  const bottom = "\\" + "-".repeat(width - 2) + "/";
+  const frame = (line: string) => "| " + line.padEnd(innerWidth) + " |";
+  const leftWidth = Math.floor(innerWidth * 0.68);
+  const tableRule =
+    "-".repeat(leftWidth) + " | " + " ".repeat(innerWidth - leftWidth - 3);
+  return [
+    top,
+    frame(content[0]!),
+    frame(content[1]!),
+    bottom,
+    " ".repeat(width),
+    top,
+    frame(content[2]!),
+    frame(content[3]!),
+    frame(tableRule),
+    ...content.slice(4, -2).map(frame),
+    border,
+    ...content.slice(-2).map(frame),
+    bottom,
+  ];
+}
+
+function renderDashboardContent(
+  rows: DashboardRow[],
+  selected: number,
+  width: number,
+  height: number,
+  refreshedAt = new Date(),
+  navigation: DashboardNavigation = {
+    focus: "sessions",
+    sessions: selected,
+    attention: 0,
+  },
+  view: DashboardView = defaultDashboardView,
 ): string[] {
   width = Math.max(1, Math.floor(width));
   height = Math.max(1, Math.floor(height));
-  const clip = (value: string, size: number) => {
+  const fit = (value: string, size: number) => {
+    size = Math.max(0, size);
     const safe = terminalText(value);
-    return safe.length <= size
-      ? safe
-      : size > 3
+    return (
+      safe.length > size && size > 3
         ? safe.slice(0, size - 3) + "..."
-        : safe.slice(0, size);
+        : safe.slice(0, size)
+    ).padEnd(size);
   };
-  const fit = (value: string, size: number) => clip(value, size).padEnd(size);
-  const panel = (
-    title: string,
-    content: string[],
-    size: number,
-    count: number,
-    focused = false,
-  ) => [
-    `${focused ? "+= " : "+- "}${fit(title + (focused ? " [focused]" : ""), size - 5)}${focused ? "=+" : "-+"}`,
-    ...Array.from(
-      { length: count },
-      (_, i) => `| ${fit(content[i] ?? "", size - 4)} |`,
-    ),
-    `+${(focused ? "=" : "-").repeat(size - 2)}+`,
-  ];
-  const sessions = rows.flatMap((r) => (r.session ? [r.session] : []));
-  const blocked = rows.filter(needsAttention).length;
-  const active = rows.filter(
-    (r) => r.session?.status === "active" && !needsAttention(r),
-  ).length;
-  const ready = rows.filter(
-    (r) => r.session?.status === "ready" && !needsAttention(r),
-  ).length;
-  const today = refreshedAt.toISOString().slice(0, 10);
-  const completed = sessions.filter(
-    (s) =>
-      s.status === "succeeded" &&
-      (s.remotePromotedAt ?? s.promotedAt)?.slice(0, 10) === today,
-  ).length;
-  const selectedRow = rows[selected];
-  const summary = `${active} active | ${ready} ready | ${blocked} blocked | ${completed} completed today (UTC)`;
-  const attention = rows.filter(needsAttention);
-  const focusedRows = navigation.focus === "attention" ? attention : rows;
-  const cursor = navigation[navigation.focus];
-  const position = `${focusedRows.length ? cursor + 1 : 0}/${focusedRows.length}`;
-  const footer = `${position} Tab panel | Up/Down select | Enter details | r refresh | q quit`;
-  const actions = "v validate | i integrate | R resume";
   const name = (r: DashboardRow) =>
     basename(r.repository?.path ?? r.session?.repositoryPath ?? "-");
-  const target = (r: DashboardRow) =>
-    r.repository
-      ? targetBranch(r.repository)
-      : (r.session?.targetBranch ?? "?");
-  // Small terminals retain every session and full details via Enter.
-  if (width < 100 || height < 28) {
-    const count = Math.max(1, height - 7);
-    const start = Math.max(0, cursor - count + 1);
-    return [
-      "parallel-integrator",
-      summary,
-      `${navigation.focus === "attention" ? "Needs attention" : "Sessions"} [focused] - Tab panel`,
-      ...focusedRows
-        .slice(start, start + count)
-        .map(
-          (r, i) =>
-            `${start + i === cursor ? ">" : " "} ${name(r)} | ${stateLabel(r)} | ${r.session?.taskSummary ?? "Run begin"}`,
-        ),
-      ...(!rows.length ? ["No repositories or sessions. Run register."] : []),
-      selectedRow ? `Next: ${nextStep(selectedRow)}` : "",
-      actions,
-      footer,
-    ]
-      .slice(0, height)
-      .map((l) => clip(l, width));
-  }
-  const attentionCount = Math.min(4, Math.max(1, attention.length));
-  const selectedAttention = navigation.attention;
-  const attentionStart = Math.max(0, selectedAttention - attentionCount + 1);
-  const col = Math.floor((width - 10) * 0.19);
-  const attentionLines = attention
-    .slice(attentionStart, attentionStart + attentionCount)
-    .map(
-      (r) =>
-        `${navigation.focus === "attention" && r === attention[navigation.attention] ? ">" : " "} ${fit(stateLabel(r), col)} ${fit(name(r), col)} ${fit(r.session!.taskSummary, col + 6)} ${nextStep(r)}`,
+  const age = (r: DashboardRow) => {
+    const at = updatedAt(r);
+    if (!at) return "-";
+    const minutes = Math.max(
+      0,
+      Math.floor((refreshedAt.getTime() - at) / 60000),
     );
+    return minutes < 1
+      ? "now"
+      : minutes < 60
+        ? `${minutes}m`
+        : minutes < 1440
+          ? `${Math.floor(minutes / 60)}h`
+          : `${Math.floor(minutes / 1440)}d`;
+  };
+  const visible =
+    navigation.focus === "attention" ? rows.filter(needsAttention) : rows;
+  const cursor = navigation[navigation.focus];
+  const selectedRow = rows[selected];
+  const attention = rows.filter(needsAttention).length;
+  const active = rows.filter(
+    (r) =>
+      r.session &&
+      ["active", "ready"].includes(r.session.status) &&
+      !needsAttention(r),
+  ).length;
+  const title = `parallel-integrator  ${visible.length} visible | ${attention} attention | ${active} active`;
+  const refresh = `Last refresh ${refreshedAt.toISOString().slice(11, 19)} UTC`;
+  const wide = width >= 110 && height >= 20;
+  const leftWidth = wide ? Math.floor(width * 0.68) : width;
+  const rightWidth = wide ? width - leftWidth - 3 : width;
+  const repoWidth = Math.min(25, Math.max(10, Math.floor(leftWidth * 0.25)));
+  const statusWidth = 18;
+  const taskWidth = leftWidth - repoWidth - statusWidth - 12;
+  const table = (
+    repo: string,
+    status: string,
+    task: string,
+    updated: string,
+    marker = " ",
+  ) =>
+    `${marker} ${fit(repo, repoWidth)} ${fit(status, statusWidth)} ${fit(task, taskWidth)} ${fit(updated, 7)}`;
+  const position = `${visible.length ? cursor + 1 : 0}/${visible.length}`;
+  const filterLabel =
+    navigation.focus === "attention" ? "needs attention" : view.filter;
+  const filters =
+    width >= 150
+      ? ["all", "needs attention", "active", "review", "completed"]
+          .map((label) => (label === filterLabel ? `[${label}]` : label))
+          .join("  ")
+      : `[${filterLabel}]  f status`;
+  const controls =
+    width >= 100
+      ? `filter: ${filters}   repo: ${view.repository ? fit(basename(view.repository), 18).trimEnd() : "all repos"} (p)   sort: ${view.sort} (s)   / ${view.query || "search tasks"}`
+      : `f ${navigation.focus === "attention" ? "needs attention" : view.filter}  p ${view.repository ? basename(view.repository) : "all repos"}  s ${view.sort}  / ${view.query || "search"}`;
   const lines = [
-    `parallel-integrator${" ".repeat(Math.max(1, width - 53))}Last refresh ${refreshedAt.toISOString().slice(11, 19)} UTC`,
-    ...panel(summary, [], width, 0),
-    ...panel(
-      `Needs attention (${attention.length})${attention.length > attentionCount ? " - scroll for more" : ""}`,
-      attention.length ? attentionLines : ["No integration blockers recorded."],
-      width,
-      attentionCount,
-      navigation.focus === "attention",
-    ),
+    width >= title.length + refresh.length + 3
+      ? fit(title, width - refresh.length) + refresh
+      : title,
+    controls,
+    wide
+      ? fit(`Sessions  ${position}`, leftWidth) + " | " + "Selected item"
+      : `Sessions ${position}  Enter for details`,
+    wide
+      ? fit(table("repo", "status", "task", "updated"), leftWidth) + " | "
+      : taskWidth >= 10
+        ? table("repo", "status", "task", "updated")
+        : "repo / status / task",
   ];
-  const bodyHeight = height - lines.length - 2;
-  const leftWidth = Math.floor(width * 0.48);
-  const rightWidth = width - leftWidth - 1;
-  const repoHeight = Math.max(5, Math.floor(bodyHeight * 0.48));
-  const sessionHeight = bodyHeight - repoHeight;
-  const repositories = new Map<string, DashboardRow[]>();
-  for (const r of rows) {
-    const path = r.repository?.path ?? r.session!.repositoryPath;
-    repositories.set(path, [...(repositories.get(path) ?? []), r]);
-  }
-  const repoRows = [...repositories.values()];
-  const selectedRepo = repoRows.findIndex(
-    (group) => selectedRow && group.includes(selectedRow),
-  );
-  const repoCount = repoHeight - 3;
-  const repoStart = Math.max(0, selectedRepo - repoCount + 1);
-  const repoLines = repoRows
-    .slice(repoStart, repoStart + repoCount)
-    .map((group) => {
-      const r =
-        group.find(needsAttention) ??
-        group.find((r) => r.session && r.session.status !== "succeeded") ??
-        group[0]!;
-      return `${fit(name(r), 18)} ${fit(target(r), 10)} ${stateLabel(r)}`;
-    });
-  const sessionCount = sessionHeight - 2;
-  const sessionStart = Math.max(0, navigation.sessions - sessionCount + 1);
-  const left = [
-    ...panel(
-      `Repository overview (${repoRows.length})`,
-      ["REPOSITORY         TARGET     STATE", ...repoLines],
-      leftWidth,
-      repoHeight - 2,
-    ),
-    ...panel(
-      `Sessions ${rows.length ? navigation.sessions + 1 : 0}/${rows.length}`,
-      rows.length
-        ? rows
-            .slice(sessionStart, sessionStart + sessionCount)
-            .map(
-              (r, i) =>
-                `${navigation.focus === "sessions" && sessionStart + i === navigation.sessions ? ">" : " "} ${name(r)} | ${stateLabel(r)} | ${r.session?.taskSummary ?? "Run begin"}`,
-            )
-        : ["No repositories. Run register to start."],
-      leftWidth,
-      sessionCount,
-      navigation.focus === "sessions",
-    ),
-  ];
-  const activityHeight = Math.max(5, Math.floor(bodyHeight * 0.42));
-  const events = dashboardActivity(rows);
-  const activity = events.map(
-    (e) => `${e.at.slice(0, 10)} ${e.at.slice(11, 19)} ${e.text}`,
-  );
+  const footer =
+    width >= 100
+      ? "Up/Down select   Enter details   / search   f status   p repo   s sort   r refresh   q quit"
+      : "Up/Down select  Enter details  q quit";
+  const actions = "v validate   i integrate   R resume   Tab attention";
+  const count = Math.max(1, height - lines.length - (wide ? 2 : 3));
+  const start = Math.max(0, cursor - count + 1);
   const s = selectedRow?.session;
   const details = selectedRow
     ? [
-        `Repository: ${name(selectedRow)} / ${target(selectedRow)}`,
-        `Task: ${s?.taskSummary ?? "No session"}`,
-        `Branch: ${s?.branch ?? "-"}`,
-        `Session: ${s?.id ?? "-"}`,
-        `Status: ${stateLabel(selectedRow)}`,
-        `Next: ${nextStep(selectedRow)}`,
-        ...(s?.latestError ? [`Error: ${s.latestError}`] : []),
-        "Enter for full details, errors and follow-ups",
+        ...wrapLines([s?.taskSummary ?? "No session"], rightWidth).slice(0, 2),
+        "",
+        `Repository  ${name(selectedRow)}`,
+        `Status      ${stateLabel(selectedRow)}`,
+        `Branch      ${s?.branch ?? "-"}`,
+        `Session     ${s?.id ?? "-"}`,
+        `Updated     ${age(selectedRow)} (saved event)`,
+        "-".repeat(rightWidth),
+        "Next action",
+        ...wrapLines([nextStep(selectedRow)], rightWidth),
+        "-".repeat(rightWidth),
+        "Recent activity",
+        ...(s?.validationFailure
+          ? wrapLines(
+              [`Validation failed: ${s.validationFailure.message}`],
+              rightWidth,
+            )
+          : []),
+        ...(s?.latestError ? wrapLines([s.latestError], rightWidth) : []),
+        ...dashboardActivity([selectedRow])
+          .slice(0, 3)
+          .map(
+            (e) =>
+              `${e.at.slice(0, 10)} ${e.at.slice(11, 19)}  ${e.text.split(" | ")[0]}`,
+          ),
+        ...(!s?.validationFailure &&
+        !s?.latestError &&
+        !dashboardActivity([selectedRow]).length
+          ? ["No saved milestones yet."]
+          : []),
+        "",
+        "Enter for full details and follow-ups",
       ]
     : ["Select a session to inspect its next action."];
-  const right = [
-    ...panel(
-      "Recent activity (UTC, saved milestones)",
-      events.length ? activity : ["No recorded activity."],
-      rightWidth,
-      activityHeight - 2,
-    ),
-    ...panel(
-      "Selected item",
-      details,
-      rightWidth,
-      bodyHeight - activityHeight - 2,
-    ),
-  ];
-  lines.push(...left.map((line, i) => `${line} ${right[i]}`), actions, footer);
-  return lines.map((l) => clip(l, width));
+  for (let i = 0; i < count; i++) {
+    const row = visible[start + i];
+    const marker = start + i === cursor ? ">" : " ";
+    const left = row
+      ? taskWidth >= 10
+        ? table(
+            name(row),
+            stateLabel(row),
+            row.session?.taskSummary ?? "Run begin",
+            age(row),
+            marker,
+          )
+        : `${marker} ${name(row)} | ${stateLabel(row)} | ${row.session?.taskSummary ?? "Run begin"}`
+      : i === 0
+        ? "No matches. Clear filters or run register / begin."
+        : "";
+    lines.push(
+      wide
+        ? fit(left, leftWidth) + " | " + fit(details[i] ?? "", rightWidth)
+        : left,
+    );
+  }
+  if (!wide) lines.push(selectedRow ? `Next: ${nextStep(selectedRow)}` : "");
+  lines.push(actions, footer);
+  return lines.slice(0, height).map((line) => fit(line, width));
 }
 
-// Only paint sanitized, clipped renderer output; persisted text cannot inject ANSI.
-export function colorDashboardLine(line: string): string {
+// Apply only owned escapes, after sanitizing saved text. Unicode is decorative;
+// ASCII and basic ANSI colors remain available for conservative terminals.
+export function colorDashboardLine(
+  line: string,
+  rich = false,
+  unicode = false,
+): string {
   const safe = terminalText(line);
-  const color = /(?:^|\| )> /.test(safe)
-    ? "44;97"
-    : /Needs attention|merge conflict|validation failed/.test(safe)
-      ? "91"
-      : /pending|blocked/.test(safe)
-        ? "93"
-        : /completed|validated|promoted/.test(safe)
-          ? "92"
-          : /parallel-integrator|Repository overview|Recent activity|Selected item|Sessions/.test(
-                safe,
-              )
-            ? "96"
-            : "";
-  return color ? `\x1b[${color}m${safe}\x1b[0m` : safe;
+  const base = rich ? "38;2;210;225;232;48;2;10;34;48" : "37;40";
+  const accent = rich ? "38;2;135;215;205" : "96";
+  const muted = rich ? "38;2;158;183;195" : "37";
+  const selected = rich ? "38;2;240;248;252;48;2;48;86;109" : "44;97";
+  const paint = (text: string, style: string) =>
+    `\x1b[${style}m${text}\x1b[${base}m`;
+  if (/^[+\/\\]-+[+\/\\]$/.test(safe)) {
+    const corners = safe.startsWith("/")
+      ? ["┌", "┐"]
+      : safe.startsWith("\\")
+        ? ["└", "┘"]
+        : ["├", "┤"];
+    return (
+      paint(
+        unicode ? corners[0] + "─".repeat(safe.length - 2) + corners[1] : safe,
+        muted,
+      ) + "\x1b[0m"
+    );
+  }
+  if (safe.startsWith("| ") && safe.endsWith(" |")) {
+    return (
+      paint(unicode ? "│ " : "| ", muted) +
+      colorDashboardLine(safe.slice(2, -2), rich, unicode) +
+      paint(unicode ? " │" : " |", muted) +
+      "\x1b[0m"
+    );
+  }
+  const split = Math.floor(safe.length * 0.68);
+  const divider =
+    safe.length >= 110 && safe.slice(split, split + 3) === " | " ? split : -1;
+  const left = divider >= 0 ? safe.slice(0, divider) : safe;
+  const right = divider >= 0 ? safe.slice(divider + 3) : "";
+  const decorate = (text: string) =>
+    /^-{3,}\s*$/.test(text)
+      ? paint(unicode ? text.replace(/-/g, "─") : text, muted)
+      : text.replace(
+          /\b(validation failed|merge conflict|needs review|needs attention|promotion pending|validation pending|active|ready|completed)\b/g,
+          (match) =>
+            paint(
+              match,
+              /failed|conflict|pending|attention/.test(match)
+                ? "91"
+                : match === "completed"
+                  ? "92"
+                  : /active|ready/.test(match)
+                    ? "93"
+                    : "94",
+            ),
+        );
+  const style =
+    /^(parallel-integrator|Sessions|Next action|Selected item|Recent activity)/.test(
+      safe.trim(),
+    )
+      ? accent
+      : /^(filter:|f |repo |Up\/Down|v validate)/.test(safe.trim())
+        ? muted
+        : base;
+  let content = left.startsWith("> ")
+    ? paint(left, selected)
+    : paint(decorate(left), style);
+  if (divider >= 0)
+    content +=
+      paint(unicode ? " │ " : " | ", muted) +
+      paint(
+        decorate(right),
+        /^(Next action|Selected item|Recent activity)/.test(right)
+          ? accent
+          : base,
+      );
+  return `\x1b[${base}m${content}\x1b[0m`;
 }
 
 export async function dashboardCommand(): Promise<void> {
@@ -507,7 +671,11 @@ export async function dashboardCommand(): Promise<void> {
     throw new Error(
       "dashboard requires an interactive terminal; use pintx status for plain output",
     );
-  let rows = orderDashboard(await loadDashboard());
+  let allRows = await loadDashboard();
+  let view = { ...defaultDashboardView };
+  let rows = filterDashboard(allRows, view);
+  let searching = false;
+  let previousQuery = "";
   let refreshedAt = new Date();
   let selected = 0;
   let navigation: DashboardNavigation = {
@@ -558,7 +726,18 @@ export async function dashboardCommand(): Promise<void> {
         height - (message ? 1 : 0),
         refreshedAt,
         navigation,
+        view,
       );
+      if (searching) {
+        const framed = lines[0]?.startsWith("/");
+        const available = width - (framed ? 4 : 0);
+        const search = terminalText(
+          `Search: ${view.query}_  Enter apply / Esc cancel`,
+        )
+          .slice(0, available)
+          .padEnd(available);
+        lines[framed ? 2 : 1] = framed ? `| ${search} |` : search;
+      }
     } else {
       const row = rows[selected];
       if (!row) return;
@@ -639,7 +818,16 @@ export async function dashboardCommand(): Promise<void> {
           .map((line) => {
             const safe = terminalText(line).slice(0, width);
             return mode === "list" && process.env.NO_COLOR === undefined
-              ? colorDashboardLine(safe)
+              ? colorDashboardLine(
+                  safe,
+                  /truecolor|24bit/.test(process.env.COLORTERM ?? ""),
+                  /utf-?8/i.test(
+                    process.env.LC_ALL ||
+                      process.env.LC_CTYPE ||
+                      process.env.LANG ||
+                      "",
+                  ),
+                )
               : safe;
           })
           .join("\r\n"),
@@ -650,7 +838,8 @@ export async function dashboardCommand(): Promise<void> {
     const oldAttention = rows.filter(needsAttention)[navigation.attention];
     const id = rows[selected]?.session?.id;
     const path = rows[selected]?.repository?.path;
-    rows = orderDashboard(await loadDashboard());
+    allRows = await loadDashboard();
+    rows = filterDashboard(allRows, view);
     refreshedAt = new Date();
     const found = rows.findIndex((r) =>
       id ? r.session?.id === id : r.repository?.path === path,
@@ -760,6 +949,11 @@ export async function dashboardCommand(): Promise<void> {
       if (terminating) close();
     }
   };
+  const applyView = () => {
+    rows = filterDashboard(allRows, view);
+    navigation = { focus: "sessions", sessions: 0, attention: 0 };
+    selected = 0;
+  };
   const handleKey = async (text: string, key: Key) => {
     if (closed || busy) return;
     if (key.ctrl && key.name === "c") {
@@ -776,6 +970,61 @@ export async function dashboardCommand(): Promise<void> {
     }
     if ((stdout.columns || 80) < 36 || (stdout.rows || 24) < 10) {
       if (key.name === "q") close();
+      return;
+    }
+    if (mode === "list" && searching) {
+      if (key.name === "escape") {
+        view.query = previousQuery;
+        searching = false;
+      } else if (key.name === "return") searching = false;
+      else if (key.name === "backspace") view.query = view.query.slice(0, -1);
+      else if (
+        text &&
+        !key.ctrl &&
+        !key.meta &&
+        !/[\x00-\x1f\x7f-\x9f]/.test(text)
+      )
+        view.query += terminalText(text);
+      applyView();
+      return;
+    }
+    if (
+      mode === "list" &&
+      (text === "/" || ["f", "p", "s"].includes(key.name ?? ""))
+    ) {
+      if (text === "/") {
+        previousQuery = view.query;
+        searching = true;
+      } else if (key.name === "f") {
+        const filters: DashboardView["filter"][] = [
+          "all",
+          "needs attention",
+          "active",
+          "review",
+          "completed",
+        ];
+        view.filter =
+          filters[(filters.indexOf(view.filter) + 1) % filters.length]!;
+      } else if (key.name === "p") {
+        const repos = [
+          "",
+          ...new Set(
+            allRows.map(
+              (r) => r.repository?.path ?? r.session?.repositoryPath ?? "",
+            ),
+          ),
+        ];
+        view.repository =
+          repos[(repos.indexOf(view.repository) + 1) % repos.length]!;
+      } else {
+        const sorts: DashboardView["sort"][] = [
+          "priority",
+          "updated",
+          "repository",
+        ];
+        view.sort = sorts[(sorts.indexOf(view.sort) + 1) % sorts.length]!;
+      }
+      applyView();
       return;
     }
     if (mode === "form") {

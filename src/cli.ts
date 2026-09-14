@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { enablementCommand } from "./enablement.js";
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { auditLegacyCommand } from "./audit.js";
@@ -40,6 +41,12 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
       case "init":
         rejectArguments(args);
         await initCommand();
+        break;
+      case "disable":
+      case "enable":
+        if (args.length > 1 || args[0]?.startsWith("-"))
+          throw new Error(`Usage: pintx ${command} [repo-path]`);
+        await enablementCommand(command === "enable", args[0]);
         break;
       case "register":
         {
@@ -337,6 +344,8 @@ Compatibility commands: parallel-integrator, codex-handoff
 
 Usage:
   pintx init
+  pintx disable [repo-path]
+  pintx enable [repo-path]
   pintx register [repo-path] [--auto-config] [--setup-command '<json-array>']...
   pintx begin --summary "..." [--create-worktree] [--no-auto-branch] [--depends-on <session-id>]...
   pintx commit --message "..." [--session <session-id>]

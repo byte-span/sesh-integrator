@@ -1,3 +1,9 @@
+import {
+  assertRepositoryEnabled,
+  isRepositoryDisabled,
+  repositoryCommonDir,
+} from "./enablement.js";
+import { withConfigLock } from "./runtime.js";
 import { writeCompletionSummary } from "./completion.js";
 import { access, mkdir, readFile } from "node:fs/promises";
 import { constants } from "node:fs";
@@ -94,6 +100,16 @@ export async function registerCommand(
   autoConfig = false,
   setupCommands: Command[] = [],
 ): Promise<RepositoryConfig> {
+  return withConfigLock(() =>
+    registerRepository(pathArgument, autoConfig, setupCommands),
+  );
+}
+
+async function registerRepository(
+  pathArgument: string | undefined,
+  autoConfig: boolean,
+  setupCommands: Command[],
+): Promise<RepositoryConfig> {
   const registrationPath = pathArgument ?? process.cwd();
   let context;
   try {
@@ -119,11 +135,16 @@ export async function registerCommand(
     throw error;
   }
   const config = await readConfig();
+  if (isRepositoryDisabled(config, context.gitCommonDir))
+    process.stdout.write(
+      "Repository remains disabled; registration does not enable it. Run pintx enable to re-enable it.\n",
+    );
   const existing = config.repositories.find(
     (repo) => repo.gitCommonDir === context.gitCommonDir,
   );
   if (existing) {
-    await ensureGlobalTargetBranch(existing);
+    if (!isRepositoryDisabled(config, context.gitCommonDir))
+      await ensureGlobalTargetBranch(existing);
     configureExplicitSetup(existing, setupCommands);
     if (autoConfig) {
       await autoConfigureRepository(existing);
@@ -151,7 +172,8 @@ export async function registerCommand(
     conflictInstructions: "",
   };
   applyGlobalTargetPolicy(config, repository);
-  await ensureGlobalTargetBranch(repository);
+  if (!isRepositoryDisabled(config, context.gitCommonDir))
+    await ensureGlobalTargetBranch(repository);
   if (autoConfig) await autoConfigureRepository(repository);
   config.repositories.push(repository);
   await writeConfig(config);
@@ -259,8 +281,9 @@ export async function beginCommand(
       "--create-worktree cannot be combined with --no-auto-branch",
     );
   }
-  const launchContext = await inspectGit(process.cwd());
   const config = await readConfig();
+  assertRepositoryEnabled(config, await repositoryCommonDir(process.cwd()));
+  const launchContext = await inspectGit(process.cwd());
   const repository = findRepository(config, launchContext.gitCommonDir);
   await ensureGlobalTargetBranch(repository);
   if (launchContext.branch === repository.integrationBranch) {
@@ -428,8 +451,9 @@ async function resolveSourceSession(
   repository: RepositoryConfig;
   session: Session;
 }> {
-  const current = await inspectGit(process.cwd());
   const config = await readConfig();
+  assertRepositoryEnabled(config, await repositoryCommonDir(process.cwd()));
+  const current = await inspectGit(process.cwd());
   const repository = findRepository(config, current.gitCommonDir);
   if (sessionId) {
     const session = await readSession(sessionId);
@@ -657,6 +681,7 @@ export async function integrateCommand(
         integrationWorktree,
       ),
     );
+    assertRepositoryEnabled(await readConfig(), repository.gitCommonDir);
     session.waitingForLock = false;
     await writeSession(session);
     await assertDependencies(session);
@@ -815,8 +840,9 @@ export async function validateCommand(sessionId?: string): Promise<Session> {
 }
 
 export async function resumeCommand(sessionId?: string): Promise<Session> {
-  const current = await inspectGit(process.cwd());
   const config = await readConfig();
+  assertRepositoryEnabled(config, await repositoryCommonDir(process.cwd()));
+  const current = await inspectGit(process.cwd());
   const repository = findRepository(config, current.gitCommonDir);
   let session = sessionId
     ? await readSession(sessionId)
@@ -967,6 +993,7 @@ export async function resumeCommand(sessionId?: string): Promise<Session> {
         integrationWorktree,
       ),
     );
+    assertRepositoryEnabled(await readConfig(), repository.gitCommonDir);
     session.waitingForLock = false;
     await writeSession(session);
     await assertDependencies(session);
@@ -2107,6 +2134,7 @@ function findRepository(
   config: Config,
   gitCommonDir: string,
 ): RepositoryConfig {
+  assertRepositoryEnabled(config, gitCommonDir);
   const repository = config.repositories.find(
     (item) => item.gitCommonDir === gitCommonDir,
   );

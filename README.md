@@ -63,7 +63,7 @@ name** to `parallel-integrator`, and select **Rename**. Then update each clone:
 
 ```bash
 cd ~/code/parallel-integrator
-git remote set-url origin https://github.com/Run-It-Back-Group/parallel-integrator.git
+git remote set-url origin https://github.com/byte-span/parallel-integrator.git
 git remote -v
 ```
 
@@ -136,6 +136,8 @@ These are the complete commands implemented by the MVP:
 
 ```bash
 pintx init
+pintx disable [repo-path]
+pintx enable [repo-path]
 pintx register [repo-path] [--auto-config] [--setup-command '<json-array>']...
 pintx begin --summary "Implement feature" [--create-worktree] [--no-auto-branch] [--depends-on <session-id>]...
 pintx commit --message "Implement feature" [--session <session-id>]
@@ -157,28 +159,33 @@ There are no `run`, `daemon`, `watch`, or service-management commands.
 ### `dashboard`
 
 Run `pintx dashboard` in an interactive terminal to browse all
-registered repositories and their sessions. The overview shows session counts,
-blockers and next steps, repository state, recent saved milestones, and selected
-session details. Blocked sessions appear first, then newest first by start time
-within each group. All sessions remain accessible in the session panel.
-Completion counts use the recorded promotion date in UTC; activity is saved
-validation/integration/promotion evidence, not a live process monitor.
-Wide terminals (at least 101 columns and 28 rows) show the full panel layout;
-smaller terminals use a compact session overview. `NO_COLOR` disables color.
-Browsing uses the existing runtime
-without writing configuration or session state. There is no automatic polling.
+registered repositories and their sessions. The dashboard shows a compact session
+table with repository, status, task, and time since the latest saved event.
+A selected-item pane contains deterministic next-action guidance and recent saved
+milestones. Sessions default to most recent saved event first. Optional priority sorting
+puts blockers first, then the latest saved event.
+Activity and update times reflect recorded evidence, not a live process monitor.
+Wide terminals (at least 111 columns and 20 rows) show the split layout;
+smaller terminals use a compact list with full details available through Enter.
+At 115 columns and 27 rows, a framed header and main area, a table heading rule,
+detail-section dividers, and a separated footer give each section a clear boundary.
+Truecolor terminals get a dark navy palette; other terminals use basic ANSI
+colors. UTF-8 terminals use a subtle Unicode divider, with ASCII as the fallback.
+`NO_COLOR` disables styling. Browsing never writes configuration or session state,
+and there is no automatic polling.
 
-Use Tab (or Shift-Tab) to switch between Sessions and Needs attention. Each
-panel remembers its own selection; Up/Down moves only within the focused panel.
-The focused panel has a double-line border and a `[focused]` label, and only its
-selected row is highlighted. Details and actions follow that selection. Empty
-attention panels are skipped. Compact terminals show the focused list.
-Use Enter for details, `r` to refresh, and `q` to quit. In details, Up/Down scrolls the complete record, including long follow-ups.
-From either the overview or details, `v` validates, `i` integrates, and `R`
-resumes a preserved integration (`s` remains an alias). Unavailable
-actions show a reason. Escape returns or cancels a form. The dashboard requires
-at least 36 columns and 10 rows; resize the terminal if prompted. Saved text is
-shown as terminal-safe ASCII; original Unicode data remains unchanged.
+Use Up/Down to select, `/` to search task/repository/branch/session text, `f` to
+cycle status filters, `p` to cycle repositories, and `s` to cycle priority,
+updated, and repository sorting. Search applies as you type; Enter finishes and
+Escape restores the previous query. Tab switches between the filtered session
+list and its attention subset, remembering each selection.
+Use Enter for details, `r` to refresh, and `q` to quit. In details, Up/Down scrolls
+the complete record, including long follow-ups. From either view, `v` validates,
+`i` integrates, and `R` resumes a preserved integration (`s` remains a resume
+alias in details). Unavailable actions show a reason. Escape returns or cancels
+a form. The dashboard requires at least 36 columns and 10 rows; resize the
+terminal if prompted. Saved text is shown as terminal-safe ASCII; original
+Unicode data remains unchanged.
 
 Actions require confirmation and run the existing CLI in the selected source
 worktree with an explicit session ID. Integration collects a completion summary,
@@ -226,6 +233,36 @@ under the repository lock. Bundles are archived only after successful
 promotion; failed bundles are not age-cleaned.
 
 Set `PARALLEL_INTEGRATOR_HOME` to use a different runtime root, including in tests.
+
+### `disable` / `enable`
+
+Run `pintx disable` from a repository or any subdirectory to opt it out.
+Use `pintx enable` to reverse it. Both accept an optional repository path.
+The setting covers all linked worktrees, including repositories that have not
+been registered or do not yet have an initial commit. A separate clone has its
+own setting.
+
+Opt-outs are stored as canonical Git common-directory paths in the optional
+`disabledRepositories` array in the selected runtime's `config.json`:
+
+```json
+{ "disabledRepositories": ["/absolute/path/to/project/.git"] }
+```
+
+While disabled, `begin`, `commit`, `validate`, `integrate`, `resume`, and
+`reconcile --apply` refuse execution. `register` remains available and preserves
+the opt-out, including with `--auto-config`; it skips target branch creation
+while disabled. Configuration, sessions, branches, and worktrees are retained.
+`enable` only clears the opt-out; it does not register or resume the repository.
+`status` reports registration and enablement separately; inspection commands
+remain available. The workflow skips disabled repositories and uses their normal
+development instructions.
+
+Enablement changes refuse an existing integration lock, including an unknown or
+stale lock, without removing it. Retry after the integration finishes; inspect
+leftover locks manually. Integrations waiting for a lock recheck enablement
+before proceeding. Already-running source setup, commit, or validation commands
+are not cancelled. Prefer these commands over editing config during execution.
 
 ### `register`
 

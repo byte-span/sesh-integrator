@@ -11,6 +11,8 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { afterEach, expect, it, vi } from "vitest";
 import {
+  defaultDashboardView,
+  filterDashboard,
   dashboardSelection,
   navigateDashboard,
   type DashboardNavigation,
@@ -275,12 +277,12 @@ it("prioritizes blockers without losing sessions and shows recorded milestones",
     new Date("2026-09-12T12:00:00Z"),
   ).join("\n");
   for (const label of [
-    "1 active",
-    "1 ready",
-    "1 blocked",
-    "1 completed today",
-    "Needs attention",
-    "Repository overview (1)",
+    "2 active",
+    "1 attention",
+    "filter: [all]",
+    "repo",
+    "updated",
+    "Next action",
     "Recent activity",
     "Selected item",
     "merge conflict",
@@ -291,11 +293,6 @@ it("prioritizes blockers without losing sessions and shows recorded milestones",
     "2026-09-12T11:00:00Z",
     "2026-09-12T10:59:00Z",
   ]);
-  expect(
-    renderDashboard(rows, 0, 160, 40, new Date("2026-09-13T12:00:00Z")).join(
-      "\n",
-    ),
-  ).toContain("0 completed today");
 });
 it("fits empty, crowded and narrow terminals with the selected session reachable", () => {
   const rows = Array.from({ length: 50 }, (_, i) => {
@@ -367,31 +364,19 @@ it("keeps panel cursors independent and details tied to the focused panel", () =
   const before = draw(nav);
   nav = navigateDashboard(rows, nav, "down");
   const after = draw(nav);
-  const sessionPanel = (lines: string[]) =>
-    lines
-      .slice(
-        lines.findIndex((l) => l.includes("Sessions 8/8")),
-        -2,
-      )
-      .map((l) => l.slice(0, 67));
-  expect(sessionPanel(after)).toEqual(sessionPanel(before));
-  expect(after.join("\n")).toContain("Task: unique-task-2");
-  expect(after.filter((l) => /(?:^|\| )> /.test(l))).toHaveLength(1);
-  expect(after.find((l) => l.includes("Needs attention"))).toContain(
-    "[focused]",
-  );
-  expect(after.find((l) => l.includes("Sessions 8/8"))).not.toContain(
-    "[focused]",
-  );
+  expect(before.join("\n")).toContain("unique-task-1");
+  expect(after.join("\n")).toContain("unique-task-2");
+  expect(after.filter((l) => /^(?:\| )?> /.test(l))).toHaveLength(1);
+  expect(after.join("\n")).toContain("filter: [needs attention]");
   nav = navigateDashboard(rows, nav, "tab");
   expect(dashboardSelection(rows, nav)).toBe(7);
-  expect(draw(nav).join("\n")).toContain("Task: unique-task-7");
+  expect(draw(nav).join("\n")).toContain("unique-task-7");
   expect(
     renderDashboard(rows, 2, 79, 24, new Date(), {
       ...nav,
       focus: "attention",
     }).join("\n"),
-  ).toContain("Needs attention [focused]");
+  ).toContain("Sessions 3/6");
 });
 it("skips an empty attention panel and clamps navigation at panel boundaries", () => {
   const nav: DashboardNavigation = {
@@ -402,4 +387,93 @@ it("skips an empty attention panel and clamps navigation at panel boundaries", (
   expect(navigateDashboard([row()], nav, "tab")).toEqual(nav);
   expect(navigateDashboard([], nav, "down")).toEqual(nav);
   expect(navigateDashboard([row()], nav, "up")).toEqual(nav);
+});
+
+it("filters across task, branch and repository and sorts by saved event time", () => {
+  const active = row();
+  const blocked = row();
+  blocked.session = {
+    ...blocked.session!,
+    id: "blocked",
+    status: "validation_pending",
+    startedAt: "2026-09-10",
+  };
+  const done = row();
+  done.session = {
+    ...done.session!,
+    id: "done",
+    status: "succeeded",
+    promotedAt: "2026-09-13",
+    pullRequestUrl: "https://example.test/pr/1",
+  };
+  const rows = [active, blocked, done];
+  const ids = (view: Partial<typeof defaultDashboardView>) =>
+    filterDashboard(rows, { ...defaultDashboardView, ...view }).map(
+      (r) => r.session!.id,
+    );
+  expect(ids({})).toEqual(["done", "session_example", "blocked"]);
+  expect(ids({ sort: "priority" })).toEqual([
+    "blocked",
+    "done",
+    "session_example",
+  ]);
+  expect(ids({ sort: "updated" })).toEqual([
+    "done",
+    "session_example",
+    "blocked",
+  ]);
+  expect(ids({ filter: "active" })).toEqual(["session_example"]);
+  expect(ids({ filter: "needs attention" })).toEqual(["blocked"]);
+  expect(ids({ filter: "review" })).toEqual(["done"]);
+  expect(ids({ filter: "completed" })).toEqual(["done"]);
+  expect(ids({ query: "IMPLEMENT" })).toHaveLength(3);
+  expect(ids({ query: "task", repository: "/repo" })).toHaveLength(3);
+  expect(ids({ repository: "/missing" })).toEqual([]);
+  expect(rows[0]).toBe(active);
+});
+it("keeps selection and next action visible at compact and split sizes", () => {
+  const r = row();
+  r.session!.status = "validation_pending";
+  for (const [width, height] of [
+    [35, 10],
+    [80, 24],
+    [110, 20],
+    [160, 40],
+  ]) {
+    const output = renderDashboard([r], 0, width!, height!);
+    expect(output.join("\n")).toContain("1/1");
+    expect(output.some((line) => /^(?:\| )?> /.test(line))).toBe(true);
+    expect(output.join("\n")).toContain(
+      width! >= 110 ? "Next action" : "Next:",
+    );
+    expect(output).toHaveLength(height!);
+  }
+  expect(renderDashboard([], 0, 160, 30).join("\n")).toContain("No matches");
+});
+it("paints the selected table row without highlighting the detail pane", () => {
+  const line = renderDashboard([row()], 0, 160, 30).find((l) =>
+    /^(?:\| )?> /.test(l),
+  )!;
+  const painted = colorDashboardLine(line, true, true);
+  expect(painted).toContain("│");
+  expect(painted).toContain("48;2;48;86;109");
+  expect(painted.split("│")[2]).not.toContain("48;2;48;86;109");
+  expect(terminalText(painted)).toBe(line.replaceAll("|", "?"));
+});
+
+it("separates the header, table, detail sections and footer without overflow", () => {
+  const lines = renderDashboard([row()], 0, 160, 40);
+  expect(lines).toHaveLength(40);
+  expect(lines.every((line) => line.length === 160)).toBe(true);
+  expect(lines[0]).toMatch(/^\/-+\\$/);
+  expect(lines[3]).toMatch(/^\\-+\/$/);
+  expect(lines[4]!.trim()).toBe("");
+  expect(lines[8]).toMatch(/^\| -+ \| /);
+  for (const title of ["Next action", "Recent activity"]) {
+    const index = lines.findIndex((line) => line.includes(title));
+    expect(lines[index - 1]).toMatch(/\| -+ \|$/);
+  }
+  expect(lines.at(-4)).toMatch(/^\+-+\+$/);
+  expect(colorDashboardLine(lines[0]!, true, true)).toContain("┌");
+  expect(colorDashboardLine(lines.at(-1)!, true, true)).toContain("┘");
 });

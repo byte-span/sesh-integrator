@@ -69,6 +69,8 @@ export interface DefaultPromotionConfig {
 }
 
 export interface Config {
+  /** Canonical Git common directories, independent of registration. */
+  disabledRepositories?: string[];
   lockWaitSeconds: number;
   codexCommand: string;
   conflictResolutionMode?: "current-session" | "nested-codex";

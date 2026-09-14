@@ -1,3 +1,4 @@
+import { isRepositoryDisabled, repositoryCommonDir } from "./enablement.js";
 import { constants } from "node:fs";
 import { access, readFile, readdir, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -188,6 +189,14 @@ async function repositoryChecks(config: Config, cwd: string): Promise<Check[]> {
       ),
     ];
   }
+  try {
+    if (isRepositoryDisabled(config, await repositoryCommonDir(cwd)))
+      return [
+        skip("Current repository", "disabled; run pintx enable to re-enable"),
+      ];
+  } catch {
+    /* Outside Git: inspect registered repositories. */
+  }
   if (config.repositories.length === 0) {
     return [
       fail(
@@ -214,6 +223,15 @@ async function repositoryChecks(config: Config, cwd: string): Promise<Check[]> {
 
   const checks: Check[] = [];
   for (const repository of repositories) {
+    if (isRepositoryDisabled(config, repository.gitCommonDir)) {
+      checks.push(
+        skip(
+          `Repository (${repository.path})`,
+          "disabled; run pintx enable to re-enable",
+        ),
+      );
+      continue;
+    }
     checks.push(await repositoryCheck(repository));
     checks.push(await branchDestinationCheck(repository));
     const remotePromotion = pullRequestPromotion(repository);

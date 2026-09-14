@@ -20,6 +20,13 @@ Otherwise, when `~/.codex-handoff/` already exists, use it in place of
 
 ## Start of a code-changing task
 
+Check `pintx status` for the current repository's enablement before registration
+or session recovery. If it reports `Enablement: disabled`, skip this workflow
+and follow the repository's normal development instructions. Do not automatically
+register, begin, resume, or run `pintx enable` to bypass an opt-out. Registration
+and enablement are independent; registration never clears a disabled setting.
+Only enable the repository when the user requests it.
+
 Before modifying files:
 
 1. Confirm this is code-changing work in a Git repository and is not work on
