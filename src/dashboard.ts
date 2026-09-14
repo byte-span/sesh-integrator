@@ -344,7 +344,7 @@ export function renderDashboardPicker(
   const top = controlRow + 1;
   const count = Math.max(
     1,
-    Math.min(picker.options.length, lines.length - top - 5),
+    Math.min(picker.options.length, lines.length - top - 6),
   );
   const start = Math.max(0, picker.selected - count + 1);
   const inside = (value: string) =>
@@ -364,6 +364,7 @@ export function renderDashboardPicker(
       .map((o, i) =>
         inside(`${start + i === picker.selected ? ">" : " "} ${o.label}`),
       ),
+    border,
     inside("Up/Down move  Enter apply"),
     inside("Esc cancel"),
     border,
