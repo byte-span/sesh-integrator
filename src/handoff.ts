@@ -90,7 +90,7 @@ import { recordIncident, writeIncidentSummary } from "./incident.js";
 export async function initCommand(): Promise<void> {
   const paths = await ensureRuntime();
   process.stdout.write(
-    `Initialized parallel-integrator runtime at ${paths.root}\n`,
+    `Initialized sesh-integrator runtime at ${paths.root}\n`,
   );
   process.stdout.write(`Configuration: ${paths.config}\n`);
 }
@@ -137,7 +137,7 @@ async function registerRepository(
   const config = await readConfig();
   if (isRepositoryDisabled(config, context.gitCommonDir))
     process.stdout.write(
-      "Repository remains disabled; registration does not enable it. Run pintx enable to re-enable it.\n",
+      "Repository remains disabled; registration does not enable it. Run seshx enable to re-enable it.\n",
     );
   const existing = config.repositories.find(
     (repo) => repo.gitCommonDir === context.gitCommonDir,
@@ -526,7 +526,7 @@ export async function commitCommand(
   const stagedPaths = stagedOutput.split("\n").filter(Boolean);
   if (stagedPaths.length === 0) {
     throw new Error(
-      "No staged task changes. Stage only the intended task paths before running pintx commit",
+      "No staged task changes. Stage only the intended task paths before running seshx commit",
     );
   }
   for (const path of stagedPaths) {
@@ -1238,7 +1238,7 @@ async function mergeAndValidate(
     } else {
       throw new Error(
         `Merge conflict requires resolution by the current Codex session. ` +
-          `Resolve and stage files in ${worktree} using ${promptPath}, then run pintx resume from ${session.worktreePath}`,
+          `Resolve and stage files in ${worktree} using ${promptPath}, then run seshx resume from ${session.worktreePath}`,
       );
     }
     const remaining = await unmergedFiles(worktree);
@@ -1470,7 +1470,7 @@ async function tryDirectIntegration(
   if (!validation.bypassIntegrationWorktree) return false;
   if (session.sourceValidatedCommit !== session.readyCommit) {
     process.stdout.write(
-      "Direct integration bypass skipped: ready commit was not validated by pintx validate.\n",
+      "Direct integration bypass skipped: ready commit was not validated by seshx validate.\n",
     );
     return false;
   }
@@ -1685,7 +1685,7 @@ async function alignIntegrationBranchWithTarget(
   );
   const relation = targetBehind.code === 0 ? "ahead of" : "divergent from";
   throw new Error(
-    `Staging branch ${repository.integrationBranch} at ${staging} is ${relation} target ${session.targetBranch} at ${target}. Run pintx reconcile to audit historical integrations before starting new work.`,
+    `Staging branch ${repository.integrationBranch} at ${staging} is ${relation} target ${session.targetBranch} at ${target}. Run seshx reconcile to audit historical integrations before starting new work.`,
   );
 }
 
@@ -1816,7 +1816,7 @@ async function recoverMovedRemoteTarget(
     session.status = "needs_review";
     session.latestError =
       `Remote target recovery conflicts with ${remoteCommit}: ${conflicted.join(", ")}. ` +
-      `Resolve and stage files in ${worktree}, then run pintx resume from ${session.worktreePath}`;
+      `Resolve and stage files in ${worktree}, then run seshx resume from ${session.worktreePath}`;
     await writeSession(session);
     throw new Error(session.latestError);
   }
@@ -2139,7 +2139,7 @@ function findRepository(
     (item) => item.gitCommonDir === gitCommonDir,
   );
   if (!repository)
-    throw new Error("Repository is not registered. Run pintx register first.");
+    throw new Error("Repository is not registered. Run seshx register first.");
   return repository;
 }
 
@@ -2168,7 +2168,7 @@ async function assertSourceHandoffState(
 ): Promise<void> {
   if (!session.gitBaseline) {
     throw new Error(
-      `Session ${session.id} predates observable Git baselines and cannot be safely ${phase === "integration" ? "integrated" : "validated"}. Start a new parallel-integrator session.`,
+      `Session ${session.id} predates observable Git baselines and cannot be safely ${phase === "integration" ? "integrated" : "validated"}. Start a new sesh-integrator session.`,
     );
   }
   const current = await observeGitState(worktree);

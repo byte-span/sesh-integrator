@@ -1,22 +1,22 @@
-# parallel-integrator global workflow
+# sesh-integrator global workflow
 
-For most code-changing tasks inside a Git repository, use `parallel-integrator` from
+For most code-changing tasks inside a Git repository, use `sesh-integrator` from
 the current Codex CLI checkout. Do not use it for read-only work, non-Git
-directories, or changes to the `parallel-integrator` repository itself. Do not invoke
-the legacy `codex-integrator` workflow for repositories using `parallel-integrator`.
+directories, or changes to the `sesh-integrator` repository itself. Do not invoke
+the legacy `codex-integrator` workflow for repositories using `sesh-integrator`.
 
 Operate autonomously by default. Do not ask for routine approval to register,
 begin, validate, commit, integrate, resume, or safely promote local work that is
 already within the user's request.
 
-Use `pintx` as the preferred command; `parallel-integrator` remains a compatible
-alias. The package, workflow skill, runtime paths, and branch names retain their
-existing names.
+Use `seshx` as the preferred command. `sesh-integrator`, `pintx`,
+`parallel-integrator`, and `codex-handoff` remain compatible aliases. Existing
+runtime data and configured branch names remain in place.
 
-Runtime paths below use the fresh-install default. If `PARALLEL_INTEGRATOR_HOME`
+Runtime paths below use the fresh-install default. If `SESH_INTEGRATOR_HOME`, `PARALLEL_INTEGRATOR_HOME`
 or compatibility `CODEX_HANDOFF_HOME` is set, use that directory instead.
-Otherwise, when `~/.codex-handoff/` already exists, use it in place of
-`~/.parallel-integrator/`; do not move existing session or worktree data.
+Otherwise reuse `~/.codex-handoff/` first, then `~/.parallel-integrator/` if present;
+fresh installations use `~/.sesh-integrator/`. Do not move existing session or worktree data.
 
 ## External services and production isolation
 
@@ -58,15 +58,15 @@ Otherwise, when `~/.codex-handoff/` already exists, use it in place of
   declared project name.
 - Use normal environment-variable names without app/proxy prefixes. Keep names
   sorted and run `npm run validate:configs` in `secret-sync` after changes.
-- Make cross-repository registry edits through their own `parallel-integrator`
+- Make cross-repository registry edits through their own `sesh-integrator`
   session. If the app ID cannot be established from existing non-secret project
   metadata, do not guess; finish safe application work and report the missing
   registry metadata for trusted follow-up.
 
-Check `pintx status` for the current repository's enablement before registration
+Check `seshx status` for the current repository's enablement before registration
 or session recovery. If it reports `Enablement: disabled`, skip this workflow
 and follow the repository's normal development instructions. Do not automatically
-register, begin, resume, or run `pintx enable` to bypass an opt-out. Registration
+register, begin, resume, or run `seshx enable` to bypass an opt-out. Registration
 and enablement are independent; registration never clears a disabled setting.
 Only enable the repository when the user requests it.
 
@@ -74,7 +74,7 @@ Before editing:
 
 1. Inspect the repository instructions and Git state. Preserve all pre-existing
    user changes; never reset, overwrite, discard, clean, or silently stash them.
-2. Inspect `pintx status`. Continue an active or recoverable session
+2. Inspect `seshx status`. Continue an active or recoverable session
    attached to the current source worktree when it belongs to the same task.
    An unrelated session launched from the same ordinary checkout does not block
    a new isolated task; begin another managed worktree. Never replace or
@@ -82,14 +82,14 @@ Before editing:
 3. If the repository is unregistered, run:
 
    ```bash
-   pintx register --auto-config
+   seshx register --auto-config
    ```
 
    Registration is automatic and does not require routine approval.
    Before beginning, compare the effective target shown by
-   `pintx status` with the repository's branch policy. If agents must
+   `seshx status` with the repository's branch policy. If agents must
    work on a branch such as `dev` while `main` remains stable, set the global
-   `defaultTargetBranch` to `dev` in `~/.parallel-integrator/config.json`. This policy
+   `defaultTargetBranch` to `dev` in `~/.sesh-integrator/config.json`. This policy
    applies automatically to existing and new registrations that omit a
    repository `targetBranch`; use that per-repository field only for explicit
    exceptions.
@@ -97,7 +97,7 @@ Before editing:
 4. If no appropriate session exists, run:
 
    ```bash
-   pintx begin --create-worktree --summary "<concise task summary>"
+   seshx begin --create-worktree --summary "<concise task summary>"
    ```
 
    From an ordinary checkout, `--create-worktree` creates a unique task branch
@@ -108,7 +108,7 @@ Before editing:
    never copy that state into the task worktree unless the user explicitly
    makes it part of the task.
 
-5. Never begin on `parallel-integrator/integration` (or the repository's configured
+5. Never begin on `sesh-integrator/integration` (or the repository's configured
    integration branch). Pass `--depends-on` only for explicit dependencies.
 
 At completion:
@@ -118,30 +118,30 @@ At completion:
 2. Create one focused source commit through:
 
    ```bash
-   pintx commit --message "<focused commit message>"
+   seshx commit --message "<focused commit message>"
    ```
 
-3. Run `pintx validate`. Treat the complete failure output and exit code
+3. Run `seshx validate`. Treat the complete failure output and exit code
    as evidence, not a verdict about whether the failure is deterministic. If
    retrying is plausibly safe, rerun the unchanged validation for at most three
    total attempts. Stop after repeated failure or evidence of a code defect; do
    not integrate without successful validation or edit code merely to make a
    retry pass.
-4. Run `pintx integrate --summary "<concise completion summary>"
+4. Run `seshx integrate --summary "<concise completion summary>"
 --rollout <none|applied|automated|manual>`. Every integration must classify
    external-state rollout. `manual` also requires one or more explicit
    `--follow-up "<required action>"` arguments. Source promotion never implies
    external state was applied.
 5. For a resumable conflict, resolve and stage the preserved integration
-   worktree without committing there, then run `pintx resume` from the
+   worktree without committing there, then run `seshx resume` from the
    original source checkout. Preserve compatible intent and continue
    autonomously unless the conflict is genuinely ambiguous or validation fails.
 6. For `promotion_pending`, preserve the validated staging commit, correct only
    the reported blocking condition without disturbing user state, and run
-   `pintx resume`. Do not claim success until promotion and configured
+   `seshx resume`. Do not claim success until promotion and configured
    post-integration checks complete.
 7. For `validation_pending`, inspect the preserved evidence and incident, then
-   autonomously run `pintx resume` in the same session when retrying is
+   autonomously run `seshx resume` in the same session when retrying is
    safe, for at most three total attempts. Do not start a new session merely to
    retry integration.
 8. Report the session, source commit, staging integration commit, target branch
@@ -158,7 +158,7 @@ say to configure them on a trusted machine. Never request, read, store, or print
 secret values, including in CLI arguments or session records.
 
 Before the final response, use the latest `Completion summary` (available again
-with `pintx status --session <session-id>`) and check every recorded
+with `seshx status --session <session-id>`) and check every recorded
 action against the response. Preserve every outstanding action and its essential
 details, even when concise: action, destination, exact names, and prerequisites.
 Do not collapse setup into a label such as “complete CWS setup.” Documentation

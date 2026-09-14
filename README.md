@@ -1,17 +1,17 @@
-# parallel-integrator (`pintx`)
+# sesh-integrator (`seshx`)
 
-`parallel-integrator` is a personal, one-shot Git integration CLI for Codex sessions working in parallel worktrees. It has no daemon, watcher, polling service, LaunchAgent, or background queue.
+`sesh-integrator` is a personal, one-shot Git integration CLI for Codex sessions working in parallel worktrees. It has no daemon, watcher, polling service, LaunchAgent, or background queue.
 
 ```text
-pintx begin
+seshx begin
 → create/reuse an isolated source worktree for Codex CLI
 → Codex changes and commits its source branch
-→ pintx validate
-→ pintx integrate
+→ seshx validate
+→ seshx integrate
 → acquire the repository lock
 → merge the exact ready commit in a dedicated integration worktree
 → let the current Codex session resolve conflicts if needed
-→ pintx resume
+→ seshx resume
 → validate and commit on the internal staging branch
 → safely promote the exact validated commit to the configured target branch
 → run post-integration checks from that target branch's clean worktree
@@ -21,32 +21,29 @@ pintx begin
 The new runtime and internal staging branch are deliberately separate from the legacy daemon:
 
 ```text
-new: ~/.parallel-integrator/       parallel-integrator/integration
+new: ~/.sesh-integrator/       sesh-integrator/integration
 old: ~/.codex-integrator/    codex/integration
 ```
 
-Use **`pintx`** as the short command. `parallel-integrator` and `codex-handoff`
+Use **`seshx`** as the short command. `sesh-integrator`, `pintx`, `parallel-integrator`, and `codex-handoff`
 remain supported aliases for the same CLI.
 
 ## Requirements and installation
 
 ### Renaming an existing installation
 
-This project was previously named `codex-handoff`. The package and repository
-remain named `parallel-integrator`; the preferred command is now `pintx`.
-Rebuild and rerun `./scripts/install-cli.sh` to add the short command to an
-existing installation. Both `parallel-integrator` and `codex-handoff` remain
-compatibility commands for existing scripts and guidance. No runtime migration
-or repository rename is needed to adopt `pintx`.
+The project is now `sesh-integrator`, with `seshx` as its preferred command.
+The previous `pintx`, `parallel-integrator`, and `codex-handoff` commands remain aliases.
+Rebuild and rerun `./scripts/install-cli.sh` after renaming the checkout.
+Keep a symlink at the previous checkout path for existing hooks and scheduled jobs.
 
-Runtime selection uses `PARALLEL_INTEGRATOR_HOME`, then the compatibility
-`CODEX_HANDOFF_HOME` variable. Without either override, an existing
-`~/.codex-handoff/` directory is reused in place; fresh installations use
-`~/.parallel-integrator/`. Existing installations therefore continue editing
-their existing `~/.codex-handoff/config.json`. Do not move active runtime
-directories: sessions and Git worktrees contain absolute paths. Configured
-integration branches remain unchanged; new registrations default to
-`parallel-integrator/integration`.
+Runtime selection uses `SESH_INTEGRATOR_HOME`, `PARALLEL_INTEGRATOR_HOME`, then
+`CODEX_HANDOFF_HOME`. Without an override, reuse `~/.codex-handoff/` first, then
+`~/.parallel-integrator/` if present; fresh installs use `~/.sesh-integrator/`.
+Do not move runtime directories: sessions and Git worktrees contain absolute paths.
+Configured integration branches remain unchanged; new registrations default to
+`sesh-integrator/integration`. Other `PARALLEL_INTEGRATOR_*` tuning variables
+remain supported with their existing names.
 
 The historical `refs/codex-handoff/recovery/` refs, `codex-handoff-session:` PR
 markers, and `codex-handoff:managed:` guidance delimiters intentionally remain
@@ -59,15 +56,28 @@ the previous health timer before enabling the new one. Existing repository
 instructions can continue using the compatibility command until synchronized.
 
 On GitHub, open the repository's **Settings → General**, change **Repository
-name** to `parallel-integrator`, and select **Rename**. Then update each clone:
+name** to `sesh-integrator`, and select **Rename**. Then update each clone:
 
 ```bash
-cd ~/code/parallel-integrator
-git remote set-url origin https://github.com/byte-span/parallel-integrator.git
+cd ~/code/sesh-integrator
+git remote set-url origin https://github.com/byte-span/sesh-integrator.git
 git remote -v
 ```
 
 See [GitHub's repository rename instructions](https://docs.github.com/en/repositories/creating-and-managing-repositories/renaming-a-repository).
+
+### macOS upgrade export
+
+The exported `update-sesh-integrator-macos.sh` includes a Git bundle of the validated
+local `dev` source, so publishing the rename is not a prerequisite. Copy it to the
+Mac and run `bash update-sesh-integrator-macos.sh /path/to/parallel-integrator`.
+Use a clean checkout on `dev`, with Git, Node.js 20+, and pnpm installed. The script
+refuses divergent history or an occupied destination, fast-forwards from the bundle,
+renames the checkout, preserves an old-path symlink, repairs worktree metadata,
+updates origin, rebuilds, reinstalls, and runs doctor. It never pushes or advances main.
+Network access may be needed for pnpm dependencies. If doctor reports unrelated
+runtime issues, the installation remains applied; address the reported issues separately.
+The repository script is the export template; it requires an appended bundle payload.
 
 ### Install
 
@@ -83,15 +93,15 @@ corepack enable
 pnpm install
 pnpm build
 ./scripts/install-cli.sh
-pintx init
+seshx init
 ```
 
-The CLI installer creates idempotent `pintx`, `parallel-integrator`, and `codex-handoff` symlinks in `~/.local/bin`, which must be on `PATH`. Set `PARALLEL_INTEGRATOR_BIN_DIR` to choose another user-writable bin directory. It also installs the machine safeguards: the bundled skill, global managed guidance, conservative self-hosting Git hooks, and a bounded six-hourly user systemd health check. The health check safely fetches `origin/main` and fast-forwards a clean local `dev` after a remote dev-to-main merge; dirty or divergent state is reported and preserved.
+The CLI installer creates idempotent `seshx`, `sesh-integrator`, `pintx`, `parallel-integrator`, and `codex-handoff` symlinks in `~/.local/bin`, which must be on `PATH`. Set `SESH_INTEGRATOR_BIN_DIR` (or the previous `PARALLEL_INTEGRATOR_BIN_DIR`) to choose another user-writable bin directory. It also installs the machine safeguards: the bundled skill, global managed guidance, conservative self-hosting Git hooks, and a bounded six-hourly user systemd health check on Linux. macOS installs guidance and hooks without invoking systemd; existing scheduled jobs continue through the checkout compatibility symlink. The health check safely fetches `origin/main` and fast-forwards a clean local `dev` after a remote dev-to-main merge; dirty or divergent state is reported and preserved.
 
-`scripts/install-skill.sh` idempotently installs the supplied skill at `~/.agents/skills/parallel-integrator-workflow/`. It accepts an alternate destination for testing:
+`scripts/install-skill.sh` idempotently installs the supplied skill at `~/.agents/skills/sesh-integrator-workflow/`. It accepts an alternate destination for testing:
 
 ```bash
-./scripts/install-skill.sh /tmp/parallel-integrator-skill
+./scripts/install-skill.sh /tmp/sesh-integrator-skill
 ```
 
 Only the managed section in `~/.codex/AGENTS.md` is synchronized, using
@@ -107,11 +117,11 @@ project instructions with a bundled template. To remove the old generated blocks
 from every registered checkout on a machine, run:
 
 ```bash
-pintx cleanup-guidance --apply
+seshx cleanup-guidance --apply
 ```
 
 Omit `--apply` to preview. The command reads the selected runtime's repository
-list, removes recognized `codex-handoff` or `parallel-integrator` managed blocks,
+list, removes recognized `codex-handoff` or `sesh-integrator` managed blocks,
 and deletes a file only when nothing but whitespace remains. Text outside the
 block is preserved, including line endings. Every changed file is backed up
 under `<runtime>/guidance-backups/<id>/AGENTS.md`, with its original path and mode
@@ -135,30 +145,30 @@ its original file back to the recorded path without overwriting newer edits.
 These are the complete commands implemented by the MVP:
 
 ```bash
-pintx init
-pintx disable [repo-path]
-pintx enable [repo-path]
-pintx register [repo-path] [--auto-config] [--setup-command '<json-array>']...
-pintx begin --summary "Implement feature" [--create-worktree] [--no-auto-branch] [--depends-on <session-id>]...
-pintx commit --message "Implement feature" [--session <session-id>]
-pintx validate [--session <session-id>]
-pintx integrate --summary "Implemented feature and tests" --rollout <none|applied|automated|manual> [--follow-up "..."]... [--session <session-id>]
-pintx resume [--session <session-id>]
-pintx incident <ticket-id>
-pintx status [--session <session-id>]
-pintx dashboard
-pintx reconcile [repo-path] [--apply]
-pintx audit-legacy
-pintx cleanup-guidance [--apply]
-pintx doctor
-pintx benchmark [--runs <n>] [--json] [--check]
+seshx init
+seshx disable [repo-path]
+seshx enable [repo-path]
+seshx register [repo-path] [--auto-config] [--setup-command '<json-array>']...
+seshx begin --summary "Implement feature" [--create-worktree] [--no-auto-branch] [--depends-on <session-id>]...
+seshx commit --message "Implement feature" [--session <session-id>]
+seshx validate [--session <session-id>]
+seshx integrate --summary "Implemented feature and tests" --rollout <none|applied|automated|manual> [--follow-up "..."]... [--session <session-id>]
+seshx resume [--session <session-id>]
+seshx incident <ticket-id>
+seshx status [--session <session-id>]
+seshx dashboard
+seshx reconcile [repo-path] [--apply]
+seshx audit-legacy
+seshx cleanup-guidance [--apply]
+seshx doctor
+seshx benchmark [--runs <n>] [--json] [--check]
 ```
 
 There are no `run`, `daemon`, `watch`, or service-management commands.
 
 ### `dashboard`
 
-Run `pintx dashboard` in an interactive terminal to browse all
+Run `seshx dashboard` in an interactive terminal to browse all
 registered repositories and their sessions. The dashboard shows a compact session
 table with repository, status, task, and time since the latest saved event.
 A selected-item pane contains deterministic next-action guidance and recent saved
@@ -203,14 +213,14 @@ Command output stays in the normal terminal scrollback. After completion, Enter
 returns to refreshed details and `q` quits. Ctrl-C interrupts a running command
 using normal terminal signals; inspect its preserved result before retrying.
 Resolve and stage conflicts outside the dashboard before choosing Resume.
-For redirected output or a noninteractive terminal, use `pintx status`.
+For redirected output or a noninteractive terminal, use `seshx status`.
 
 ### `init`
 
 Creates, without overwriting an existing configuration:
 
 ```text
-~/.parallel-integrator/
+~/.sesh-integrator/
 ├── config.json
 ├── state.json
 ├── codex-home/
@@ -240,8 +250,8 @@ Set `PARALLEL_INTEGRATOR_HOME` to use a different runtime root, including in tes
 
 ### `disable` / `enable`
 
-Run `pintx disable` from a repository or any subdirectory to opt it out.
-Use `pintx enable` to reverse it. Both accept an optional repository path.
+Run `seshx disable` from a repository or any subdirectory to opt it out.
+Use `seshx enable` to reverse it. Both accept an optional repository path.
 The setting covers all linked worktrees, including repositories that have not
 been registered or do not yet have an initial commit. A separate clone has its
 own setting.
@@ -274,7 +284,7 @@ Run once for each repository:
 
 ```bash
 cd ~/Developer/my-project
-pintx register
+seshx register
 ```
 
 Registration records the real Git common directory, branches, and central
@@ -286,7 +296,7 @@ validation scripts. It works during initial registration and for an existing
 registration:
 
 ```bash
-pintx register --auto-config
+seshx register --auto-config
 ```
 
 Setup detection prefers an executable `scripts/bootstrap`, `scripts/setup`, or `bin/setup`.
@@ -313,7 +323,7 @@ for post-integration work:
 ```
 
 Auto-configuration never executes the detected scripts. It only writes their
-argument arrays to `~/.parallel-integrator/config.json`. If no supported scripts are
+argument arrays to `~/.sesh-integrator/config.json`. If no supported scripts are
 found, registration still succeeds and reports that the command lists remain
 unconfigured.
 
@@ -321,10 +331,10 @@ For an unknown ecosystem, provide one or more argument arrays once during
 registration:
 
 ```bash
-pintx register --setup-command '["make","bootstrap"]'
+seshx register --setup-command '["make","bootstrap"]'
 ```
 
-Edit `~/.parallel-integrator/config.json` to add validation and conflict settings. Commands are argument arrays and are never passed through a shell:
+Edit `~/.sesh-integrator/config.json` to add validation and conflict settings. Commands are argument arrays and are never passed through a shell:
 
 ```json
 {
@@ -340,7 +350,7 @@ Edit `~/.parallel-integrator/config.json` to add validation and conflict setting
       "path": "/Users/you/Developer/my-project",
       "gitCommonDir": "/Users/you/Developer/my-project/.git",
       "defaultBranch": "main",
-      "integrationBranch": "parallel-integrator/integration",
+      "integrationBranch": "sesh-integrator/integration",
       "targetBranch": "main",
       "promotion": { "type": "none" },
       "gpgProgram": "/Users/you/.local/bin/codex-gpg",
@@ -402,21 +412,21 @@ handoff into a review-ready `dev` to `main` PR, configure:
 }
 ```
 
-After local promotion and post-integration checks pass, `parallel-integrator` performs
+After local promotion and post-integration checks pass, `sesh-integrator` performs
 a normal non-force push, reuses an existing open PR for the same branch pair or
 creates a ready-for-review PR, requests configured reviewers, and adds configured
 assignees. Omit
 `productionBranch` to use `defaultBranch`, omit `remote` to use `origin`, and
 omit `reviewers` when CODEOWNERS or another GitHub policy assigns reviewers.
 The remote step requires authenticated `git` and `gh` access. Failures remain
-resumable with `pintx resume`.
+resumable with `seshx resume`.
 
 In shared-target mode, a non-fast-forward push caused by an advanced remote
 target is recovered automatically. The tool fetches the exact remote target,
 merges it into the validated staging integration, runs full integration
 validation and post-integration checks again, promotes the rebuilt commit
 locally, and retries the normal push. Recovery is limited to three attempts.
-Conflicts are preserved for `pintx resume`; validation failures,
+Conflicts are preserved for `seshx resume`; validation failures,
 ambiguous ancestry, and continued remote movement stop safely. The fetched
 commit and attempt count are persisted so interrupted recovery is resumable.
 
@@ -483,12 +493,12 @@ repository. These defaults do not enable remote promotion by themselves.
 
 Some repositories keep `main` as the default and stable branch while agents
 work on `dev`. For that workflow, keep the detected `defaultBranch` unchanged
-and set an explicit target in `~/.parallel-integrator/config.json`:
+and set an explicit target in `~/.sesh-integrator/config.json`:
 
 ```json
 {
   "defaultBranch": "main",
-  "integrationBranch": "parallel-integrator/integration",
+  "integrationBranch": "sesh-integrator/integration",
   "targetBranch": "dev"
 }
 ```
@@ -529,7 +539,7 @@ ambiguous instead of being silently migrated. Review its history, then
 configure a separate staging branch or make the combined target choice
 explicit.
 
-`gpgProgram` is optional. When set, `parallel-integrator` applies it only to its
+`gpgProgram` is optional. When set, `sesh-integrator` applies it only to its
 controlled source and integration commit commands. When signing is enabled,
 the CLI performs a real in-memory OpenPGP signing preflight immediately before
 each commit and refuses to invoke Git if the agent, key, pinentry, or program is
@@ -540,14 +550,14 @@ Auto-configured setup is `advisory` during `begin`: failure prints a warning but
 does not block branch or session creation. Explicit `--setup-command` setup is
 `required` and still blocks `begin` on failure. Integration normally requires
 successful setup before its selected validation commands. The workflow skill
-commits the focused change, then runs `pintx validate` against that exact
+commits the focused change, then runs `seshx validate` against that exact
 commit. After the staging branch advances, the CLI promotes the validated
 commit and runs `postIntegrationCommands` from the clean worktree checking out
 the target branch. Configuring these commands therefore requires exactly one
 accessible, clean target checkout. All commands are argument arrays executed
 directly without a shell.
 
-Before any non-empty validation plan, `parallel-integrator` infers safe disposable
+Before any non-empty validation plan, `sesh-integrator` infers safe disposable
 framework preparation directly from package manifests, including packages
 nested in a monorepo. It currently recognizes Next.js type generation,
 SvelteKit sync, Nuxt prepare, Astro sync, and React Router type generation. It
@@ -563,7 +573,7 @@ an existing repository with no tiers configured.
 
 An explicitly configured tier may set `bypassIntegrationWorktree` to `true`.
 The bypass is used only for the exact commit previously checked by
-`pintx validate`, and only when the tier has no integration commands and
+`seshx validate`, and only when the tier has no integration commands and
 the repository has no post-integration commands. Under the repository lock, the
 CLI uses Git plumbing and atomically advances the staging ref, then promotes
 through the normal checked-target safety path. Conflicts or
@@ -577,7 +587,7 @@ run in order and any failed member stops validation. Auto-configuration groups
 independent inferred checks and adds documentation-only and test-only tiers.
 
 Commands that share finite infrastructure can declare opaque resource keys and
-failure behavior without naming a framework or service in parallel-integrator:
+failure behavior without naming a framework or service in sesh-integrator:
 
 ```json
 {
@@ -618,11 +628,11 @@ For a Codex CLI task launched from an ordinary checkout, create the session in
 a separate source worktree:
 
 ```bash
-pintx begin --create-worktree --summary "Implement comment editing"
+seshx begin --create-worktree --summary "Implement comment editing"
 ```
 
 The command creates a unique branch and linked worktree below
-`~/.parallel-integrator/source-worktrees/`, records the original launch checkout, and
+`~/.sesh-integrator/source-worktrees/`, records the original launch checkout, and
 prints `Continue task in: <path>`. Run every edit, `commit`, `validate`,
 `integrate`, and `resume` from that printed path. If the current checkout is
 already a linked worktree, the flag reuses it. Dirty and staged state in an
@@ -679,9 +689,9 @@ After staging only the focused task paths, create the source commit and run
 tiered validation:
 
 ```bash
-pintx commit --message "Implement comment editing"
-pintx validate
-pintx integrate --summary "Implemented comment editing and tests" --rollout none
+seshx commit --message "Implement comment editing"
+seshx validate
+seshx integrate --summary "Implemented comment editing and tests" --rollout none
 ```
 
 Every integration must classify external-state rollout as `none`, `applied`,
@@ -693,7 +703,7 @@ was applied.
 Integration and recovery results print a `Completion summary` containing the session
 ID, source commit, staging integration commit, target promotion, pull request
 URL when present, and every recorded manual action in full. Retrieve it again
-with `pintx status --session <session-id>`. Status also separates current
+with `seshx status --session <session-id>`. Status also separates current
 integration prerequisites from external actions. Successful recovery removes
 resolved integration blockers; it does not imply that external setup occurred.
 `automated` reports delegation, not verified external completion. Legacy sessions
@@ -747,15 +757,15 @@ integration commands reuse their exact-tree results; integration-only commands
 still run. Retries reuse successes only while every fingerprint remains exact.
 
 On conflict, `integrate` preserves the merge and saves a contextual prompt under
-`~/.parallel-integrator/logs/`. The workflow skill directs the current Codex session to
-resolve and stage the preserved worktree, then runs `pintx resume` from
+`~/.sesh-integrator/logs/`. The workflow skill directs the current Codex session to
+resolve and stage the preserved worktree, then runs `seshx resume` from
 the source worktree. `resume` reacquires the repository lock, verifies the exact
 source commit, integration HEAD, merge target, branch, and resolved index, then
 validates and commits. This default path makes no nested model request.
 
 Set `conflictResolutionMode` to `nested-codex` only to retain the previous
 `codex exec` resolver. That opt-in mode uses the isolated writable `CODEX_HOME`
-at `~/.parallel-integrator/codex-home/` and therefore requires network access.
+at `~/.sesh-integrator/codex-home/` and therefore requires network access.
 
 ### `resume`
 
@@ -763,7 +773,7 @@ After the workflow has resolved and staged a preserved merge, it runs this from
 the original source worktree:
 
 ```bash
-pintx resume
+seshx resume
 ```
 
 Do not run it from the integration worktree. It resumes only the matching
@@ -787,7 +797,7 @@ the clean merge, reacquires its resources, and retries validation.
 ### `status`
 
 ```bash
-pintx status
+seshx status
 ```
 
 Shows every session, active/ready/waiting/succeeded/`needs_review`/`promotion_pending` state, staging and promoted commits, target branch, recovery phase, worktree paths, latest error, and current lock owners.
@@ -795,12 +805,12 @@ Shows every session, active/ready/waiting/succeeded/`needs_review`/`promotion_pe
 ### Failure incidents
 
 Failed validation, integration, and resume attempts create immutable incident
-tickets under `~/.parallel-integrator/incidents/`. The failure summary prints the
+tickets under `~/.sesh-integrator/incidents/`. The failure summary prints the
 ticket, concise diagnosis, and proposed fix. Inspect its complete stored record
 without mutation with:
 
 ```bash
-pintx incident CH-YYYYMMDD-XXXXXX
+seshx incident CH-YYYYMMDD-XXXXXX
 ```
 
 Instruction or code fixes proposed by an incident are implemented only in a
@@ -813,7 +823,7 @@ fallback instead of guessing. The failed session never edits its own policy.
 
 ### `reconcile`
 
-`pintx reconcile` audits registered repositories for historical session
+`seshx reconcile` audits registered repositories for historical session
 records marked succeeded whose staging commits are absent from the effective
 target. It is read-only unless `--apply` is passed. Apply is offered only for a
 recorded, ancestry-safe fast-forward whose staging head is an exact successful
@@ -828,7 +838,7 @@ If a process dies, a same-host dead-PID lock is removed automatically only when 
 Run one read-only readiness check from the project you intend to use:
 
 ```bash
-pintx doctor
+seshx doctor
 ```
 
 It checks Node.js, Git, the configured Codex executable, runtime/config files, the installed workflow skill, synchronized managed global guidance without stale concurrency prohibitions, current-project registration, separate staging/target branch ancestry, source and integration validation commands, active locks, and conflicting legacy automation. It prints `READY`, `READY WITH ... WARNINGS`, or `NOT READY` with actionable details. A `NOT READY` result exits nonzero. Warnings cover checks that could not be confirmed safely, such as an unavailable `launchctl` query.
@@ -850,13 +860,13 @@ It proves begin metadata, exact clean merges, simultaneous serialization, refres
 ### Performance reporting and benchmarks
 
 Lifecycle commands print total time plus their slowest phases and persist one
-aggregate JSON record per session under `~/.parallel-integrator/performance/`.
+aggregate JSON record per session under `~/.sesh-integrator/performance/`.
 Records separate setup, source validation, lock wait, worktree preparation,
 merge, integration validation, commit, promotion, and post-integration timing;
 they also include subprocess counts, validation tier, changed-path count, and
 cache hits.
 
-`pintx benchmark` creates disposable small, large, dirty, conflicting,
+`seshx benchmark` creates disposable small, large, dirty, conflicting,
 and concurrent repositories and reports median, p95, and maximum tool/Git
 overhead separately from user-configured commands. `--check` enforces CI
 regression budgets. `PARALLEL_INTEGRATOR_BENCHMARK_BUDGET_SCALE` scales them for a
@@ -890,7 +900,7 @@ PARALLEL_INTEGRATOR_REAL_GPG_E2E=1 ./scripts/test-real-gpg-e2e.sh after-fresh-lo
 ```
 
 It uses `sandbox-exec` to deny writes to `~/.gnupg`, creates signed source and
-integration commits through `parallel-integrator`, verifies both with Git, checks the
+integration commits through `sesh-integrator`, verifies both with Git, checks the
 bridge and disposable repository for private-key directories, prints exact
 versions/paths/commits, and retains the disposable evidence directory.
 
@@ -904,16 +914,16 @@ git -C "$trial_dir/repo" config user.email "handoff@example.com"
 touch "$trial_dir/repo/base.txt"
 git -C "$trial_dir/repo" add base.txt
 git -C "$trial_dir/repo" commit -m base
-pintx register "$trial_dir/repo"
+seshx register "$trial_dir/repo"
 git -C "$trial_dir/repo" worktree add -b codex/demo "$trial_dir/demo" main
 cd "$trial_dir/demo"
-pintx begin --summary "Disposable demo"
+seshx begin --summary "Disposable demo"
 echo demo > demo.txt
 git add demo.txt
-pintx commit --message "Add demo"
-pintx validate
-pintx integrate --summary "Added disposable demo" --rollout none
-git -C "$trial_dir/repo" log --oneline --graph parallel-integrator/integration
+seshx commit --message "Add demo"
+seshx validate
+seshx integrate --summary "Added disposable demo" --rollout none
+git -C "$trial_dir/repo" log --oneline --graph sesh-integrator/integration
 git -C "$trial_dir/repo" log --oneline --graph main
 ```
 
@@ -922,7 +932,7 @@ git -C "$trial_dir/repo" log --oneline --graph main
 First run the read-only audit:
 
 ```bash
-pintx audit-legacy
+seshx audit-legacy
 ```
 
 It reports `FOUND`, `NOT FOUND`, or `UNKNOWN` for the old source/runtime, skill, global instructions, Codex config, likely LaunchAgent, loaded launchctl jobs, registered-repository hooks, and old integration branches/worktrees. It changes none of them.
@@ -942,7 +952,7 @@ For rollback, stop invoking the new skill, restore the previous global guidance,
 ## Known limitations
 
 - Skill invocation remains instruction-driven. Source commit creation itself is
-  controlled by `pintx commit`; a crashed Codex session must still be
+  controlled by `seshx commit`; a crashed Codex session must still be
   resumed manually.
 - A running Codex CLI process cannot change its parent shell directory. The
   agent must honor the `Continue task in:` path for all subsequent tool calls.

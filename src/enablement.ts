@@ -30,7 +30,7 @@ export function assertRepositoryEnabled(
 ): void {
   if (isRepositoryDisabled(config, commonDir)) {
     throw new Error(
-      `Repository is disabled: ${commonDir}. Run pintx enable from this repository to re-enable it.`,
+      `Repository is disabled: ${commonDir}. Run seshx enable from this repository to re-enable it.`,
     );
   }
 }
@@ -68,7 +68,7 @@ export async function enablementCommand(
       );
       if (!enabled)
         process.stdout.write(
-          "Configuration, sessions, and Git state preserved. Run pintx enable from this repository to re-enable it.\n",
+          "Configuration, sessions, and Git state preserved. Run seshx enable from this repository to re-enable it.\n",
         );
     } finally {
       await releaseRepoLock(lock);

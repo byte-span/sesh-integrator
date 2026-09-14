@@ -135,7 +135,7 @@ export async function collectLegacyFindings(): Promise<Finding[]> {
         ? {
             label: "Registered repository audit",
             state: "NOT FOUND",
-            detail: `No parallel-integrator config at ${
+            detail: `No sesh-integrator config at ${
               runtimePaths().config
             }; no repositories to inspect.`,
           }

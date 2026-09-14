@@ -32,7 +32,7 @@ function git(repo: string, ...args: string[]): string {
 }
 
 async function fixture(contents: Array<string | undefined>) {
-  const root = await mkdtemp(join(tmpdir(), "parallel-integrator-cleanup-"));
+  const root = await mkdtemp(join(tmpdir(), "sesh-integrator-cleanup-"));
   roots.push(root);
   const runtime = join(root, "runtime");
   await mkdir(runtime);
@@ -148,7 +148,7 @@ it("rejects unknown options before touching files", async () => {
   const f = await fixture([block]);
   const result = f.run("--force");
   expect(result.status).toBe(1);
-  expect(result.stderr).toContain("Usage: pintx cleanup-guidance");
+  expect(result.stderr).toContain("Usage: seshx cleanup-guidance");
   expect(await readFile(join(f.repos[0]!, "AGENTS.md"), "utf8")).toBe(block);
 });
 

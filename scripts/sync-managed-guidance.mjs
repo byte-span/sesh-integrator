@@ -30,7 +30,7 @@ function replaceManaged(existing, managed) {
   const start = existing.indexOf(START);
   const end = existing.indexOf(END);
   if (start < 0 !== end < 0 || (start >= 0 && end < start)) {
-    throw new Error("malformed parallel-integrator managed markers");
+    throw new Error("malformed sesh-integrator managed markers");
   }
   const next =
     start >= 0
@@ -44,7 +44,7 @@ async function update(path, managed) {
   const next = replaceManaged(current, managed);
   if (current === next) return false;
   await mkdir(dirname(path), { recursive: true });
-  const temporary = `${path}.parallel-integrator-${process.pid}`;
+  const temporary = `${path}.sesh-integrator-${process.pid}`;
   await writeFile(temporary, next, { mode: 0o644 });
   await rename(temporary, path);
   return true;

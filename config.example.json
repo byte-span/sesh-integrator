@@ -11,7 +11,7 @@
       "path": "/Users/you/Developer/my-project",
       "gitCommonDir": "/Users/you/Developer/my-project/.git",
       "defaultBranch": "main",
-      "integrationBranch": "parallel-integrator/integration",
+      "integrationBranch": "sesh-integrator/integration",
       "targetBranch": "main",
       "promotion": { "type": "none" },
       "validationCache": "session",

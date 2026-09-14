@@ -14,7 +14,7 @@ import { expect, it } from "vitest";
 it.each([false, true])(
   "syncs only global guidance (runtime configured: %s)",
   async (configured) => {
-    const root = await mkdtemp(join(tmpdir(), "parallel-integrator-guidance-"));
+    const root = await mkdtemp(join(tmpdir(), "sesh-integrator-guidance-"));
     try {
       const home = join(root, "home");
       const runtime = join(root, "runtime");

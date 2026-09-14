@@ -13,8 +13,8 @@ import { join } from "node:path";
 import { expect, it } from "vitest";
 import { resolveRuntimeRoot } from "../src/runtime.js";
 
-it("installs pintx and both compatibility commands against the same CLI", async () => {
-  const root = await mkdtemp(join(tmpdir(), "pintx-install-"));
+it("installs seshx and both compatibility commands against the same CLI", async () => {
+  const root = await mkdtemp(join(tmpdir(), "seshx-install-"));
   try {
     const project = join(root, "project");
     const scripts = join(project, "scripts");
@@ -44,12 +44,18 @@ it("installs pintx and both compatibility commands against the same CLI", async 
           env,
           encoding: "utf8",
         }),
-      ).toContain("Installed pintx");
+      ).toContain("Installed seshx");
     }
     const manifest = JSON.parse(
       await readFile(join(project, "package.json"), "utf8"),
     );
-    for (const name of ["pintx", "parallel-integrator", "codex-handoff"]) {
+    for (const name of [
+      "seshx",
+      "sesh-integrator",
+      "pintx",
+      "parallel-integrator",
+      "codex-handoff",
+    ]) {
       expect(manifest.bin[name]).toBe("dist/cli.js");
       expect(await realpath(join(bin, name))).toBe(
         join(project, "dist/cli.js"),
@@ -57,10 +63,10 @@ it("installs pintx and both compatibility commands against the same CLI", async 
       const help = execFileSync(join(bin, name), ["--help"], {
         encoding: "utf8",
       });
-      expect(help).toContain("pintx - one-shot Git integration");
-      expect(help).toContain("pintx begin");
+      expect(help).toContain("seshx - one-shot Git integration");
+      expect(help).toContain("seshx begin");
       expect(help).toContain(
-        "Compatibility commands: parallel-integrator, codex-handoff",
+        "Compatibility commands: sesh-integrator, pintx, parallel-integrator, codex-handoff",
       );
     }
   } finally {
@@ -69,14 +75,22 @@ it("installs pintx and both compatibility commands against the same CLI", async 
 });
 
 it("keeps existing sessions and locks in the original runtime after the rename", async () => {
-  const home = await mkdtemp(join(tmpdir(), "parallel-integrator-rename-"));
+  const home = await mkdtemp(join(tmpdir(), "sesh-integrator-rename-"));
   try {
+    expect(resolveRuntimeRoot({}, home)).toBe(join(home, ".sesh-integrator"));
+    await mkdir(join(home, ".parallel-integrator"));
     expect(resolveRuntimeRoot({}, home)).toBe(
       join(home, ".parallel-integrator"),
     );
+    expect(
+      resolveRuntimeRoot(
+        { SESH_INTEGRATOR_HOME: "/new", PARALLEL_INTEGRATOR_HOME: "/old" },
+        home,
+      ),
+    ).toBe("/new");
     await mkdir(join(home, ".codex-handoff"));
     expect(resolveRuntimeRoot({}, home)).toBe(join(home, ".codex-handoff"));
-    await mkdir(join(home, ".parallel-integrator"));
+    await mkdir(join(home, ".sesh-integrator"));
     expect(resolveRuntimeRoot({}, home)).toBe(join(home, ".codex-handoff"));
     expect(resolveRuntimeRoot({ CODEX_HANDOFF_HOME: "/legacy" }, home)).toBe(
       "/legacy",

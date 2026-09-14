@@ -1,5 +1,5 @@
 [Unit]
-Description=Run bounded parallel-integrator health checks
+Description=Run bounded sesh-integrator health checks
 
 [Timer]
 OnBootSec=5min

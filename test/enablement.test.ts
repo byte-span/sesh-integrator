@@ -21,7 +21,7 @@ afterEach(async () => {
 });
 async function fixture(unborn = false) {
   const root = await realpath(
-    await mkdtemp(join(tmpdir(), "pintx-enablement-")),
+    await mkdtemp(join(tmpdir(), "seshx-enablement-")),
   );
   roots.push(root);
   const repo = join(root, "repo");
@@ -241,9 +241,7 @@ it("rechecks an opt-out after a waiting integration acquires its lock", async ()
     await rm(lock, { recursive: true });
     expect(await closed, output).toBe(1);
     expect(output).toContain("Repository is disabled");
-    expect(f.git(["branch", "--list", "parallel-integrator/integration"])).toBe(
-      "",
-    );
+    expect(f.git(["branch", "--list", "sesh-integrator/integration"])).toBe("");
   } finally {
     if (child.exitCode === null) {
       child.kill();

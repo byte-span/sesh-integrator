@@ -22,7 +22,7 @@ import type {
 } from "./types.js";
 import { isValidationStepList } from "./validation.js";
 
-export const DEFAULT_INTEGRATION_BRANCH = "parallel-integrator/integration";
+export const DEFAULT_INTEGRATION_BRANCH = "sesh-integrator/integration";
 
 export function resolveRuntimeRoot(
   env: NodeJS.ProcessEnv = process.env,
@@ -30,11 +30,14 @@ export function resolveRuntimeRoot(
 ): string {
   // Keep existing worktrees, locks, and session paths together after a rename.
   return (
+    env.SESH_INTEGRATOR_HOME ??
     env.PARALLEL_INTEGRATOR_HOME ??
     env.CODEX_HANDOFF_HOME ??
     (existsSync(join(home, ".codex-handoff"))
       ? join(home, ".codex-handoff")
-      : join(home, ".parallel-integrator"))
+      : existsSync(join(home, ".parallel-integrator"))
+        ? join(home, ".parallel-integrator")
+        : join(home, ".sesh-integrator"))
   );
 }
 

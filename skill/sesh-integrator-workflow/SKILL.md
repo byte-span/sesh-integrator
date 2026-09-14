@@ -1,58 +1,58 @@
 ---
-name: parallel-integrator-workflow
-description: Use for most code-changing Codex CLI tasks in Git repositories that should run in an isolated source worktree and be validated and promoted by the local parallel-integrator tool. Automatically register and begin or continue a session, then create a focused commit, validate, integrate, and resume when safe. Never use for read-only work, non-Git directories, parallel-integrator itself, its integration branch, or the legacy codex-integrator workflow.
+name: sesh-integrator-workflow
+description: Use for most code-changing Codex CLI tasks in Git repositories that should run in an isolated source worktree and be validated and promoted by the local sesh-integrator tool. Automatically register and begin or continue a session, then create a focused commit, validate, integrate, and resume when safe. Never use for read-only work, non-Git directories, sesh-integrator itself, its integration branch, or the legacy codex-integrator workflow.
 ---
 
-# Parallel Integrator Workflow
+# Sesh Integrator Workflow
 
-This skill coordinates a coding session with the local `parallel-integrator` CLI.
+This skill coordinates a coding session with the local `sesh-integrator` CLI.
 
 It does not perform daemon monitoring.
 
-Use `pintx` as the preferred command; `parallel-integrator` remains a compatible
-alias. The package, workflow skill, runtime paths, and branch names retain their
-existing names.
+Use `seshx` as the preferred command. `sesh-integrator`, `pintx`,
+`parallel-integrator`, and `codex-handoff` remain compatible aliases. Existing
+runtime data and configured branch names remain in place.
 
-Runtime paths below use the fresh-install default. If `PARALLEL_INTEGRATOR_HOME`
+Runtime paths below use the fresh-install default. If `SESH_INTEGRATOR_HOME`, `PARALLEL_INTEGRATOR_HOME`
 or compatibility `CODEX_HANDOFF_HOME` is set, use that directory instead.
-Otherwise, when `~/.codex-handoff/` already exists, use it in place of
-`~/.parallel-integrator/`; do not move existing session or worktree data.
+Otherwise reuse `~/.codex-handoff/` first, then `~/.parallel-integrator/` if present;
+fresh installations use `~/.sesh-integrator/`. Do not move existing session or worktree data.
 
 ## Start of a code-changing task
 
-Check `pintx status` for the current repository's enablement before registration
+Check `seshx status` for the current repository's enablement before registration
 or session recovery. If it reports `Enablement: disabled`, skip this workflow
 and follow the repository's normal development instructions. Do not automatically
-register, begin, resume, or run `pintx enable` to bypass an opt-out. Registration
+register, begin, resume, or run `seshx enable` to bypass an opt-out. Registration
 and enablement are independent; registration never clears a disabled setting.
 Only enable the repository when the user requests it.
 
 Before modifying files:
 
 1. Confirm this is code-changing work in a Git repository and is not work on
-   `parallel-integrator` itself or its configured integration branch.
+   `sesh-integrator` itself or its configured integration branch.
 2. Inspect repository instructions and Git state. Never reset, overwrite,
    discard, clean, or silently stash existing user state.
-3. Check whether `pintx` is available and inspect
-   `pintx status`. Continue an active or recoverable session for this
+3. Check whether `seshx` is available and inspect
+   `seshx status`. Continue an active or recoverable session for this
    task from its recorded source path. Do not replace a different task's
    session.
 4. If the repository is unregistered, autonomously run:
 
    ```bash
-   pintx register --auto-config
+   seshx register --auto-config
    ```
 
 5. Before beginning, compare the effective target reported by
-   `pintx status` with repository instructions. When the default branch
+   `seshx status` with repository instructions. When the default branch
    is stable but agent work must land on another branch such as `dev`, set the
-   global `defaultTargetBranch` accordingly in `~/.parallel-integrator/config.json`.
+   global `defaultTargetBranch` accordingly in `~/.sesh-integrator/config.json`.
    It applies to existing and new registrations that omit `targetBranch`; keep
    per-repository `targetBranch` values only as explicit exceptions.
 6. If no appropriate session exists, run:
 
    ```bash
-   pintx begin --create-worktree --summary "<concise task summary>"
+   seshx begin --create-worktree --summary "<concise task summary>"
    ```
 
    From an ordinary checkout, the command creates a unique task branch and
@@ -100,7 +100,7 @@ Before saying the task is complete:
      preflighted immediately before Git creates the commit:
 
      ```bash
-     pintx commit --message "<focused commit message>"
+     seshx commit --message "<focused commit message>"
      ```
 
    - never substitute a raw `git commit` when a handoff session is active
@@ -109,12 +109,12 @@ Before saying the task is complete:
    observably unchanged baseline path may remain only when `validate` explicitly
    reports that it is preserved and excluded; do not claim an inaccessible
    path's disk contents were verified.
-5. Run `pintx validate`. It chooses configured validation commands from
+5. Run `seshx validate`. It chooses configured validation commands from
    the exact committed diff; do not manually substitute a cheaper tier.
 6. If validation fails, inspect the complete failure evidence before stopping.
    An exit code is evidence, not a verdict about whether the failure is
    deterministic. When retrying is plausibly safe, rerun the unchanged
-   `pintx validate` command, for at most three total attempts. Do not
+   `seshx validate` command, for at most three total attempts. Do not
    edit code merely to make a retry pass. Stop after repeated failure or when
    the evidence identifies a code defect, and never integrate without
    successful validation. If validation succeeds while warning that a
@@ -124,7 +124,7 @@ Before saying the task is complete:
 7. Run:
 
    ```bash
-   pintx integrate --summary "<concise completion summary>" \
+   seshx integrate --summary "<concise completion summary>" \
      --rollout <none|applied|automated|manual> \
      [--follow-up "<required manual action>"]...
    ```
@@ -134,31 +134,31 @@ Before saying the task is complete:
    - inspect and resolve the preserved integration worktree reported by the CLI
    - preserve compatible intent, remove all conflict markers, and stage the resolved files
    - do not commit in the integration worktree
-   - run `pintx resume` from the original source worktree
+   - run `seshx resume` from the original source worktree
    - continue autonomously unless the conflict is genuinely ambiguous or validation fails
 9. If a clean merge was preserved after validation or commit creation failed,
-   run `pintx resume` from the original source worktree. The CLI must
+   run `seshx resume` from the original source worktree. The CLI must
    verify that its exact staged merge tree is unchanged before retrying.
    Every integration validation failure is recorded as `validation_pending`;
    it is resumable by the same command after evidence review and does not
    require reclassifying it as `needs_review`.
    Resume treats the durable recovery bundle as authoritative and reconstructs
    a fresh, hash-verified recovery worktree. Do not move, edit, or delete files
-   under `~/.parallel-integrator/recovery-bundles/` or refs under
+   under `~/.sesh-integrator/recovery-bundles/` or refs under
    `refs/codex-handoff/recovery/`; the previously shared integration worktree
    may no longer be the worktree reported after resume.
 10. If validation succeeded but target promotion reports
     `promotion_pending`, preserve the staging commit. Correct only the reported
     condition (for example, check out the target branch or save and clean user
     changes in its worktree)
-    and run `pintx resume`. Do not reset, clean, or discard user state.
+    and run `seshx resume`. Do not reset, clean, or discard user state.
 11. If shared-target remote recovery reports a conflict, resolve and stage only
-    the preserved integration worktree it names, then run `pintx
+    the preserved integration worktree it names, then run `seshx
 resume`. Do not fetch, merge, push, reset, or retry manually; the CLI owns
     the exact fetched commit, full revalidation, and bounded non-force retries.
 12. For any other integration failure, inspect the CLI's complete preserved
     evidence and incident diagnosis. Treat classifications as evidence, not a
-    verdict. If retrying the unchanged result is safe, run `pintx
+    verdict. If retrying the unchanged result is safe, run `seshx
 resume` in the same session for at most three total attempts. Report a
     blocker only after those attempts fail or the evidence identifies a code
     defect, ambiguity, or required external change. Do not start a replacement
@@ -193,7 +193,7 @@ say to configure them on a trusted machine. Never request, read, store, or print
 secret values, including in CLI arguments or session records.
 
 Before the final response, use the latest `Completion summary` (available again
-with `pintx status --session <session-id>`) and check every recorded
+with `seshx status --session <session-id>`) and check every recorded
 action against the response. Preserve every outstanding action and its essential
 details, even when concise: action, destination, exact names, and prerequisites.
 Do not collapse setup into a label such as “complete CWS setup.” Documentation
@@ -213,7 +213,7 @@ unresolved prerequisites. Requests for concision never override these details.
 
 ## Concurrent integration
 
-If another session is integrating the repository, `pintx integrate` may wait for the repository lock.
+If another session is integrating the repository, `seshx integrate` may wait for the repository lock.
 
 Do not start an alternative merge while waiting.
 
@@ -244,5 +244,5 @@ Never:
 - treat earlier start time as automatic precedence
 
 The `push` boundary applies to agent-issued Git commands. An explicitly
-configured `promotion.type: "pull-request"` authorizes `parallel-integrator` itself to
+configured `promotion.type: "pull-request"` authorizes `sesh-integrator` itself to
 perform its narrow non-force target push and create or update the configured PR.

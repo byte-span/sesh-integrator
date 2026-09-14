@@ -233,7 +233,7 @@ export async function promoteByPullRequest(
       "--title",
       `Promote ${head} to ${promotion.productionBranch}`,
       "--body",
-      `${marker}\n\nAutomated promotion after parallel-integrator session ${session.id}.\n\n${session.completionSummary ?? session.taskSummary}\n\nExternal rollout: ${session.rolloutDisposition ?? "unclassified"}${session.rolloutFollowUps?.length ? `\n\nRequired follow-up:\n${session.rolloutFollowUps.map((item) => `- ${item}`).join("\n")}` : ""}`,
+      `${marker}\n\nAutomated promotion after sesh-integrator session ${session.id}.\n\n${session.completionSummary ?? session.taskSummary}\n\nExternal rollout: ${session.rolloutDisposition ?? "unclassified"}${session.rolloutFollowUps?.length ? `\n\nRequired follow-up:\n${session.rolloutFollowUps.map((item) => `- ${item}`).join("\n")}` : ""}`,
     ];
     if (promotion.reviewers.length > 0) {
       args.push("--reviewer", promotion.reviewers.join(","));

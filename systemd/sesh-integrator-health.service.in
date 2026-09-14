@@ -1,5 +1,5 @@
 [Unit]
-Description=Check parallel-integrator machine health
+Description=Check sesh-integrator machine health
 
 [Service]
 Type=oneshot

@@ -45,7 +45,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
       case "disable":
       case "enable":
         if (args.length > 1 || args[0]?.startsWith("-"))
-          throw new Error(`Usage: pintx ${command} [repo-path]`);
+          throw new Error(`Usage: seshx ${command} [repo-path]`);
         await enablementCommand(command === "enable", args[0]);
         break;
       case "register":
@@ -97,7 +97,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
       }
       case "incident": {
         if (args.length !== 1 || !args[0])
-          throw new Error("Usage: pintx incident <ticket-id>");
+          throw new Error("Usage: seshx incident <ticket-id>");
         await incidentCommand(args[0]);
         break;
       }
@@ -112,7 +112,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
         break;
       case "cleanup-guidance":
         if (args.length > 1 || (args.length === 1 && args[0] !== "--apply"))
-          throw new Error("Usage: pintx cleanup-guidance [--apply]");
+          throw new Error("Usage: seshx cleanup-guidance [--apply]");
         await cleanupGuidanceCommand(args[0] === "--apply");
         break;
       case "doctor":
@@ -320,7 +320,7 @@ function parseCommand(value: string): [string, ...string[]] {
 
 function registerUsageError(): Error {
   return new Error(
-    "Usage: pintx register [repo-path] [--auto-config] [--setup-command '<json-array>']...",
+    "Usage: seshx register [repo-path] [--auto-config] [--setup-command '<json-array>']...",
   );
 }
 
@@ -333,39 +333,39 @@ function parseReconcileOptions(args: string[]): {
   for (const argument of args) {
     if (argument === "--apply" && !apply) apply = true;
     else if (!argument.startsWith("--") && path === undefined) path = argument;
-    else throw new Error("Usage: pintx reconcile [repo-path] [--apply]");
+    else throw new Error("Usage: seshx reconcile [repo-path] [--apply]");
   }
   return { apply, path };
 }
 
-const helpText = `pintx - one-shot Git integration (parallel-integrator)
+const helpText = `seshx - one-shot Git integration (sesh-integrator)
 
-Compatibility commands: parallel-integrator, codex-handoff
+Compatibility commands: sesh-integrator, pintx, parallel-integrator, codex-handoff
 
 Usage:
-  pintx init
-  pintx disable [repo-path]
-  pintx enable [repo-path]
-  pintx register [repo-path] [--auto-config] [--setup-command '<json-array>']...
-  pintx begin --summary "..." [--create-worktree] [--no-auto-branch] [--depends-on <session-id>]...
-  pintx commit --message "..." [--session <session-id>]
-  pintx validate [--session <session-id>]
-  pintx integrate --summary "..." --rollout <none|applied|automated|manual> [--follow-up "<action, destination, exact configuration names; no secret values>"]... [--session <session-id>]
-  pintx resume [--session <session-id>]
-  pintx status [--session <session-id>]
-  pintx dashboard
-  pintx incident <ticket-id>
-  pintx reconcile [repo-path] [--apply]
-  pintx audit-legacy
-  pintx cleanup-guidance [--apply]
-  pintx doctor
-  pintx benchmark [--runs <n>] [--json] [--check]
+  seshx init
+  seshx disable [repo-path]
+  seshx enable [repo-path]
+  seshx register [repo-path] [--auto-config] [--setup-command '<json-array>']...
+  seshx begin --summary "..." [--create-worktree] [--no-auto-branch] [--depends-on <session-id>]...
+  seshx commit --message "..." [--session <session-id>]
+  seshx validate [--session <session-id>]
+  seshx integrate --summary "..." --rollout <none|applied|automated|manual> [--follow-up "<action, destination, exact configuration names; no secret values>"]... [--session <session-id>]
+  seshx resume [--session <session-id>]
+  seshx status [--session <session-id>]
+  seshx dashboard
+  seshx incident <ticket-id>
+  seshx reconcile [repo-path] [--apply]
+  seshx audit-legacy
+  seshx cleanup-guidance [--apply]
+  seshx doctor
+  seshx benchmark [--runs <n>] [--json] [--check]
 `;
 
 if (isMainModule()) {
   main().catch((error: unknown) => {
     process.stderr.write(
-      `pintx: ${error instanceof Error ? error.message : String(error)}\n`,
+      `seshx: ${error instanceof Error ? error.message : String(error)}\n`,
     );
     process.exitCode = 1;
   });
