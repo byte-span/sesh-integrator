@@ -103,6 +103,13 @@ export function actionArguments(
   return args;
 }
 
+export function exactTime(value: string | number): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? "unknown"
+    : `${date.toISOString().slice(0, 19).replace("T", " ")} UTC`;
+}
+
 export function detailLines(row: DashboardRow): string[] {
   const { session: s, repository: r } = row;
   const lines = [
@@ -114,6 +121,7 @@ export function detailLines(row: DashboardRow): string[] {
   lines.push(
     `Session: ${s.id}`,
     `Task: ${s.taskSummary}`,
+    `Started: ${exactTime(s.startedAt)}`,
     `Status: ${s.status}${s.waitingForLock ? " (waiting for lock)" : ""}`,
     `Source branch: ${s.branch}`,
     `Source worktree: ${s.worktreePath}`,
@@ -371,6 +379,7 @@ export function renderDashboard(
     attention: 0,
   },
   view: DashboardView = defaultDashboardView,
+  now = new Date(),
 ): string[] {
   const framed = width >= 114 && height >= 27;
   if (!framed)
@@ -382,6 +391,7 @@ export function renderDashboard(
       refreshedAt,
       navigation,
       view,
+      now,
     );
   width = Math.floor(width);
   height = Math.floor(height);
@@ -394,6 +404,7 @@ export function renderDashboard(
     refreshedAt,
     navigation,
     view,
+    now,
   );
   const border = "+" + "-".repeat(width - 2) + "+";
   const top = "/" + "-".repeat(width - 2) + "\\";
@@ -431,6 +442,7 @@ function renderDashboardContent(
     attention: 0,
   },
   view: DashboardView = defaultDashboardView,
+  now = new Date(),
 ): string[] {
   width = Math.max(1, Math.floor(width));
   height = Math.max(1, Math.floor(height));
@@ -448,10 +460,7 @@ function renderDashboardContent(
   const age = (r: DashboardRow) => {
     const at = updatedAt(r);
     if (!at) return "-";
-    const minutes = Math.max(
-      0,
-      Math.floor((refreshedAt.getTime() - at) / 60000),
-    );
+    const minutes = Math.max(0, Math.floor((now.getTime() - at) / 60000));
     return minutes < 1
       ? "now"
       : minutes < 60
@@ -472,7 +481,7 @@ function renderDashboardContent(
       !needsAttention(r),
   ).length;
   const title = `parallel-integrator  ${visible.length} visible | ${attention} attention | ${active} active`;
-  const refresh = `Last refresh ${refreshedAt.toISOString().slice(11, 19)} UTC`;
+  const refresh = `Last refresh ${exactTime(refreshedAt.getTime())}`;
   const wide = width >= 110 && height >= 20;
   const leftWidth = wide ? Math.floor(width * 0.68) : width;
   const rightWidth = wide ? width - leftWidth - 3 : width;
@@ -503,7 +512,7 @@ function renderDashboardContent(
   const lines = [
     width >= title.length + refresh.length + 3
       ? fit(title, width - refresh.length) + refresh
-      : title,
+      : refresh,
     controls,
     wide
       ? fit(`Sessions  ${position}`, leftWidth) + " | " + "Selected item"
@@ -677,6 +686,7 @@ export async function dashboardCommand(): Promise<void> {
   let searching = false;
   let previousQuery = "";
   let refreshedAt = new Date();
+  let clockTimer: ReturnType<typeof setInterval> | undefined;
   let selected = 0;
   let navigation: DashboardNavigation = {
     focus: "sessions",
@@ -877,6 +887,7 @@ export async function dashboardCommand(): Promise<void> {
   const close = () => {
     if (closed) return;
     closed = true;
+    clearInterval(clockTimer);
     leave();
     stdin.setRawMode(wasRaw);
     stdin.off("keypress", onKey);
@@ -1164,6 +1175,9 @@ export async function dashboardCommand(): Promise<void> {
     stdin.setRawMode(true);
     stdin.resume();
     draw();
+    // Redraw cached ages only; saved data is still refreshed on demand.
+    clockTimer = setInterval(draw, 60_000);
+    clockTimer.unref();
     await done;
   } finally {
     close();

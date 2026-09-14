@@ -179,6 +179,10 @@ cycle status filters, `p` to cycle repositories, and `s` to cycle priority,
 updated, and repository sorting. Search applies as you type; Enter finishes and
 Escape restores the previous query. Tab switches between the filtered session
 list and its attention subset, remembering each selection.
+The Updated ages advance every minute from cached event timestamps without
+reading session files or Git. Last refresh shows the exact UTC date/time when
+data was loaded and changes only when data is refreshed. Details include the
+exact UTC session start time.
 Use Enter for details, `r` to refresh, and `q` to quit. In details, Up/Down scrolls
 the complete record, including long follow-ups. From either view, `v` validates,
 `i` integrates, and `R` resumes a preserved integration (`s` remains a resume
