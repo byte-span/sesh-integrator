@@ -19,7 +19,7 @@ export function removeManagedGuidance(original: Buffer): Buffer | undefined {
     throw new Error("not a UTF-8 text file");
   const markers = [
     ...text.matchAll(
-      /<!-- (codex-handoff|parallel-integrator):managed:(start|end) -->/g,
+      /<!-- (codex-handoff|parallel-integrator|sesh-integrator):managed:(start|end) -->/g,
     ),
   ];
   if (markers.length === 0) return undefined;
@@ -53,7 +53,9 @@ export function removeManagedGuidance(original: Buffer): Buffer | undefined {
   if (
     !text
       .slice(start + first[0].length, last.index)
-      .match(/^## (codex-handoff|parallel-integrator) workflow\r?$/m)
+      .match(
+        /^## (codex-handoff|parallel-integrator|sesh-integrator) workflow\r?$/m,
+      )
   ) {
     throw new Error(
       "managed block is not recognized repository workflow guidance",
@@ -166,7 +168,7 @@ export async function cleanupGuidanceCommand(apply: boolean): Promise<void> {
       if (!remove) {
         temporary = join(
           dirname(file),
-          `.parallel-integrator-cleanup-${randomUUID()}`,
+          `.sesh-integrator-cleanup-${randomUUID()}`,
         );
         await writeFile(temporary, updated, {
           flag: "wx",
@@ -230,7 +232,7 @@ export async function cleanupGuidanceCommand(apply: boolean): Promise<void> {
   );
   if (!apply && changed)
     process.stdout.write(
-      "Run pintx cleanup-guidance --apply to clean all eligible registered checkouts.\n",
+      "Run seshx cleanup-guidance --apply to clean all eligible registered checkouts.\n",
     );
   if (apply && changed)
     process.stdout.write(

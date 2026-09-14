@@ -45,7 +45,7 @@ afterEach(async () => {
   );
 });
 
-describe.sequential("parallel-integrator repository workflow", () => {
+describe.sequential("sesh-integrator repository workflow", () => {
   it("requires and reports a technology-neutral external rollout classification", async () => {
     const fixture = await createFixture();
     await runCliOk(fixture, fixture.repo, [
@@ -111,9 +111,7 @@ describe.sequential("parallel-integrator repository workflow", () => {
   });
 
   it("caches only fingerprinted advisory setup with an extant marker", async () => {
-    const root = await mkdtemp(
-      join(tmpdir(), "parallel-integrator-setup-cache-"),
-    );
+    const root = await mkdtemp(join(tmpdir(), "sesh-integrator-setup-cache-"));
     temporaryRoots.push(root);
     const runtime = join(root, "runtime");
     const worktree = join(root, "worktree");
@@ -128,7 +126,7 @@ describe.sequential("parallel-integrator repository workflow", () => {
         path: worktree,
         gitCommonDir: join(worktree, ".git"),
         defaultBranch: "main",
-        integrationBranch: "parallel-integrator/integration",
+        integrationBranch: "sesh-integrator/integration",
         setupCommands: [
           [
             process.execPath,
@@ -779,7 +777,7 @@ describe.sequential("parallel-integrator repository workflow", () => {
       "dirty\n",
     );
     expect(() =>
-      git(fixture.repo, "show", "parallel-integrator/integration:dirty.txt"),
+      git(fixture.repo, "show", "sesh-integrator/integration:dirty.txt"),
     ).toThrow();
   });
 
@@ -827,10 +825,10 @@ describe.sequential("parallel-integrator repository workflow", () => {
     );
     expect(integration.code, integration.stderr).toBe(0);
     expect(
-      git(fixture.repo, "show", "parallel-integrator/integration:README.md"),
+      git(fixture.repo, "show", "sesh-integrator/integration:README.md"),
     ).toBe("README task");
     expect(
-      git(fixture.repo, "show", "parallel-integrator/integration:.env.local"),
+      git(fixture.repo, "show", "sesh-integrator/integration:.env.local"),
     ).toBe("tracked secret");
   });
 
@@ -888,10 +886,10 @@ describe.sequential("parallel-integrator repository workflow", () => {
       "remains inaccessible, tracked, unstaged, and outside the task diff",
     );
     expect(
-      git(fixture.repo, "show", "parallel-integrator/integration:app.ts"),
+      git(fixture.repo, "show", "sesh-integrator/integration:app.ts"),
     ).toBe("export const ready = true;");
     expect(
-      git(fixture.repo, "show", "parallel-integrator/integration:.env.local"),
+      git(fixture.repo, "show", "sesh-integrator/integration:.env.local"),
     ).toBe("tracked secret");
     const completed = (await sessions(fixture))[0];
     expect(completed.status).toBe("succeeded");
@@ -1074,7 +1072,7 @@ describe.sequential("parallel-integrator repository workflow", () => {
     const result = await runCli(fixture, fixture.repo, ["validate"]);
     expect(result.code).toBe(1);
     expect(result.stderr).toContain("predates observable Git baselines");
-    expect(result.stderr).toContain("Start a new parallel-integrator session");
+    expect(result.stderr).toContain("Start a new sesh-integrator session");
   });
 
   it("runs configured setup before beginning a session", async () => {
@@ -1352,7 +1350,7 @@ describe.sequential("parallel-integrator repository workflow", () => {
         "merge-base",
         "--is-ancestor",
         sourceHead,
-        "parallel-integrator/integration",
+        "sesh-integrator/integration",
       ),
     ).toBe("");
     expect(git(worktree, "rev-parse", "HEAD")).toBe(sourceHead);
@@ -1408,9 +1406,9 @@ describe.sequential("parallel-integrator repository workflow", () => {
     expect(integration.code, integration.stderr).toBe(0);
     expect(integration.stdout).toContain("Promoted");
     expect(integration.stdout).toContain("directly");
-    expect(
-      git(fixture.repo, "rev-parse", "parallel-integrator/integration"),
-    ).toBe(readyCommit);
+    expect(git(fixture.repo, "rev-parse", "sesh-integrator/integration")).toBe(
+      readyCommit,
+    );
     expect(git(fixture.repo, "rev-parse", "main")).toBe(readyCommit);
     expect(await readdir(join(fixture.runtime, "worktrees"))).toEqual([]);
     const complete = (await sessions(fixture))[0]!;
@@ -1539,7 +1537,7 @@ describe.sequential("parallel-integrator repository workflow", () => {
     const fixture = await createFixture();
     const originalMain = git(fixture.repo, "rev-parse", "main");
     await updateConfig(fixture, (config) => {
-      config.repositories[0].targetBranch = "parallel-integrator/integration";
+      config.repositories[0].targetBranch = "sesh-integrator/integration";
     });
     const worktree = await addWorktree(fixture, "combined-staging-target");
     await runCliOk(fixture, worktree, [
@@ -1557,7 +1555,7 @@ describe.sequential("parallel-integrator repository workflow", () => {
 
     const completed = (await sessions(fixture))[0]!;
     expect(completed.status).toBe("succeeded");
-    expect(completed.targetBranch).toBe("parallel-integrator/integration");
+    expect(completed.targetBranch).toBe("sesh-integrator/integration");
     expect(completed.promotedCommit).toBe(completed.integratedCommit);
     expect(git(fixture.repo, "rev-parse", "main")).toBe(originalMain);
   });
@@ -1709,9 +1707,9 @@ describe.sequential("parallel-integrator repository workflow", () => {
     const pending = (await sessions(fixture))[0]!;
     expect(pending.status).toBe("promotion_pending");
     expect(git(fixture.repo, "rev-parse", "main")).toBe(originalMain);
-    expect(
-      git(fixture.repo, "rev-parse", "parallel-integrator/integration"),
-    ).toBe(pending.integratedCommit);
+    expect(git(fixture.repo, "rev-parse", "sesh-integrator/integration")).toBe(
+      pending.integratedCommit,
+    );
     expect(await readFile(join(fixture.repo, "shared.txt"), "utf8")).toBe(
       "user change\n",
     );
@@ -1788,9 +1786,9 @@ describe.sequential("parallel-integrator repository workflow", () => {
     expect(result.stderr).toContain("inaccessible worktree");
     const pending = (await sessions(fixture))[0]!;
     expect(pending.status).toBe("promotion_pending");
-    expect(
-      git(fixture.repo, "rev-parse", "parallel-integrator/integration"),
-    ).toBe(pending.integratedCommit);
+    expect(git(fixture.repo, "rev-parse", "sesh-integrator/integration")).toBe(
+      pending.integratedCommit,
+    );
   });
 
   it("audits and explicitly reconciles historical succeeded integrations missing from the target", async () => {
@@ -1830,9 +1828,9 @@ describe.sequential("parallel-integrator repository workflow", () => {
     expect(git(fixture.repo, "rev-parse", "main")).toBe(historicalTarget);
     const doctor = await runCli(fixture, fixture.repo, ["doctor"]);
     expect(doctor.stdout).toContain(
-      "staging parallel-integrator/integration is ahead",
+      "staging sesh-integrator/integration is ahead",
     );
-    expect(doctor.stdout).toContain("pintx reconcile");
+    expect(doctor.stdout).toContain("seshx reconcile");
 
     const applied = await runCli(fixture, fixture.repo, [
       "reconcile",
@@ -1886,9 +1884,9 @@ describe.sequential("parallel-integrator repository workflow", () => {
     expect(result.code).toBe(1);
     expect(result.stderr).toContain("diverged");
     expect(git(fixture.repo, "rev-parse", "main")).toBe(external);
-    expect(
-      git(fixture.repo, "rev-parse", "parallel-integrator/integration"),
-    ).toBe(completed.integratedCommit);
+    expect(git(fixture.repo, "rev-parse", "sesh-integrator/integration")).toBe(
+      completed.integratedCommit,
+    );
   });
 
   it("uses full validation and the integration worktree for non-tiered changes", async () => {
@@ -2007,7 +2005,7 @@ describe.sequential("parallel-integrator repository workflow", () => {
         "merge-base",
         "--is-ancestor",
         firstCommit,
-        "parallel-integrator/integration",
+        "sesh-integrator/integration",
       ),
     ).toBe("");
     expect(
@@ -2016,7 +2014,7 @@ describe.sequential("parallel-integrator repository workflow", () => {
         "merge-base",
         "--is-ancestor",
         docsCommit,
-        "parallel-integrator/integration",
+        "sesh-integrator/integration",
       ),
     ).toBe("");
   });
@@ -2181,15 +2179,10 @@ describe.sequential("parallel-integrator repository workflow", () => {
 
     expect(result.code, result.stderr).toBe(0);
     expect(
-      git(
-        fixture.repo,
-        "cat-file",
-        "commit",
-        "parallel-integrator/integration",
-      ),
+      git(fixture.repo, "cat-file", "commit", "sesh-integrator/integration"),
     ).toContain("gpgsig -----BEGIN PGP SIGNATURE-----");
     expect(git(fixture.repo, "rev-parse", "main")).toBe(
-      git(fixture.repo, "rev-parse", "parallel-integrator/integration"),
+      git(fixture.repo, "rev-parse", "sesh-integrator/integration"),
     );
   });
 
@@ -2280,7 +2273,7 @@ describe.sequential("parallel-integrator repository workflow", () => {
         "merge-base",
         "--is-ancestor",
         readyCommit,
-        "parallel-integrator/integration",
+        "sesh-integrator/integration",
       ),
     ).toBe("");
     expect(() =>
@@ -2288,7 +2281,7 @@ describe.sequential("parallel-integrator repository workflow", () => {
         fixture.repo,
         "cat-file",
         "-e",
-        "parallel-integrator/integration:later.txt",
+        "sesh-integrator/integration:later.txt",
       ),
     ).toThrow();
   });
@@ -2317,7 +2310,7 @@ describe.sequential("parallel-integrator repository workflow", () => {
     const finalHead = git(
       fixture.repo,
       "rev-parse",
-      "parallel-integrator/integration",
+      "sesh-integrator/integration",
     );
     expect(
       git(fixture.repo, "merge-base", "--is-ancestor", commitA, finalHead),
@@ -2529,9 +2522,9 @@ describe.sequential("parallel-integrator repository workflow", () => {
     ]);
     expect(result.code).toBe(1);
     expect(result.stderr).toContain("Validation failed");
-    expect(
-      git(fixture.repo, "rev-parse", "parallel-integrator/integration"),
-    ).toBe(before);
+    expect(git(fixture.repo, "rev-parse", "sesh-integrator/integration")).toBe(
+      before,
+    );
     const pending = (await sessions(fixture)).find(
       (session) => session.worktreePath === worktree,
     )!;
@@ -2866,7 +2859,7 @@ describe.sequential("parallel-integrator repository workflow", () => {
         [
           process.execPath,
           "-e",
-          `const {execFileSync}=require("node:child_process");const fs=require("node:fs");const current=execFileSync("git",["rev-parse","HEAD"],{encoding:"utf8"}).trim();const staging=execFileSync("git",["rev-parse","parallel-integrator/integration"],{encoding:"utf8"}).trim();const target=execFileSync("git",["rev-parse","main"],{encoding:"utf8"}).trim();const branch=execFileSync("git",["branch","--show-current"],{encoding:"utf8"}).trim();if(current!==staging||current!==target||branch!=="main"||current===${JSON.stringify(
+          `const {execFileSync}=require("node:child_process");const fs=require("node:fs");const current=execFileSync("git",["rev-parse","HEAD"],{encoding:"utf8"}).trim();const staging=execFileSync("git",["rev-parse","sesh-integrator/integration"],{encoding:"utf8"}).trim();const target=execFileSync("git",["rev-parse","main"],{encoding:"utf8"}).trim();const branch=execFileSync("git",["branch","--show-current"],{encoding:"utf8"}).trim();if(current!==staging||current!==target||branch!=="main"||current===${JSON.stringify(
             originalHead,
           )})process.exit(9);fs.writeFileSync(${JSON.stringify(marker)},JSON.stringify({branch,current,cwd:process.cwd()}));`,
         ],
@@ -2951,7 +2944,7 @@ describe.sequential("parallel-integrator repository workflow", () => {
     const failed = (await sessions(fixture))[0]!;
     expect(failed.status).toBe("needs_review");
     expect(failed.integratedCommit).toBe(
-      git(fixture.repo, "rev-parse", "parallel-integrator/integration"),
+      git(fixture.repo, "rev-parse", "sesh-integrator/integration"),
     );
     expect(failed.integratedAt).toBeTruthy();
     expect(git(fixture.repo, "rev-parse", "main")).toBe(
@@ -2966,7 +2959,7 @@ describe.sequential("parallel-integrator repository workflow", () => {
         "merge-base",
         "--is-ancestor",
         readyCommit,
-        "parallel-integrator/integration",
+        "sesh-integrator/integration",
       ),
     ).toBe("");
     expect(git(worktree, "status", "--porcelain=v1")).toBe("");
@@ -3002,7 +2995,7 @@ describe.sequential("parallel-integrator repository workflow", () => {
     expect(result.stderr).toContain(
       "Merge conflict requires resolution by the current Codex session",
     );
-    expect(result.stderr).toContain("pintx resume");
+    expect(result.stderr).toContain("seshx resume");
     const failed = (await sessions(fixture)).find(
       (session) => session.worktreePath === second,
     )!;
@@ -3179,7 +3172,7 @@ describe.sequential("parallel-integrator repository workflow", () => {
       "worktree",
       "add",
       "-b",
-      "parallel-integrator/integration",
+      "sesh-integrator/integration",
       integrationPath,
       "main",
     );
@@ -3266,18 +3259,13 @@ describe.sequential("parallel-integrator repository workflow", () => {
       fixture.auditHome,
       ".agents",
       "skills",
-      "parallel-integrator-workflow",
+      "sesh-integrator-workflow",
     );
     await mkdir(join(skillRoot, "agents"), { recursive: true });
     await writeFile(
       join(skillRoot, "SKILL.md"),
       await readFile(
-        join(
-          process.cwd(),
-          "skill",
-          "parallel-integrator-workflow",
-          "SKILL.md",
-        ),
+        join(process.cwd(), "skill", "sesh-integrator-workflow", "SKILL.md"),
         "utf8",
       ),
     );
@@ -3287,7 +3275,7 @@ describe.sequential("parallel-integrator repository workflow", () => {
         join(
           process.cwd(),
           "skill",
-          "parallel-integrator-workflow",
+          "sesh-integrator-workflow",
           "agents",
           "openai.yaml",
         ),
@@ -3310,7 +3298,7 @@ describe.sequential("parallel-integrator repository workflow", () => {
     const result = await runCli(fixture, fixture.repo, ["doctor"]);
 
     expect(result.code, result.stderr).toBe(0);
-    expect(result.stdout).toContain("pintx doctor (read-only)");
+    expect(result.stdout).toContain("seshx doctor (read-only)");
     expect(result.stdout).toContain("PASS  Workflow skill");
     expect(result.stdout).toContain("PASS  Registered repository");
     expect(result.stdout).toContain("READY");
@@ -3339,7 +3327,7 @@ describe.sequential("parallel-integrator repository workflow", () => {
     await mkdir(join(fixture.auditHome, ".codex"), { recursive: true });
     await writeFile(
       join(fixture.auditHome, ".codex", "AGENTS.md"),
-      "Use parallel-integrator-workflow. Do not begin the workflow on the repository default branch.\n",
+      "Use sesh-integrator-workflow. Do not begin the workflow on the repository default branch.\n",
     );
 
     const result = await runCli(fixture, fixture.repo, ["doctor"]);
@@ -3555,13 +3543,13 @@ describe.sequential("parallel-integrator repository workflow", () => {
     expect(result.stdout).toContain("NOT READY");
   });
 
-  it("reports the parallel-integrator repository as intentionally self-managed", async () => {
+  it("reports the sesh-integrator repository as intentionally self-managed", async () => {
     const fixture = await createFixture();
 
     const result = await runCli(fixture, process.cwd(), ["doctor"]);
 
     expect(result.stdout).toContain(
-      "SKIP  Current repository: parallel-integrator is intentionally self-managed and excluded from registration",
+      "SKIP  Current repository: sesh-integrator is intentionally self-managed and excluded from registration",
     );
     expect(result.stdout).not.toContain("Current repository: not registered");
   });
@@ -3589,7 +3577,7 @@ describe.sequential("parallel-integrator repository workflow", () => {
 });
 
 async function createFixture(sharedContents?: string): Promise<Fixture> {
-  const root = await mkdtemp(join(tmpdir(), "parallel-integrator-test-"));
+  const root = await mkdtemp(join(tmpdir(), "sesh-integrator-test-"));
   temporaryRoots.push(root);
   const fixture = {
     root,

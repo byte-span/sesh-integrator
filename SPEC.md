@@ -1,8 +1,8 @@
-# parallel-integrator — One-Shot Integration Specification
+# sesh-integrator — One-Shot Integration Specification
 
-The preferred executable is `pintx`. The npm package remains `parallel-integrator`;
-`parallel-integrator` and `codex-handoff` are compatibility executables pointing
-to the same CLI. Runtime paths, configuration variables, and Git refs are unchanged.
+The preferred executable is `seshx`. The npm package remains `sesh-integrator`;
+`sesh-integrator`, `pintx`, `parallel-integrator`, and `codex-handoff` are compatibility executables pointing
+to the same CLI. Existing runtime paths, configuration variables, and Git refs remain supported; fresh installations use the new defaults described in README.md.
 
 ## 1. Problem
 
@@ -17,20 +17,20 @@ The difficult part is integrating their completed changes without repeatedly:
 - checking which session started first
 - babysitting a long-running watcher/daemon
 
-`parallel-integrator` removes the long-running daemon. Integration happens exactly when a Codex session finishes.
+`sesh-integrator` removes the long-running daemon. Integration happens exactly when a Codex session finishes.
 
 ## 2. Architecture
 
 ```text
 SESSION 1                         SESSION 2
    │                                 │
-   ├─ pintx begin            ├─ pintx begin
+   ├─ seshx begin            ├─ seshx begin
    │                                 │
    ├─ work                            ├─ work
    │                                 │
    ├─ validate + commit              ├─ validate + commit
    │                                 │
-   └─ pintx integrate        └─ pintx integrate
+   └─ seshx integrate        └─ seshx integrate
                  │                              │
                  └────────────┬─────────────────┘
                               │
@@ -80,13 +80,13 @@ This means the system has no idle background process and no polling state to mai
 Project source:
 
 ```text
-~/Developer/tools/parallel-integrator/
+~/Developer/tools/sesh-integrator/
 ```
 
 Runtime data:
 
 ```text
-~/.parallel-integrator/
+~/.sesh-integrator/
 ```
 
 Every integration attempt first creates a session-isolated recovery bundle in
@@ -108,7 +108,7 @@ unrecoverable.
 User skill:
 
 ```text
-~/.agents/skills/parallel-integrator-workflow/
+~/.agents/skills/sesh-integrator-workflow/
 ```
 
 Global Codex guidance:
@@ -131,7 +131,7 @@ Existing old system remains separate:
 
 ## 5. Configuration
 
-Example `~/.parallel-integrator/config.json`:
+Example `~/.sesh-integrator/config.json`:
 
 ```json
 {
@@ -147,7 +147,7 @@ Example `~/.parallel-integrator/config.json`:
     {
       "path": "/Users/you/Developer/my-app",
       "defaultBranch": "main",
-      "integrationBranch": "parallel-integrator/integration",
+      "integrationBranch": "sesh-integrator/integration",
       "targetBranch": "main",
       "promotion": {
         "type": "pull-request",
@@ -271,7 +271,7 @@ deletion and require fast-forward-compatible shared-target updates.
 Create:
 
 ```text
-~/.parallel-integrator/
+~/.sesh-integrator/
 ├── config.json
 ├── state.json
 ├── codex-home/
@@ -302,14 +302,14 @@ Usage:
 
 ```bash
 cd <repo>
-pintx register [--auto-config]
+seshx register [--auto-config]
 ```
 
 Add a repository entry using:
 
 - real repository path
 - registered default branch
-- internal integration branch `parallel-integrator/integration`
+- internal integration branch `sesh-integrator/integration`
 - no explicit target override, so the effective target is the global
   `defaultTargetBranch` when configured, otherwise `defaultBranch`
 - empty validation command arrays
@@ -351,7 +351,7 @@ Unknown ecosystems may supply repeatable JSON argument arrays with
 
 ### Repository enablement
 
-`pintx disable [repo-path]` and `pintx enable [repo-path]` default to the
+`seshx disable [repo-path]` and `seshx enable [repo-path]` default to the
 current directory, including subdirectories. Store canonical Git common-dir
 paths in optional global `disabledRepositories: string[]`, independently of
 registration; cover linked worktrees and unborn/unregistered repositories.
@@ -374,13 +374,13 @@ commands already running are not cancelled.
 Usage:
 
 ```bash
-pintx begin --create-worktree --summary "Implement comment editing"
+seshx begin --create-worktree --summary "Implement comment editing"
 ```
 
 Optional:
 
 ```bash
-pintx begin \
+seshx begin \
   --summary "Add API endpoint" \
   --depends-on session_abc
 ```
@@ -445,10 +445,10 @@ Before integration, the skill:
 1. Reads repository instructions.
 2. Inspects `git status` and diff.
 3. Stages only intended task paths and creates a focused source-branch commit
-   with `pintx commit --message "..."` if task changes remain
+   with `seshx commit --message "..."` if task changes remain
    uncommitted. When signing is enabled, this performs a real OpenPGP preflight
    immediately before the commit and scopes the configured GPG program to Git.
-4. Runs `pintx validate` to compare the source against its recorded
+4. Runs `seshx validate` to compare the source against its recorded
    baseline and select a path-based tier for the exact task commit range.
 5. Stops if validation fails.
 6. Requires no newly introduced working-tree changes; observably unchanged,
@@ -456,8 +456,8 @@ Before integration, the skill:
 7. Calls:
 
 ```bash
-pintx validate
-pintx integrate --summary "Implemented edit flow and tests" --rollout none
+seshx validate
+seshx integrate --summary "Implemented edit flow and tests" --rollout none
 ```
 
 The CLI itself should not broadly stage arbitrary user files.
@@ -480,7 +480,7 @@ changed since session start matches one of that tier's patterns. No match uses
 the repository's full validation commands.
 
 A tier may explicitly request `bypassIntegrationWorktree`. The bypass requires
-the exact ready commit to have passed `pintx validate`, zero integration
+the exact ready commit to have passed `seshx validate`, zero integration
 commands for the tier, and zero post-integration commands. It still acquires the
 repository lock, merges against the current integration HEAD using Git plumbing,
 atomically advances the dedicated staging branch, and then uses the same safe
@@ -537,7 +537,7 @@ Dependencies override timing.
 Acquire:
 
 ```text
-~/.parallel-integrator/locks/<repo-id>.lock/
+~/.sesh-integrator/locks/<repo-id>.lock/
 ```
 
 Use atomic directory creation.
@@ -566,7 +566,7 @@ If lock exists:
 Use one dedicated worktree:
 
 ```text
-~/.parallel-integrator/worktrees/<repo-id>/
+~/.sesh-integrator/worktrees/<repo-id>/
 ```
 
 Rules:
@@ -664,7 +664,7 @@ Build a conflict prompt containing:
 
 Persist the prompt and merge metadata, release the lock, and instruct the
 current Codex session to resolve and stage the integration worktree. The skill
-then invokes `pintx resume` from the source worktree. `resume` reacquires
+then invokes `seshx resume` from the source worktree. `resume` reacquires
 the lock and verifies the source snapshot, integration branch and HEAD,
 `MERGE_HEAD`, and absence of unmerged paths before continuing.
 
@@ -691,7 +691,7 @@ If unresolved or validation fails:
   separate user-approved session
 
 Incident proposals may improve the workflow skill or global instructions, but
-a failed session never edits its own policy. `pintx incident <ticket>`
+a failed session never edits its own policy. `seshx incident <ticket>`
 is read-only and exposes the stored diagnosis for a later session. Release the
 repository lock before invoking an ephemeral, read-only Codex investigation.
 Validate its response against a narrow schema; deterministic code captures
@@ -755,7 +755,7 @@ Git state, or legacy components.
 
 ### Explicit repository guidance cleanup
 
-`pintx cleanup-guidance` previews removal of recognized historical
+`seshx cleanup-guidance` previews removal of recognized historical
 managed repository blocks across registered checkout roots. `--apply` performs
 the cleanup with original-file backups under the selected runtime. Preserve
 all text outside the block and remove generated-only files. Skip staged files,
@@ -788,13 +788,13 @@ Print:
 FOUND / NOT FOUND / UNKNOWN
 ```
 
-For each found component, explain whether it can conflict with `parallel-integrator`.
+For each found component, explain whether it can conflict with `sesh-integrator`.
 
 Do not disable anything automatically.
 
 ### 14.1 `reconcile`
 
-`pintx reconcile` is read-only by default. For each selected registered
+`seshx reconcile` is read-only by default. For each selected registered
 repository it compares staging and target ancestry and finds recorded
 `succeeded` integrations absent from the target. It offers a fast-forward only
 when the target is an ancestor of staging, the staging head is an exact recorded

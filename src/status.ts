@@ -33,12 +33,12 @@ export async function statusCommand(sessionId?: string): Promise<void> {
       (repo) => repo.gitCommonDir === currentCommonDir,
     );
     process.stdout.write(
-      `Current repository: ${currentCommonDir}\nRegistration: ${registered ? "registered" : "unregistered"}\nEnablement: ${isRepositoryDisabled(config, currentCommonDir) ? "disabled (run pintx enable to re-enable)" : "enabled"}\n`,
+      `Current repository: ${currentCommonDir}\nRegistration: ${registered ? "registered" : "unregistered"}\nEnablement: ${isRepositoryDisabled(config, currentCommonDir) ? "disabled (run seshx enable to re-enable)" : "enabled"}\n`,
     );
   }
   for (const commonDir of config.disabledRepositories ?? [])
     process.stdout.write(
-      `Disabled repository: ${commonDir} (run pintx enable from that repository)\n`,
+      `Disabled repository: ${commonDir} (run seshx enable from that repository)\n`,
     );
   process.stdout.write(`Repositories: ${config.repositories.length}\n`);
   for (const repository of config.repositories) {
@@ -58,7 +58,7 @@ export async function statusCommand(sessionId?: string): Promise<void> {
     process.stdout.write(`  worktree: ${session.worktreePath}\n`);
     if (session.launchWorktreePath) {
       process.stdout.write(
-        `  launch checkout: ${session.launchWorktreePath} (source worktree managed by parallel-integrator)\n`,
+        `  launch checkout: ${session.launchWorktreePath} (source worktree managed by sesh-integrator)\n`,
       );
     }
     process.stdout.write(`  branch: ${session.branch}\n`);
@@ -109,7 +109,7 @@ export async function statusCommand(sessionId?: string): Promise<void> {
     if (selected && session.readyCommit) writeCompletionSummary(session);
     if (session.awaitingConflictResolution) {
       process.stdout.write(
-        `  resumable conflict: yes (run pintx resume after resolving and staging)\n`,
+        `  resumable conflict: yes (run seshx resume after resolving and staging)\n`,
       );
       if (session.conflictPromptPath)
         process.stdout.write(

@@ -239,7 +239,7 @@ it("rejects redirected dashboard use with a plain-output alternative", async () 
     },
   );
   expect(result.status).toBe(1);
-  expect(result.stderr).toContain("pintx status");
+  expect(result.stderr).toContain("seshx status");
   expect(await readdir(root)).toEqual([]);
 });
 

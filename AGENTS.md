@@ -2,8 +2,8 @@
 
 ## Project
 
-Build a personal tool named **parallel-integrator**, with **`pintx`** as its
-preferred CLI command. Keep `parallel-integrator` and `codex-handoff` as
+Build a personal tool named **sesh-integrator**, with **`seshx`** as its
+preferred CLI command. Keep `sesh-integrator`, `pintx`, `parallel-integrator`, and `codex-handoff` as
 compatibility commands.
 
 This project must remain separate from the existing watcher/daemon project at:
@@ -16,7 +16,7 @@ Do not refactor, delete, or overwrite the existing `codex-integrator` source tre
 
 ## Goal
 
-`parallel-integrator` is a one-shot Git integration tool for Codex CLI sessions. The
+`sesh-integrator` is a one-shot Git integration tool for Codex CLI sessions. The
 CLI is the primary interface; global instructions and the bundled skill
 coordinate the same lifecycle without relying on application-specific execution
 mode labels.
@@ -28,7 +28,7 @@ Codex CLI task starts in an existing checkout
 → inspect or begin the handoff session and record the base commit
 → Codex works
 → Codex creates a focused commit and validates its task
-→ Codex runs `pintx integrate`
+→ Codex runs `seshx integrate`
 → tool acquires repo lock
 → merge exact session commit into dedicated integration worktree
 → Codex resolves conflicts if necessary
@@ -43,7 +43,7 @@ There is no permanent watcher, polling loop, queue daemon, LaunchAgent, or backg
 
 ## Self-hosting workflow
 
-Do not register this repository with `parallel-integrator`; it is intentionally
+Do not register this repository with `sesh-integrator`; it is intentionally
 self-managed to avoid depending on the executable while modifying it.
 
 For changes to this repository, work and commit directly on local `dev`, then
@@ -68,7 +68,7 @@ Before implementing, read:
 2. `TASKS.md`
 3. `LEGACY_MIGRATION.md`
 4. `README.md`
-5. `skill/parallel-integrator-workflow/SKILL.md`
+5. `skill/sesh-integrator-workflow/SKILL.md`
 
 ## Technical Direction
 
@@ -90,19 +90,19 @@ Do not use a database.
 Implement:
 
 ```text
-pintx init
-pintx register [repo-path]
-pintx begin [--summary "..."] [--depends-on <session-id>]
-pintx integrate --summary "..." --rollout <none|applied|automated|manual> [--follow-up "..."]...
-pintx status
-pintx audit-legacy
-pintx doctor
+seshx init
+seshx register [repo-path]
+seshx begin [--summary "..."] [--depends-on <session-id>]
+seshx integrate --summary "..." --rollout <none|applied|automated|manual> [--follow-up "..."]...
+seshx status
+seshx audit-legacy
+seshx doctor
 ```
 
 Optional only if it remains small:
 
 ```text
-pintx abort-session
+seshx abort-session
 ```
 
 Do not add a `run`, `daemon`, `watch`, or background-service command.
@@ -112,7 +112,7 @@ Do not add a `run`, `daemon`, `watch`, or background-service command.
 Use a new namespace:
 
 ```text
-~/.parallel-integrator/
+~/.sesh-integrator/
 ├── config.json
 ├── state.json
 ├── sessions/
@@ -129,7 +129,7 @@ Never reuse `~/.codex-integrator/`.
 The internal staging branch defaults to:
 
 ```text
-parallel-integrator/integration
+sesh-integrator/integration
 ```
 
 Do not reuse the old daemon's integration branch by default.
@@ -140,19 +140,19 @@ repository.
 
 ## Session Start
 
-For most code-changing tasks in a Git repository, use `parallel-integrator`. Skip it
-for read-only work, non-Git directories, and work on this `parallel-integrator`
+For most code-changing tasks in a Git repository, use `sesh-integrator`. Skip it
+for read-only work, non-Git directories, and work on this `sesh-integrator`
 repository itself. Do not gate the workflow on application mode metadata or
 require a linked worktree.
 
 Operate autonomously by default. Registration and normal lifecycle commands do
 not require routine approval. If a repository is unregistered, run
-`pintx register --auto-config` and continue. Before beginning, inspect
-`pintx status`: continue an active or recoverable session attached to
+`seshx register --auto-config` and continue. Before beginning, inspect
+`seshx status`: continue an active or recoverable session attached to
 the current checkout when it belongs to the same task; otherwise begin a new
 session. Never replace or overwrite a session for a different task.
 
-`pintx begin` records:
+`seshx begin` records:
 
 - session ID
 - repository path
@@ -165,9 +165,9 @@ session. Never replace or overwrite a session for a different task.
 - optional dependencies
 
 For Codex CLI tasks, run
-`pintx begin --create-worktree --summary "..."`. From an ordinary
+`seshx begin --create-worktree --summary "..."`. From an ordinary
 checkout it creates a unique task branch in a separate, tool-managed source
-worktree under `~/.parallel-integrator/source-worktrees/`, records both the launch and
+worktree under `~/.sesh-integrator/source-worktrees/`, records both the launch and
 source paths, and prints the source path. All subsequent edits and lifecycle
 commands must run from that source path. If the session already starts in a
 linked worktree, `--create-worktree` reuses it instead of nesting another one.
@@ -201,7 +201,7 @@ The Codex CLI workflow is responsible for validating and creating a focused
 source-branch commit before invoking:
 
 ```bash
-pintx integrate --summary "<completion summary>" --rollout <none|applied|automated|manual> [--follow-up "<required action>"]...
+seshx integrate --summary "<completion summary>" --rollout <none|applied|automated|manual> [--follow-up "<required action>"]...
 ```
 
 `integrate` must:
@@ -212,7 +212,7 @@ pintx integrate --summary "<completion summary>" --rollout <none|applied|automat
 4. Record ready timestamp, completion summary, and the mandatory external-state
    rollout classification. Manual rollout requires explicit follow-up actions.
 5. Acquire a per-repository lock.
-6. Wait if another `parallel-integrator` process is integrating the same repo.
+6. Wait if another `sesh-integrator` process is integrating the same repo.
 7. Create/reuse a dedicated integration worktree.
 8. Merge the exact `readyCommit`.
 9. On conflict, preserve the merge for the current Codex session.
@@ -314,7 +314,7 @@ The old `codex-integrator` system may currently have:
 - config/state directories
 - an integration branch/worktree
 
-`parallel-integrator` must not silently disable or delete these.
+`sesh-integrator` must not silently disable or delete these.
 
 Implement `audit-legacy` to detect likely conflicts and print recommended actions.
 
@@ -325,7 +325,7 @@ See `LEGACY_MIGRATION.md`.
 One global skill:
 
 ```text
-parallel-integrator-workflow
+sesh-integrator-workflow
 ```
 
 The global policy and skill must be CLI-first. They record or continue the task

@@ -17,7 +17,7 @@ wrapper=${CODEX_GPG_WRAPPER:-$HOME/.local/bin/codex-gpg}
 canonical_home=${CODEX_GPG_CANONICAL_HOME:-$HOME/.gnupg}
 bridge_home=${CODEX_GPG_BRIDGE_HOME:-$HOME/.codex-gpg}
 launch_domain="gui/$(id -u)/com.codex.gpg-agent"
-trial_root=$(mktemp -d "${TMPDIR:-/tmp}/parallel-integrator-real-gpg.XXXXXX")
+trial_root=$(mktemp -d "${TMPDIR:-/tmp}/sesh-integrator-real-gpg.XXXXXX")
 repo="$trial_root/repo"
 runtime="$trial_root/runtime"
 profile="$trial_root/codex-sandbox.sb"
@@ -52,8 +52,8 @@ git --version
 
 pnpm --dir "$project_dir" build
 git init -b main "$repo"
-git -C "$repo" config user.name "Parallel Integrator Real GPG"
-git -C "$repo" config user.email "parallel-integrator-real-gpg@local.invalid"
+git -C "$repo" config user.name "Sesh Integrator Real GPG"
+git -C "$repo" config user.email "sesh-integrator-real-gpg@local.invalid"
 git -C "$repo" config commit.gpgSign false
 printf 'base\n' >"$repo/base.txt"
 git -C "$repo" add base.txt
@@ -96,7 +96,7 @@ run_round() {
   sandbox-exec -f "$profile" env PARALLEL_INTEGRATOR_HOME="$runtime" \
     node "$cli" integrate --summary "Real signed integration $round" --rollout none
   local integration_commit
-  integration_commit=$(git -C "$repo" rev-parse parallel-integrator/integration)
+  integration_commit=$(git -C "$repo" rev-parse sesh-integrator/integration)
   local target_commit
   target_commit=$(git -C "$repo" rev-parse main)
   [[ "$target_commit" == "$integration_commit" ]] || {

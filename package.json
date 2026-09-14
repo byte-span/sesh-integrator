@@ -1,9 +1,11 @@
 {
-  "name": "parallel-integrator",
+  "name": "sesh-integrator",
   "version": "0.1.0",
   "description": "One-shot Git integration for parallel Codex worktrees",
   "type": "module",
   "bin": {
+    "seshx": "dist/cli.js",
+    "sesh-integrator": "dist/cli.js",
     "pintx": "dist/cli.js",
     "parallel-integrator": "dist/cli.js",
     "codex-handoff": "dist/cli.js"
@@ -15,7 +17,7 @@
     "scripts/install-skill.sh",
     "scripts/install-machine-safeguards.sh",
     "scripts/sync-managed-guidance.mjs",
-    "scripts/parallel-integrator-health-check",
+    "scripts/sesh-integrator-health-check",
     "scripts/self-hosting-pre-push",
     "scripts/self-hosting-post-merge",
     "scripts/self-hosting-sync-dev",
@@ -25,7 +27,9 @@
     "scripts/codex-gpg",
     "scripts/codex-gpg-agent",
     "scripts/com.codex.gpg-agent.plist",
-    "GLOBAL_AGENTS_SNIPPET.md"
+    "GLOBAL_AGENTS_SNIPPET.md",
+    "scripts/parallel-integrator-health-check",
+    "scripts/update-macos.sh"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",

@@ -56,7 +56,7 @@ export async function doctorCommand(cwd = process.cwd()): Promise<void> {
   checks.push(
     missingPaths.length === 0
       ? pass("Runtime", paths.root)
-      : fail("Runtime", `missing ${missingPaths.join(", ")}; run pintx init`),
+      : fail("Runtime", `missing ${missingPaths.join(", ")}; run seshx init`),
   );
   let config: Config | undefined;
   try {
@@ -90,18 +90,13 @@ export async function doctorCommand(cwd = process.cwd()): Promise<void> {
   }
 
   const home = process.env.PARALLEL_INTEGRATOR_DOCTOR_HOME ?? homedir();
-  const skillRoot = join(
-    home,
-    ".agents",
-    "skills",
-    "parallel-integrator-workflow",
-  );
+  const skillRoot = join(home, ".agents", "skills", "sesh-integrator-workflow");
   const skillFiles = [
     join(skillRoot, "SKILL.md"),
     join(skillRoot, "agents", "openai.yaml"),
   ];
   const bundledSkillRoot = fileURLToPath(
-    new URL("../skill/parallel-integrator-workflow", import.meta.url),
+    new URL("../skill/sesh-integrator-workflow", import.meta.url),
   );
   const bundledSkillFiles = [
     join(bundledSkillRoot, "SKILL.md"),
@@ -163,7 +158,7 @@ export async function doctorCommand(cwd = process.cwd()): Promise<void> {
   checks.push(await lockCheck(paths.locks));
   checks.push(...legacyChecks(await collectLegacyFindings()));
 
-  process.stdout.write("pintx doctor (read-only)\n\n");
+  process.stdout.write("seshx doctor (read-only)\n\n");
   for (const check of checks) {
     process.stdout.write(
       `${check.state.padEnd(5)} ${check.label}: ${check.detail}\n`,
@@ -185,14 +180,14 @@ async function repositoryChecks(config: Config, cwd: string): Promise<Check[]> {
     return [
       skip(
         "Current repository",
-        "parallel-integrator is intentionally self-managed and excluded from registration",
+        "sesh-integrator is intentionally self-managed and excluded from registration",
       ),
     ];
   }
   try {
     if (isRepositoryDisabled(config, await repositoryCommonDir(cwd)))
       return [
-        skip("Current repository", "disabled; run pintx enable to re-enable"),
+        skip("Current repository", "disabled; run seshx enable to re-enable"),
       ];
   } catch {
     /* Outside Git: inspect registered repositories. */
@@ -201,7 +196,7 @@ async function repositoryChecks(config: Config, cwd: string): Promise<Check[]> {
     return [
       fail(
         "Repositories",
-        "none registered; run pintx register from a project",
+        "none registered; run seshx register from a project",
       ),
     ];
   }
@@ -218,7 +213,7 @@ async function repositoryChecks(config: Config, cwd: string): Promise<Check[]> {
       )
     : config.repositories;
   if (currentCommonDir && repositories.length === 0) {
-    return [fail("Current repository", "not registered; run pintx register")];
+    return [fail("Current repository", "not registered; run seshx register")];
   }
 
   const checks: Check[] = [];
@@ -227,7 +222,7 @@ async function repositoryChecks(config: Config, cwd: string): Promise<Check[]> {
       checks.push(
         skip(
           `Repository (${repository.path})`,
-          "disabled; run pintx enable to re-enable",
+          "disabled; run seshx enable to re-enable",
         ),
       );
       continue;
@@ -392,7 +387,7 @@ async function branchDestinationCheck(
   if (targetBehind.code === 0) {
     return warn(
       `Branch destinations (${repository.path})`,
-      `staging ${repository.integrationBranch} is ahead of target ${target}; run pintx reconcile`,
+      `staging ${repository.integrationBranch} is ahead of target ${target}; run seshx reconcile`,
     );
   }
   return fail(
@@ -424,7 +419,7 @@ async function lockCheck(path: string): Promise<Check> {
     );
     return locks.length === 0
       ? pass("Integration locks", "none")
-      : warn("Integration locks", `${locks.length} active; run pintx status`);
+      : warn("Integration locks", `${locks.length} active; run seshx status`);
   } catch (error) {
     return fail("Integration locks", errorMessage(error));
   }
@@ -452,7 +447,7 @@ function legacyChecks(
     return [
       fail(
         "Legacy automation",
-        `${conflicts.map((finding) => finding.label).join(", ")}; run pintx audit-legacy`,
+        `${conflicts.map((finding) => finding.label).join(", ")}; run seshx audit-legacy`,
       ),
     ];
   }
@@ -460,7 +455,7 @@ function legacyChecks(
     return [
       warn(
         "Legacy automation",
-        `could not verify ${uncertain.map((finding) => finding.label).join(", ")}; run pintx audit-legacy`,
+        `could not verify ${uncertain.map((finding) => finding.label).join(", ")}; run seshx audit-legacy`,
       ),
     ];
   }

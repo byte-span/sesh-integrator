@@ -1,7 +1,0 @@
-interface:
-  display_name: "Parallel Integrator Workflow"
-  short_description: "Record coding sessions and integrate completed commits one-shot"
-  default_prompt: "Use $parallel-integrator-workflow for this code-changing task from session start through one-shot integration."
-
-policy:
-  allow_implicit_invocation: true

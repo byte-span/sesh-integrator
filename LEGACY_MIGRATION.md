@@ -2,7 +2,7 @@
 
 ## Goal
 
-Keep the existing daemon/watcher project intact while introducing `parallel-integrator`.
+Keep the existing daemon/watcher project intact while introducing `sesh-integrator`.
 
 Old:
 
@@ -14,8 +14,8 @@ Old:
 New:
 
 ```text
-~/Developer/tools/parallel-integrator
-~/.parallel-integrator
+~/Developer/tools/sesh-integrator
+~/.sesh-integrator
 ```
 
 Do not share state directories.
@@ -27,7 +27,7 @@ Both systems may react to the same Codex work and both may attempt Git integrati
 Potential conflicts:
 
 - both changing an integration branch
-- old daemon integrating a branch while `parallel-integrator` integrates the same work
+- old daemon integrating a branch while `sesh-integrator` integrates the same work
 - duplicate conflict-resolution calls
 - old global instructions marking work ready
 - old Git hooks firing
@@ -41,7 +41,7 @@ The source code of the old tool does not need to be deleted.
 Run:
 
 ```bash
-pintx audit-legacy
+seshx audit-legacy
 ```
 
 It should report, without changing anything:
@@ -112,7 +112,7 @@ Remove or disable instructions that automatically call:
 codex-integrator ...
 ```
 
-Replace them with the new `parallel-integrator-workflow` snippet.
+Replace them with the new `sesh-integrator-workflow` snippet.
 
 ### Git hooks
 
@@ -135,7 +135,7 @@ Do not delete it initially.
 New tool defaults to:
 
 ```text
-parallel-integrator/integration
+sesh-integrator/integration
 ```
 
 This avoids branch collision while validating the new design.
@@ -153,7 +153,7 @@ Keep the old daemon source/config available for rollback, but leave the old runt
 Before a real trial, audit older handoff state:
 
 ```bash
-pintx reconcile
+seshx reconcile
 ```
 
 Review every `PENDING` result. Use `reconcile --apply` only when the command
@@ -174,7 +174,7 @@ Deleting the old integration branch is optional and should be a separate deliber
 
 ## Rollback
 
-If `parallel-integrator` proves worse:
+If `sesh-integrator` proves worse:
 
 1. stop using the new skill
 2. restore previous `~/.codex/AGENTS.md`
@@ -185,7 +185,7 @@ Because the two systems use different state directories and integration branches
 
 ## Important
 
-`parallel-integrator` implementation must not automatically uninstall the old system.
+`sesh-integrator` implementation must not automatically uninstall the old system.
 
 It may provide exact recommended commands after auditing, but destructive actions require explicit user action.
 
@@ -198,5 +198,5 @@ reused exactly as before.
 To adopt independent review per handoff, set `mode` to `session-branch`. New or
 resumed sessions then push their own source branch and use a session-marked PR;
 existing shared-target PRs are not closed, merged, edited, or deleted. Confirm
-the remote base exists and run `pintx doctor` to verify branch syntax,
+the remote base exists and run `seshx doctor` to verify branch syntax,
 remote configuration, and GitHub CLI authentication before first use.

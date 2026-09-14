@@ -117,7 +117,7 @@ export function detailLines(row: DashboardRow): string[] {
     `Target: ${r ? targetBranch(r) : (s?.targetBranch ?? "unregistered")}`,
   ];
   if (!s)
-    return [...lines, "No sessions. Run pintx begin from this repository."];
+    return [...lines, "No sessions. Run seshx begin from this repository."];
   lines.push(
     `Session: ${s.id}`,
     `Task: ${s.taskSummary}`,
@@ -480,7 +480,7 @@ function renderDashboardContent(
       ["active", "ready"].includes(r.session.status) &&
       !needsAttention(r),
   ).length;
-  const title = `parallel-integrator  ${visible.length} visible | ${attention} attention | ${active} active`;
+  const title = `sesh-integrator  ${visible.length} visible | ${attention} attention | ${active} active`;
   const refresh = `Last refresh ${exactTime(refreshedAt.getTime())}`;
   const wide = width >= 110 && height >= 20;
   const leftWidth = wide ? Math.floor(width * 0.68) : width;
@@ -652,7 +652,7 @@ export function colorDashboardLine(
             ),
         );
   const style =
-    /^(parallel-integrator|Sessions|Next action|Selected item|Recent activity)/.test(
+    /^(sesh-integrator|Sessions|Next action|Selected item|Recent activity)/.test(
       safe.trim(),
     )
       ? accent
@@ -678,7 +678,7 @@ export async function dashboardCommand(): Promise<void> {
   const { stdin, stdout } = process;
   if (!stdin.isTTY || !stdout.isTTY || process.env.TERM === "dumb")
     throw new Error(
-      "dashboard requires an interactive terminal; use pintx status for plain output",
+      "dashboard requires an interactive terminal; use seshx status for plain output",
     );
   let allRows = await loadDashboard();
   let view = { ...defaultDashboardView };

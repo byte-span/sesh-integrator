@@ -25,7 +25,7 @@ export async function benchmarkCommand(options: {
   json: boolean;
   check: boolean;
 }): Promise<void> {
-  const root = await mkdtemp(join(tmpdir(), "parallel-integrator-benchmark-"));
+  const root = await mkdtemp(join(tmpdir(), "sesh-integrator-benchmark-"));
   try {
     const repository = join(root, "repo");
     await initializeRepository(repository);
@@ -83,7 +83,7 @@ export async function benchmarkCommand(options: {
         );
       }
       process.stdout.write(
-        "Times measure parallel-integrator/Git overhead only; configured setup and validation commands are excluded.\n",
+        "Times measure sesh-integrator/Git overhead only; configured setup and validation commands are excluded.\n",
       );
     }
     if (options.check) {

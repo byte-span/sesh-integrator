@@ -4,7 +4,7 @@ Complete personal MVP implementation checklist.
 
 ## Foundation
 
-- [x] Expose `pintx` as the preferred command while preserving compatibility aliases
+- [x] Expose `seshx` as the preferred command while preserving compatibility aliases
 
 - [x] Initialize pnpm + TypeScript + ESM
 - [x] Enable strict TypeScript
@@ -25,12 +25,12 @@ Complete personal MVP implementation checklist.
 - [x] During registration/readiness, safely track or create the global target without switching or pushing the user checkout
 - [x] Cover existing, new, remote-tracking, unborn, and explicitly overridden repository cases
 
-- [x] Create the separate `~/.parallel-integrator/` namespace
+- [x] Create the separate `~/.sesh-integrator/` namespace
 - [x] Implement idempotent `init`, JSON config/state, and atomic writes
 - [x] Implement `register` with real repository/common-dir resolution
 - [x] Detect and store the default branch
 - [x] Prevent duplicate registrations
-- [x] Default to `parallel-integrator/integration`
+- [x] Default to `sesh-integrator/integration`
 - [x] Keep the staging branch separate from an optional target branch that defaults to `defaultBranch`
 - [x] Optionally auto-configure safe package validation scripts without overwriting existing commands
 - [x] Detect, store, and run centralized worktree setup commands for registered repositories
@@ -120,7 +120,7 @@ Complete personal MVP implementation checklist.
 
 - [x] Synchronize global guidance only; leave repository instructions optional and untouched
 
-- [x] Preserve and clarify `parallel-integrator-workflow`
+- [x] Preserve and clarify `sesh-integrator-workflow`
 - [x] Add an idempotent user-skill installation script
 - [x] Require begin before edits and configured source validation before completion
 - [x] Require a focused source commit and one-shot integrate

@@ -1,6 +1,6 @@
 # Initial Codex Implementation Prompt
 
-Build the complete **parallel-integrator** personal MVP described by this repository.
+Build the complete **sesh-integrator** personal MVP described by this repository.
 
 This is a NEW tool. Do not replace or refactor the existing:
 
@@ -18,7 +18,7 @@ Read completely:
 4. `LEGACY_MIGRATION.md`
 5. `README.md`
 6. `GLOBAL_AGENTS_SNIPPET.md`
-7. `skill/parallel-integrator-workflow/SKILL.md`
+7. `skill/sesh-integrator-workflow/SKILL.md`
 
 Inspect Git status and preserve unrelated changes.
 
@@ -27,7 +27,7 @@ Inspect Git status and preserve unrelated changes.
 Implement a small TypeScript CLI named:
 
 ```text
-parallel-integrator
+sesh-integrator
 ```
 
 Commands:
@@ -129,7 +129,7 @@ Provide useful status/recovery guidance.
 Implement read-only:
 
 ```bash
-parallel-integrator audit-legacy
+sesh-integrator audit-legacy
 ```
 
 It should inspect likely old `codex-integrator` components described in `LEGACY_MIGRATION.md`.
@@ -141,7 +141,7 @@ It must not automatically uninstall, unload, delete, or edit them.
 Preserve and install the supplied:
 
 ```text
-parallel-integrator-workflow
+sesh-integrator-workflow
 ```
 
 The skill must:
