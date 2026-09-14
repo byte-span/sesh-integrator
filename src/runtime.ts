@@ -7,11 +7,12 @@ import {
   readFile,
   readdir,
   rename,
+  rm,
   stat,
   writeFile,
 } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import type {
   Config,
   RepositoryConfig,
@@ -134,6 +135,11 @@ export async function readConfig(readOnly = false): Promise<Config> {
   }
   if (
     !Array.isArray(value.repositories) ||
+    (value.disabledRepositories !== undefined &&
+      (!Array.isArray(value.disabledRepositories) ||
+        !value.disabledRepositories.every(
+          (path) => typeof path === "string" && isAbsolute(path),
+        ))) ||
     typeof value.lockWaitSeconds !== "number" ||
     (value.defaultTargetBranch !== undefined &&
       (typeof value.defaultTargetBranch !== "string" ||
@@ -478,5 +484,30 @@ async function isNewer(source: string, target: string): Promise<boolean> {
   } catch (error) {
     if (isNodeError(error) && error.code === "ENOENT") return false;
     throw error;
+  }
+}
+
+/** Serialize CLI config read/modify/write operations without reclaiming unknown owners. */
+export async function withConfigLock<T>(action: () => Promise<T>): Promise<T> {
+  const paths = await ensureRuntime();
+  const lock = join(paths.locks, "configuration");
+  const deadline = Date.now() + 5000;
+  for (;;) {
+    try {
+      await mkdir(lock);
+      break;
+    } catch (error) {
+      if (!isNodeError(error) || error.code !== "EEXIST") throw error;
+      if (Date.now() >= deadline)
+        throw new Error(
+          `Configuration is locked: ${lock}. Retry after the other command finishes; inspect a leftover lock manually.`,
+        );
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  }
+  try {
+    return await action();
+  } finally {
+    await rm(lock, { recursive: true });
   }
 }

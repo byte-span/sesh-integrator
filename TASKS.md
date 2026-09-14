@@ -14,6 +14,8 @@ Complete personal MVP implementation checklist.
 
 ## Runtime data and registration
 
+- [x] Add persistent repository disable/enable commands, lifecycle enforcement, lock safety, separate status, and workflow opt-out guidance
+
 - [x] Add an optional global `defaultTargetBranch` with per-repository override precedence
 - [x] Apply the global target dynamically to existing registrations that omit `targetBranch`
 - [x] Add opt-in, resumable target-to-production pull-request promotion with configured reviewers

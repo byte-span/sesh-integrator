@@ -15,6 +15,7 @@ export async function acquireRepoLock(
   sessionId: string,
   waitSeconds: number,
   integrationWorktree: string,
+  rejectExisting = false,
 ): Promise<LockHandle> {
   const lockPath = join(runtimePaths().locks, `${repositoryId}.lock`);
   const deadline = Date.now() + Math.max(0, waitSeconds) * 1000;
@@ -37,6 +38,11 @@ export async function acquireRepoLock(
       if (!isNodeError(error) || error.code !== "EEXIST") throw error;
     }
 
+    if (rejectExisting) {
+      throw new Error(
+        `Cannot change repository enablement while its integration lock exists: ${lockPath}. Retry after integration finishes; inspect stale or unknown locks manually.`,
+      );
+    }
     const owner = await readLockMetadata(lockPath);
     const ownerDescription = owner
       ? `${owner.sessionId} (pid ${owner.pid} on ${owner.hostname}, since ${owner.acquiredAt})`

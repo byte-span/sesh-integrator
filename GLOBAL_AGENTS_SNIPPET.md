@@ -63,6 +63,13 @@ Otherwise, when `~/.codex-handoff/` already exists, use it in place of
   metadata, do not guess; finish safe application work and report the missing
   registry metadata for trusted follow-up.
 
+Check `pintx status` for the current repository's enablement before registration
+or session recovery. If it reports `Enablement: disabled`, skip this workflow
+and follow the repository's normal development instructions. Do not automatically
+register, begin, resume, or run `pintx enable` to bypass an opt-out. Registration
+and enablement are independent; registration never clears a disabled setting.
+Only enable the repository when the user requests it.
+
 Before editing:
 
 1. Inspect the repository instructions and Git state. Preserve all pre-existing

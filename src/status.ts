@@ -1,3 +1,4 @@
+import { isRepositoryDisabled, repositoryCommonDir } from "./enablement.js";
 import { writeCompletionSummary } from "./completion.js";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
@@ -21,11 +22,29 @@ export async function statusCommand(sessionId?: string): Promise<void> {
   if (sessionId && !selected) throw new Error(`Unknown session: ${sessionId}`);
   const sessions = selected ? [selected] : allSessions;
   process.stdout.write(`Runtime: ${paths.root}\n`);
+  let currentCommonDir: string | undefined;
+  try {
+    currentCommonDir = await repositoryCommonDir(process.cwd());
+  } catch {
+    /* Global status outside Git remains available. */
+  }
+  if (currentCommonDir) {
+    const registered = config.repositories.some(
+      (repo) => repo.gitCommonDir === currentCommonDir,
+    );
+    process.stdout.write(
+      `Current repository: ${currentCommonDir}\nRegistration: ${registered ? "registered" : "unregistered"}\nEnablement: ${isRepositoryDisabled(config, currentCommonDir) ? "disabled (run pintx enable to re-enable)" : "enabled"}\n`,
+    );
+  }
+  for (const commonDir of config.disabledRepositories ?? [])
+    process.stdout.write(
+      `Disabled repository: ${commonDir} (run pintx enable from that repository)\n`,
+    );
   process.stdout.write(`Repositories: ${config.repositories.length}\n`);
   for (const repository of config.repositories) {
     const remote = pullRequestPromotion(repository);
     process.stdout.write(
-      `  ${repository.path}: staging ${repository.integrationBranch} -> target ${targetBranch(repository)} (${targetBranchSource(repository)})${remote ? ` -> PR (${remote.mode}) to ${remote.productionBranch} via ${remote.remote}` : ""}\n`,
+      `  ${repository.path} [registered, ${isRepositoryDisabled(config, repository.gitCommonDir) ? "disabled" : "enabled"}]: staging ${repository.integrationBranch} -> target ${targetBranch(repository)} (${targetBranchSource(repository)})${remote ? ` -> PR (${remote.mode}) to ${remote.productionBranch} via ${remote.remote}` : ""}\n`,
     );
   }
   process.stdout.write(`Sessions: ${sessions.length}\n`);

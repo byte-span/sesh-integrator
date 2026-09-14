@@ -136,6 +136,8 @@ These are the complete commands implemented by the MVP:
 
 ```bash
 pintx init
+pintx disable [repo-path]
+pintx enable [repo-path]
 pintx register [repo-path] [--auto-config] [--setup-command '<json-array>']...
 pintx begin --summary "Implement feature" [--create-worktree] [--no-auto-branch] [--depends-on <session-id>]...
 pintx commit --message "Implement feature" [--session <session-id>]
@@ -231,6 +233,36 @@ under the repository lock. Bundles are archived only after successful
 promotion; failed bundles are not age-cleaned.
 
 Set `PARALLEL_INTEGRATOR_HOME` to use a different runtime root, including in tests.
+
+### `disable` / `enable`
+
+Run `pintx disable` from a repository or any subdirectory to opt it out.
+Use `pintx enable` to reverse it. Both accept an optional repository path.
+The setting covers all linked worktrees, including repositories that have not
+been registered or do not yet have an initial commit. A separate clone has its
+own setting.
+
+Opt-outs are stored as canonical Git common-directory paths in the optional
+`disabledRepositories` array in the selected runtime's `config.json`:
+
+```json
+{ "disabledRepositories": ["/absolute/path/to/project/.git"] }
+```
+
+While disabled, `begin`, `commit`, `validate`, `integrate`, `resume`, and
+`reconcile --apply` refuse execution. `register` remains available and preserves
+the opt-out, including with `--auto-config`; it skips target branch creation
+while disabled. Configuration, sessions, branches, and worktrees are retained.
+`enable` only clears the opt-out; it does not register or resume the repository.
+`status` reports registration and enablement separately; inspection commands
+remain available. The workflow skips disabled repositories and uses their normal
+development instructions.
+
+Enablement changes refuse an existing integration lock, including an unknown or
+stale lock, without removing it. Retry after the integration finishes; inspect
+leftover locks manually. Integrations waiting for a lock recheck enablement
+before proceeding. Already-running source setup, commit, or validation commands
+are not cancelled. Prefer these commands over editing config during execution.
 
 ### `register`
 

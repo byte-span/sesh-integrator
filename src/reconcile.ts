@@ -1,3 +1,4 @@
+import { assertRepositoryEnabled } from "./enablement.js";
 import { inspectGit, refCommit } from "./git.js";
 import { promoteValidatedCommit, targetBranch } from "./promotion.js";
 import { run } from "./process.js";
@@ -23,6 +24,8 @@ export async function reconcileCommand(
   let unsafe = false;
   for (const repository of repositories) {
     try {
+      if (apply)
+        assertRepositoryEnabled(await readConfig(), repository.gitCommonDir);
       await reconcileRepository(repository, sessions, apply);
     } catch (error) {
       unsafe = true;

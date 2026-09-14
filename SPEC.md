@@ -349,6 +349,26 @@ Registration initializes an empty post-integration command list.
 Unknown ecosystems may supply repeatable JSON argument arrays with
 `--setup-command` during registration.
 
+### Repository enablement
+
+`pintx disable [repo-path]` and `pintx enable [repo-path]` default to the
+current directory, including subdirectories. Store canonical Git common-dir
+paths in optional global `disabledRepositories: string[]`, independently of
+registration; cover linked worktrees and unborn/unregistered repositories.
+Registration preserves opt-outs and skips target creation while disabled.
+Enablement changes preserve all repository settings, sessions, and Git state.
+Serialize CLI config mutations so registration cannot overwrite an opt-out.
+
+Reject begin, commit, validate, integrate, resume, and reconcile apply while
+disabled. Keep inspection available and show registration and enablement
+separately in status. The workflow checks status before automatic registration
+or recovery and must not enable without a user request.
+
+Enablement changes acquire the repository lock without waiting or stale-lock
+reclamation, refusing any existing integration lock. Integrate/resume recheck
+fresh enablement under that lock before mutating integration state. Source
+commands already running are not cancelled.
+
 ## 8. `begin`
 
 Usage:

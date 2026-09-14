@@ -25,6 +25,10 @@ describe("bundled workflow trigger policy", () => {
     ]);
 
     for (const policy of [guidance, skill]) {
+      expect(policy).toContain("Enablement: disabled");
+      expect(policy).toContain(
+        "Only enable the repository when the user requests it",
+      );
       expect(policy).toContain("begin --create-worktree");
       expect(policy).toContain("Continue task in:");
       expect(policy).toMatch(/dirty or staged|staged and unstaged/is);
