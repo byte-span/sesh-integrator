@@ -310,6 +310,82 @@ export const defaultDashboardView: DashboardView = {
   sort: "updated",
 };
 
+interface DashboardPicker {
+  kind: "repository" | "sort";
+  options: { value: string; label: string }[];
+  selected: number;
+}
+
+function dashboardPickerLayout(
+  lines: string[],
+  picker: DashboardPicker,
+  width: number,
+) {
+  const controlRow = lines[0]?.startsWith("/") ? 2 : 1;
+  const controls = lines[controlRow] ?? "";
+  const anchor = controls.indexOf(
+    picker.kind === "repository" ? "repo:" : "sort:",
+  );
+  const compactAnchor = controls.indexOf(
+    picker.kind === "repository" ? "p " : "s ",
+  );
+  const boxWidth = Math.min(
+    width,
+    Math.max(
+      34,
+      ...picker.options.map((o) => terminalText(o.label).length + 6),
+    ),
+  );
+  const left = Math.max(
+    0,
+    Math.min(anchor >= 0 ? anchor : compactAnchor, width - boxWidth),
+  );
+  const top = controlRow + 1;
+  const count = Math.max(
+    1,
+    Math.min(picker.options.length, lines.length - top - 6),
+  );
+  const start = Math.max(0, picker.selected - count + 1);
+  const inside = (value: string) =>
+    "| " +
+    terminalText(value)
+      .slice(0, boxWidth - 4)
+      .padEnd(boxWidth - 4) +
+    " |";
+  const border = "+" + "-".repeat(boxWidth - 2) + "+";
+  const box = [
+    border,
+    inside(
+      `${picker.kind === "repository" ? "Repository" : "Sort"}  ${picker.selected + 1}/${picker.options.length}`,
+    ),
+    ...picker.options
+      .slice(start, start + count)
+      .map((o, i) =>
+        inside(`${start + i === picker.selected ? ">" : " "} ${o.label}`),
+      ),
+    border,
+    inside("Up/Down move  Enter apply"),
+    inside("Esc cancel"),
+    border,
+  ];
+  return { left, top, box };
+}
+
+export function renderDashboardPicker(
+  lines: string[],
+  picker: DashboardPicker,
+  width: number,
+): string[] {
+  const result = [...lines];
+  const { left, top, box } = dashboardPickerLayout(lines, picker, width);
+  box.forEach((line, i) => {
+    const background = (result[top + i] ?? "").padEnd(width);
+    result[top + i] =
+      background.slice(0, left) + line + background.slice(left + line.length);
+  });
+  return result;
+}
+
 function updatedAt(row: DashboardRow): number {
   const s = row.session;
   if (!s) return 0;
@@ -525,8 +601,8 @@ function renderDashboardContent(
   ];
   const footer =
     width >= 100
-      ? "Up/Down select   Enter details   / search   f status   p repo   s sort   r refresh   q quit"
-      : "Up/Down select  Enter details  q quit";
+      ? "Up/Down select   Enter details   / search   Left/Right status   p repo   s sort   r refresh   q quit"
+      : "Up/Down select  Left/Right status  p repo  s sort  Enter details  q quit";
   const actions = "v validate   i integrate   R resume   Tab attention";
   const count = Math.max(1, height - lines.length - (wide ? 2 : 3));
   const start = Math.max(0, cursor - count + 1);
@@ -684,6 +760,7 @@ export async function dashboardCommand(): Promise<void> {
   let view = { ...defaultDashboardView };
   let rows = filterDashboard(allRows, view);
   let searching = false;
+  let picker: DashboardPicker | undefined;
   let previousQuery = "";
   let refreshedAt = new Date();
   let clockTimer: ReturnType<typeof setInterval> | undefined;
@@ -726,6 +803,7 @@ export async function dashboardCommand(): Promise<void> {
     const width = Math.max(1, (stdout.columns || 80) - 1);
     const height = Math.max(1, stdout.rows || 24);
     let lines: string[];
+    let overlay: ReturnType<typeof dashboardPickerLayout> | undefined;
     if (width < 35 || height < 10) {
       lines = ["Terminal too small.", "Resize to at least 36 x 10.", "q quit"];
     } else if (mode === "list") {
@@ -748,6 +826,7 @@ export async function dashboardCommand(): Promise<void> {
           .padEnd(available);
         lines[framed ? 2 : 1] = framed ? `| ${search} |` : search;
       }
+      if (picker) overlay = dashboardPickerLayout(lines, picker, width);
     } else {
       const row = rows[selected];
       if (!row) return;
@@ -821,26 +900,34 @@ export async function dashboardCommand(): Promise<void> {
       ];
     }
     if (message) lines.push(message);
+    const styleLine = (line: string) => {
+      const safe = terminalText(line).slice(0, width);
+      return mode === "list" && process.env.NO_COLOR === undefined
+        ? colorDashboardLine(
+            safe,
+            /truecolor|24bit/.test(process.env.COLORTERM ?? ""),
+            /utf-?8/i.test(
+              process.env.LC_ALL ||
+                process.env.LC_CTYPE ||
+                process.env.LANG ||
+                "",
+            ),
+          )
+        : safe;
+    };
+    // Paint the dropdown independently after the dashboard so underlying row
+    // selection and column styling cannot leak into its options or shortcuts.
     stdout.write(
       "\x1b[H\x1b[2J" +
-        lines
-          .slice(0, height)
-          .map((line) => {
-            const safe = terminalText(line).slice(0, width);
-            return mode === "list" && process.env.NO_COLOR === undefined
-              ? colorDashboardLine(
-                  safe,
-                  /truecolor|24bit/.test(process.env.COLORTERM ?? ""),
-                  /utf-?8/i.test(
-                    process.env.LC_ALL ||
-                      process.env.LC_CTYPE ||
-                      process.env.LANG ||
-                      "",
-                  ),
-                )
-              : safe;
-          })
-          .join("\r\n"),
+        lines.slice(0, height).map(styleLine).join("\r\n") +
+        (overlay
+          ? overlay.box
+              .map(
+                (line, i) =>
+                  `\x1b[${overlay.top + i + 1};${overlay.left + 1}H${styleLine(line)}`,
+              )
+              .join("")
+          : ""),
     );
   };
   const refresh = async () => {
@@ -999,14 +1086,34 @@ export async function dashboardCommand(): Promise<void> {
       applyView();
       return;
     }
+    if (mode === "list" && picker) {
+      if (key.name === "escape") picker = undefined;
+      else if (key.name === "up" || key.name === "down")
+        picker.selected = Math.max(
+          0,
+          Math.min(
+            picker.options.length - 1,
+            picker.selected + (key.name === "down" ? 1 : -1),
+          ),
+        );
+      else if (key.name === "return") {
+        const value = picker.options[picker.selected]!.value;
+        if (picker.kind === "repository") view.repository = value;
+        else view.sort = value as DashboardView["sort"];
+        picker = undefined;
+        applyView();
+      }
+      return;
+    }
     if (
       mode === "list" &&
-      (text === "/" || ["f", "p", "s"].includes(key.name ?? ""))
+      (text === "/" ||
+        ["f", "p", "s", "left", "right"].includes(key.name ?? ""))
     ) {
       if (text === "/") {
         previousQuery = view.query;
         searching = true;
-      } else if (key.name === "f") {
+      } else if (["f", "left", "right"].includes(key.name ?? "")) {
         const filters: DashboardView["filter"][] = [
           "all",
           "needs attention",
@@ -1015,27 +1122,49 @@ export async function dashboardCommand(): Promise<void> {
           "completed",
         ];
         view.filter =
-          filters[(filters.indexOf(view.filter) + 1) % filters.length]!;
-      } else if (key.name === "p") {
-        const repos = [
-          "",
-          ...new Set(
-            allRows.map(
-              (r) => r.repository?.path ?? r.session?.repositoryPath ?? "",
-            ),
-          ),
-        ];
-        view.repository =
-          repos[(repos.indexOf(view.repository) + 1) % repos.length]!;
+          filters[
+            (filters.indexOf(view.filter) +
+              (key.name === "left" ? -1 : 1) +
+              filters.length) %
+              filters.length
+          ]!;
+        applyView();
       } else {
-        const sorts: DashboardView["sort"][] = [
-          "priority",
-          "updated",
-          "repository",
-        ];
-        view.sort = sorts[(sorts.indexOf(view.sort) + 1) % sorts.length]!;
+        const kind = key.name === "p" ? "repository" : "sort";
+        const repos = [
+          ...new Set(
+            allRows
+              .map((r) => r.repository?.path ?? r.session?.repositoryPath ?? "")
+              .filter(Boolean),
+          ),
+        ].sort();
+        const options =
+          kind === "repository"
+            ? [
+                { value: "", label: "All repositories" },
+                ...repos.map((value) => ({
+                  value,
+                  label: repos.some(
+                    (other) =>
+                      other !== value && basename(other) === basename(value),
+                  )
+                    ? value
+                    : basename(value),
+                })),
+              ]
+            : ["priority", "updated", "repository"].map((value) => ({
+                value,
+                label: value,
+              }));
+        picker = {
+          kind,
+          options,
+          selected: Math.max(
+            0,
+            options.findIndex((o) => o.value === view[kind]),
+          ),
+        };
       }
-      applyView();
       return;
     }
     if (mode === "form") {

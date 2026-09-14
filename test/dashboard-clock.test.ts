@@ -90,6 +90,75 @@ it("redraws age without loading data, updates freshness only on refresh, and cle
     await vi.advanceTimersByTimeAsync(0);
     expect(readSessions).toHaveBeenCalledTimes(2);
     expect(screen).toContain("Last refresh 2026-09-12 10:02:00 UTC");
+    const press = async (name: string) => {
+      screen = "";
+      input.emit("keypress", "", { name });
+      await vi.advanceTimersByTimeAsync(0);
+    };
+    await press("left");
+    expect(screen).toContain("[completed]");
+    await press("left");
+    expect(screen).toContain("[review]");
+    await press("right");
+    expect(screen).toContain("[completed]");
+    await press("right");
+    expect(screen).toContain("[all]");
+    await press("p");
+    expect(screen).toContain("> All repositories");
+    await press("down");
+    expect(screen).toContain("> repo");
+    expect(screen).toContain("repo: all repos");
+    await press("left");
+    expect(screen).toContain("[all]");
+    await press("escape");
+    expect(screen).toContain("repo: all repos");
+    expect(screen).not.toContain("Esc cancel");
+    await press("p");
+    await press("down");
+    await press("return");
+    expect(screen).toContain("repo: repo");
+    expect(screen).not.toContain("Esc cancel");
+    await press("p");
+    expect(screen).toContain("> repo");
+    await press("up");
+    await press("return");
+    expect(screen).toContain("repo: all repos");
+    await press("s");
+    expect(screen).toContain("> updated");
+    await press("up");
+    expect(screen).toContain("> priority");
+    expect(screen).toContain("sort: updated");
+    await press("escape");
+    expect(screen).toContain("sort: updated");
+    await press("s");
+    await press("down");
+    await press("return");
+    expect(screen).toContain("sort: repository");
+    // Dropdown colors must be independent of the selected session underneath.
+    vi.stubEnv("NO_COLOR", undefined);
+    for (const columns of [80, 160]) {
+      output.columns = columns;
+      for (const color of ["", "truecolor"]) {
+        vi.stubEnv("COLORTERM", color);
+        for (const name of ["p", "s"]) {
+          await press(name);
+          const overlayRows = screen.split(/\x1b\[\d+;\d+H/).slice(1);
+          expect(overlayRows.length).toBeGreaterThan(0);
+          const highlighted = overlayRows.filter((line) =>
+            /\x1b\[(?:44;97|38;2;240;248;252;48;2;48;86;109)m/.test(line),
+          );
+          expect(highlighted).toHaveLength(1);
+          expect(highlighted[0]).toContain(
+            name === "p" ? "> All repositories" : "> repository",
+          );
+          expect(highlighted[0]).not.toContain("Up/Down");
+          await press("escape");
+          expect(screen).not.toContain("Esc cancel");
+        }
+      }
+    }
+    output.columns = 160;
+    vi.stubEnv("NO_COLOR", "1");
     // Simulate returning after several hours, rather than incrementing a counter.
     vi.setSystemTime(new Date("2026-09-12T14:00:00Z"));
     screen = "";
