@@ -134,6 +134,31 @@ it("redraws age without loading data, updates freshness only on refresh, and cle
     await press("down");
     await press("return");
     expect(screen).toContain("sort: repository");
+    // Dropdown colors must be independent of the selected session underneath.
+    vi.stubEnv("NO_COLOR", undefined);
+    for (const columns of [80, 160]) {
+      output.columns = columns;
+      for (const color of ["", "truecolor"]) {
+        vi.stubEnv("COLORTERM", color);
+        for (const name of ["p", "s"]) {
+          await press(name);
+          const overlayRows = screen.split(/\x1b\[\d+;\d+H/).slice(1);
+          expect(overlayRows.length).toBeGreaterThan(0);
+          const highlighted = overlayRows.filter((line) =>
+            /\x1b\[(?:44;97|38;2;240;248;252;48;2;48;86;109)m/.test(line),
+          );
+          expect(highlighted).toHaveLength(1);
+          expect(highlighted[0]).toContain(
+            name === "p" ? "> All repositories" : "> repository",
+          );
+          expect(highlighted[0]).not.toContain("Up/Down");
+          await press("escape");
+          expect(screen).not.toContain("Esc cancel");
+        }
+      }
+    }
+    output.columns = 160;
+    vi.stubEnv("NO_COLOR", "1");
     // Simulate returning after several hours, rather than incrementing a counter.
     vi.setSystemTime(new Date("2026-09-12T14:00:00Z"));
     screen = "";

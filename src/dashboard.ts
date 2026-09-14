@@ -316,12 +316,11 @@ interface DashboardPicker {
   selected: number;
 }
 
-export function renderDashboardPicker(
+function dashboardPickerLayout(
   lines: string[],
   picker: DashboardPicker,
   width: number,
-): string[] {
-  const result = [...lines];
+) {
   const controlRow = lines[0]?.startsWith("/") ? 2 : 1;
   const controls = lines[controlRow] ?? "";
   const anchor = controls.indexOf(
@@ -369,10 +368,20 @@ export function renderDashboardPicker(
     inside("Esc cancel"),
     border,
   ];
+  return { left, top, box };
+}
+
+export function renderDashboardPicker(
+  lines: string[],
+  picker: DashboardPicker,
+  width: number,
+): string[] {
+  const result = [...lines];
+  const { left, top, box } = dashboardPickerLayout(lines, picker, width);
   box.forEach((line, i) => {
     const background = (result[top + i] ?? "").padEnd(width);
     result[top + i] =
-      background.slice(0, left) + line + background.slice(left + boxWidth);
+      background.slice(0, left) + line + background.slice(left + line.length);
   });
   return result;
 }
@@ -794,6 +803,7 @@ export async function dashboardCommand(): Promise<void> {
     const width = Math.max(1, (stdout.columns || 80) - 1);
     const height = Math.max(1, stdout.rows || 24);
     let lines: string[];
+    let overlay: ReturnType<typeof dashboardPickerLayout> | undefined;
     if (width < 35 || height < 10) {
       lines = ["Terminal too small.", "Resize to at least 36 x 10.", "q quit"];
     } else if (mode === "list") {
@@ -816,7 +826,7 @@ export async function dashboardCommand(): Promise<void> {
           .padEnd(available);
         lines[framed ? 2 : 1] = framed ? `| ${search} |` : search;
       }
-      if (picker) lines = renderDashboardPicker(lines, picker, width);
+      if (picker) overlay = dashboardPickerLayout(lines, picker, width);
     } else {
       const row = rows[selected];
       if (!row) return;
@@ -890,26 +900,34 @@ export async function dashboardCommand(): Promise<void> {
       ];
     }
     if (message) lines.push(message);
+    const styleLine = (line: string) => {
+      const safe = terminalText(line).slice(0, width);
+      return mode === "list" && process.env.NO_COLOR === undefined
+        ? colorDashboardLine(
+            safe,
+            /truecolor|24bit/.test(process.env.COLORTERM ?? ""),
+            /utf-?8/i.test(
+              process.env.LC_ALL ||
+                process.env.LC_CTYPE ||
+                process.env.LANG ||
+                "",
+            ),
+          )
+        : safe;
+    };
+    // Paint the dropdown independently after the dashboard so underlying row
+    // selection and column styling cannot leak into its options or shortcuts.
     stdout.write(
       "\x1b[H\x1b[2J" +
-        lines
-          .slice(0, height)
-          .map((line) => {
-            const safe = terminalText(line).slice(0, width);
-            return mode === "list" && process.env.NO_COLOR === undefined
-              ? colorDashboardLine(
-                  safe,
-                  /truecolor|24bit/.test(process.env.COLORTERM ?? ""),
-                  /utf-?8/i.test(
-                    process.env.LC_ALL ||
-                      process.env.LC_CTYPE ||
-                      process.env.LANG ||
-                      "",
-                  ),
-                )
-              : safe;
-          })
-          .join("\r\n"),
+        lines.slice(0, height).map(styleLine).join("\r\n") +
+        (overlay
+          ? overlay.box
+              .map(
+                (line, i) =>
+                  `\x1b[${overlay.top + i + 1};${overlay.left + 1}H${styleLine(line)}`,
+              )
+              .join("")
+          : ""),
     );
   };
   const refresh = async () => {
