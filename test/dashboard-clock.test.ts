@@ -7,6 +7,7 @@ import {
   renderDashboard,
 } from "../src/dashboard.js";
 import { readConfig, readSessions } from "../src/runtime.js";
+import { editTasks } from "../src/tasks.js";
 import type { Session } from "../src/types.js";
 
 vi.mock("../src/runtime.js", async (importOriginal) => ({
@@ -195,9 +196,9 @@ it("refreshes automatically, defers updates during input, and clears timers on e
       { ...session, id: "new-session", taskSummary: "New arrival" },
     ]);
     await vi.advanceTimersByTimeAsync(30_000);
-    expect(screen).toContain("clock-session");
+    expect(screen).toContain("Clock\r\n");
     expect(screen).not.toContain("New arrival");
-    expect(screen).toMatch(/2-\d+\/\d+ Up\/Down scroll/);
+    expect(screen).toMatch(/2-\d+\/\d+ \^ above v below/);
     vi.mocked(readSessions).mockRejectedValueOnce(
       new Error("temporary read failure"),
     );
@@ -206,8 +207,45 @@ it("refreshes automatically, defers updates during input, and clears timers on e
     expect(screen).toContain("Refresh failed: temporary read failure");
     screen = "";
     await vi.advanceTimersByTimeAsync(30_000);
-    expect(screen).toContain("clock-session");
+    expect(screen).toContain("Clock\r\n");
     expect(screen).not.toContain("Refresh failed:");
+    // Tab focuses the split pane; scrolling does not move the session list.
+    output.rows = 30;
+    const checklistSession = {
+      ...session,
+      tasks: editTasks([], {
+        action: "add",
+        titles: Array.from({ length: 20 }, (_, i) => `Checklist item ${i + 1}`),
+      }),
+    };
+    vi.mocked(readSessions).mockResolvedValue([checklistSession]);
+    await press("r");
+    await press("escape");
+    await press("tab");
+    expect(screen).toContain("Selected item [focused]");
+    await press("pagedown");
+    expect(screen).toContain("^ above");
+    expect(screen).toContain("1/1");
+    const position = screen.match(/(\d+-\d+\/\d+) \^ above/)?.[1];
+    expect(position).toBeTruthy();
+    screen = "";
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(screen).toContain(position!);
+    expect(screen).toContain("Selected item [focused]");
+    await press("end");
+    expect(screen).not.toContain("v below");
+    await press("home");
+    expect(screen).not.toContain("^ above");
+    await press("tab");
+    expect(screen).toContain("Sessions  1/1 [focused]");
+    // Compact terminals use the full detail screen with the same controls.
+    output.columns = 80;
+    await press("tab");
+    expect(screen).toContain("Tab/Esc back");
+    await press("pagedown");
+    expect(screen).toContain("^ above");
+    await press("tab");
+    expect(screen).toContain("Enter for details");
   } finally {
     input.emit("keypress", "q", { name: "q" });
     await vi.advanceTimersByTimeAsync(0);

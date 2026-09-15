@@ -863,3 +863,28 @@ The MVP is ready when disposable repo tests prove:
     across concurrent sessions.
 28. Transient validation failures use bounded retry, preserve exhausted state,
     and resume against the unchanged integration snapshot.
+
+## Session task tracking
+
+A session may have an ordered `tasks` array and `tasksUpdatedAt`. Each task has a
+stable positive numeric ID, title, optional description, status, optional reason,
+and `createdAt`/`updatedAt` timestamps. Missing tasks means an empty checklist;
+legacy sessions require no migration. New tasks default to `pending`. Other
+states are `in_progress`, `completed`, `blocked`, and `skipped`. At most one task
+may be in progress. Blocked/skipped states require a non-empty reason. Agents
+explicitly maintain the checklist through `tasks list/add/update/move`; no
+background observer infers activity. Reordering never changes IDs and removal
+is represented by skipping with a reason, preserving completed/skipped entries.
+
+Task changes atomically update the session JSON under a short per-session record
+lock. Lifecycle writes share the lock and retain the latest checklist rather
+than overwriting it with a stale snapshot. The lock waits at most five seconds
+and never reclaims unknown owners. Task state does not change integration status,
+Git contents, validation evidence, promotion gates, or rollout requirements.
+
+The dashboard shows current task and completed/total count in session rows. Its
+selected pane contains the full checklist and session details with wrapping,
+independent keyboard scrolling, pinned heading/progress, and overflow indicators.
+Tab changes pane focus; arrows, Page Up/Down, and Home/End navigate the focused
+area. Narrow terminals open full details with Tab/Enter. Refresh and selection
+changes preserve per-session detail offsets, clamped to the available content.

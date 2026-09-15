@@ -1,5 +1,7 @@
 import { isRepositoryDisabled, repositoryCommonDir } from "./enablement.js";
 import { writeCompletionSummary } from "./completion.js";
+import { currentTask, taskProgress, taskLines } from "./tasks.js";
+import { stripVTControlCharacters } from "node:util";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { readLockMetadata } from "./lock.js";
@@ -62,6 +64,14 @@ export async function statusCommand(sessionId?: string): Promise<void> {
       );
     }
     process.stdout.write(`  branch: ${session.branch}\n`);
+    for (const line of [
+      `tasks: ${taskProgress(session)}`,
+      `current task: ${currentTask(session)}`,
+      ...(selected ? taskLines(session) : []),
+    ])
+      process.stdout.write(
+        `  ${stripVTControlCharacters(line).replace(/[^\x20-\x7e]/g, "?")}\n`,
+      );
     process.stdout.write(`  target branch: ${session.targetBranch ?? "-"}\n`);
     process.stdout.write(`  started: ${session.startedAt}\n`);
     process.stdout.write(

@@ -21,6 +21,7 @@ import type { RolloutDisposition } from "./types.js";
 import { incidentCommand } from "./incident.js";
 import { cleanupGuidanceCommand } from "./cleanup-guidance.js";
 import { dashboardCommand } from "./dashboard.js";
+import { tasksCommand } from "./tasks.js";
 
 export async function main(argv = process.argv.slice(2)): Promise<void> {
   const [command, ...args] = argv;
@@ -34,6 +35,9 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   if (instrument) startPerformance(command!);
   try {
     switch (command) {
+      case "tasks":
+        await tasksCommand(args);
+        break;
       case "dashboard":
         rejectArguments(args);
         await dashboardCommand();
@@ -354,6 +358,10 @@ Usage:
   seshx resume [--session <session-id>]
   seshx status [--session <session-id>]
   seshx dashboard
+  seshx tasks list [--session <session-id>]
+  seshx tasks add --title "..." [--title "..."]... [--description "..."] [--session <session-id>]
+  seshx tasks update <task-id> [--title "..."] [--description "..."] [--status pending|in_progress|completed|blocked|skipped] [--reason "..."] [--session <session-id>]
+  seshx tasks move <task-id> --position <n> [--session <session-id>]
   seshx incident <ticket-id>
   seshx reconcile [repo-path] [--apply]
   seshx audit-legacy

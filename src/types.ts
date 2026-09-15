@@ -89,8 +89,24 @@ export type SessionStatus =
 
 export type RolloutDisposition = "none" | "applied" | "automated" | "manual";
 
+export type TaskStatus =
+  "pending" | "in_progress" | "completed" | "blocked" | "skipped";
+
+export interface SessionTask {
+  /** Stable identifier, independent of the task's position in the list. */
+  id: number;
+  title: string;
+  description?: string;
+  status: TaskStatus;
+  reason?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Session {
   id: string;
+  tasks?: SessionTask[];
+  tasksUpdatedAt?: string;
   status: SessionStatus;
   repositoryPath: string;
   repositoryId: string;

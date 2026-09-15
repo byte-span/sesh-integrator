@@ -19,6 +19,7 @@ import type {
   RuntimePaths,
   Session,
   SessionIndexEntry,
+  SessionTask,
 } from "./types.js";
 import { isValidationStepList } from "./validation.js";
 
@@ -293,6 +294,35 @@ export async function readSessions(readOnly = false): Promise<Session[]> {
 }
 
 export async function writeSession(session: Session): Promise<void> {
+  await withSessionRecordLock(session.id, async () => {
+    // Lifecycle commands hold snapshots while running checks. Checklist edits
+    // made meanwhile belong to the task command and must not be overwritten.
+    const latest = await readSession(session.id);
+    if (latest) {
+      if (latest.tasks) session.tasks = latest.tasks;
+      else delete session.tasks;
+      if (latest.tasksUpdatedAt) session.tasksUpdatedAt = latest.tasksUpdatedAt;
+      else delete session.tasksUpdatedAt;
+    }
+    await writeSessionRecord(session);
+  });
+}
+
+export async function updateSessionTasks(
+  sessionId: string,
+  update: (tasks: SessionTask[]) => SessionTask[],
+): Promise<Session> {
+  return withSessionRecordLock(sessionId, async () => {
+    const session = await readSession(sessionId);
+    if (!session) throw new Error(`Unknown session: ${sessionId}`);
+    session.tasks = update(session.tasks ?? []);
+    session.tasksUpdatedAt = new Date().toISOString();
+    await writeSessionRecord(session);
+    return session;
+  });
+}
+
+async function writeSessionRecord(session: Session): Promise<void> {
   const paths = await ensureRuntime();
   await writeJsonAtomic(join(paths.sessions, `${session.id}.json`), session);
   await Promise.all([
@@ -493,7 +523,31 @@ async function isNewer(source: string, target: string): Promise<boolean> {
 /** Serialize CLI config read/modify/write operations without reclaiming unknown owners. */
 export async function withConfigLock<T>(action: () => Promise<T>): Promise<T> {
   const paths = await ensureRuntime();
-  const lock = join(paths.locks, "configuration");
+  return withRecordLock(
+    join(paths.locks, "configuration"),
+    "Configuration",
+    action,
+  );
+}
+
+async function withSessionRecordLock<T>(
+  id: string,
+  action: () => Promise<T>,
+): Promise<T> {
+  if (!/^[a-zA-Z0-9_-]+$/.test(id)) throw new Error("Invalid session ID");
+  const paths = await ensureRuntime();
+  return withRecordLock(
+    join(paths.locks, `session-record-${id}`),
+    "Session record",
+    action,
+  );
+}
+
+async function withRecordLock<T>(
+  lock: string,
+  label: string,
+  action: () => Promise<T>,
+): Promise<T> {
   const deadline = Date.now() + 5000;
   for (;;) {
     try {
@@ -503,7 +557,7 @@ export async function withConfigLock<T>(action: () => Promise<T>): Promise<T> {
       if (!isNodeError(error) || error.code !== "EEXIST") throw error;
       if (Date.now() >= deadline)
         throw new Error(
-          `Configuration is locked: ${lock}. Retry after the other command finishes; inspect a leftover lock manually.`,
+          `${label} is locked: ${lock}. Retry after the other command finishes; inspect a leftover lock manually.`,
         );
       await new Promise((resolve) => setTimeout(resolve, 50));
     }

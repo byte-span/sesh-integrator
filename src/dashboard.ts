@@ -4,6 +4,7 @@ import { emitKeypressEvents, type Key } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { stripVTControlCharacters } from "node:util";
 import { watchDashboard } from "./dashboard-watch.js";
+import { currentTask, taskProgress, taskLines } from "./tasks.js";
 import { targetBranch } from "./promotion.js";
 import { pullRequestPromotion } from "./pull-request.js";
 import { readConfig, readSessions } from "./runtime.js";
@@ -111,7 +112,7 @@ export function exactTime(value: string | number): string {
     : `${date.toISOString().slice(0, 19).replace("T", " ")} UTC`;
 }
 
-export function detailLines(row: DashboardRow): string[] {
+export function detailLines(row: DashboardRow, includeTasks = true): string[] {
   const { session: s, repository: r } = row;
   const lines = [
     `Repository: ${r?.path ?? s?.repositoryPath ?? "-"}`,
@@ -134,6 +135,15 @@ export function detailLines(row: DashboardRow): string[] {
     `Target promotion: ${s.promotedCommit ?? "not promoted"}`,
     `Rollout: ${s.rolloutDisposition ?? "unclassified"}`,
   );
+  if (includeTasks)
+    lines.splice(
+      2,
+      0,
+      `Tasks: ${taskProgress(s)}`,
+      `Current task: ${currentTask(s)}`,
+      ...taskLines(s),
+      "",
+    );
   if (s.completionSummary) lines.push(`Completion: ${s.completionSummary}`);
   if (s.rolloutDisposition === "automated")
     lines.push("External automation delegated; completion not verified.");
@@ -176,6 +186,118 @@ export function wrapLines(lines: string[], width: number): string[] {
   });
 }
 
+export interface DetailPaneState {
+  focused: boolean;
+  offset: number;
+}
+
+function sessionTaskCell(session: Session | undefined, width: number): string {
+  if (!session?.tasks?.length) return session?.taskSummary ?? "Run begin";
+  const done = session.tasks.filter(
+    (task) => task.status === "completed",
+  ).length;
+  const progress = ` ${done}/${session.tasks.length}`;
+  const available = Math.max(1, width - progress.length);
+  const title = terminalText(currentTask(session));
+  return (
+    (title.length > available && available > 3
+      ? title.slice(0, available - 3) + "..."
+      : title.slice(0, available)) + progress
+  );
+}
+
+/** The heading and progress stay pinned; every body line remains reachable. */
+export function renderDetailPane(
+  row: DashboardRow,
+  width: number,
+  height: number,
+  requestedOffset = 0,
+) {
+  width = Math.max(1, width);
+  height = Math.max(4, height);
+  const s = row.session;
+  const heading = terminalText(s?.taskSummary ?? "No session");
+  const header = [
+    heading.length > width
+      ? heading.slice(0, Math.max(0, width - 3)) + "..."
+      : heading,
+    ...wrapLines([taskProgress(s)], width).slice(0, Math.min(2, height - 3)),
+  ];
+  const body = wrapLines(
+    [
+      "-".repeat(width),
+      ...(s?.tasks?.length
+        ? [
+            "Tasks",
+            `Current: ${currentTask(s)}`,
+            ...taskLines(s, true),
+            "[ ] pending  [>] in progress",
+            "[x] completed  [!] blocked  [-] skipped",
+            "-".repeat(width),
+          ]
+        : []),
+      "Next action",
+      nextStep(row),
+      "-".repeat(width),
+      "Recent activity",
+      ...dashboardActivity([row])
+        .slice(0, 3)
+        .map(
+          (e) =>
+            `${e.at.slice(0, 10)} ${e.at.slice(11, 19)}  ${e.text.split(" | ")[0]}`,
+        ),
+      ...(!dashboardActivity([row]).length ? ["No saved milestones yet."] : []),
+      "-".repeat(width),
+      ...detailLines(row, false),
+    ],
+    width,
+  );
+  const pageSize = Math.max(1, height - header.length - 1);
+  const maxOffset = Math.max(0, body.length - pageSize);
+  const offset = Math.max(0, Math.min(requestedOffset, maxOffset));
+  const shown = body.slice(offset, offset + pageSize);
+  while (shown.length < pageSize) shown.push("");
+  const end = Math.min(body.length, offset + pageSize);
+  return {
+    offset,
+    maxOffset,
+    pageSize,
+    lines: [
+      ...header,
+      ...shown,
+      `${offset + 1}-${end}/${body.length}${offset > 0 ? " ^ above" : ""}${end < body.length ? " v below" : ""}`,
+    ],
+  };
+}
+
+export function scrollDetailPane(
+  offset: number,
+  key: string,
+  pageSize: number,
+  maxOffset: number,
+): number {
+  return Math.max(
+    0,
+    Math.min(
+      maxOffset,
+      key === "home"
+        ? 0
+        : key === "end"
+          ? maxOffset
+          : offset +
+            (key === "pageup"
+              ? -pageSize
+              : key === "pagedown"
+                ? pageSize
+                : key === "up"
+                  ? -1
+                  : key === "down"
+                    ? 1
+                    : 0),
+    ),
+  );
+}
+
 export function needsAttention(row: DashboardRow): boolean {
   const s = row.session;
   return (
@@ -183,6 +305,7 @@ export function needsAttention(row: DashboardRow): boolean {
     s.status !== "succeeded" &&
     (!row.repository ||
       !!s.validationFailure ||
+      !!s.tasks?.some((task) => task.status === "blocked") ||
       !!s.latestError ||
       ["needs_review", "validation_pending", "promotion_pending"].includes(
         s.status,
@@ -379,6 +502,7 @@ function updatedAt(row: DashboardRow): number {
     0,
     ...[
       s.startedAt,
+      s.tasksUpdatedAt,
       s.readyAt,
       s.sourceValidatedAt,
       s.integratedAt,
@@ -410,7 +534,18 @@ export function filterDashboard(
       matches &&
       (!view.repository || path === view.repository) &&
       terminalText(
-        [path, s?.taskSummary, s?.id, s?.branch, stateLabel(row)].join(" "),
+        [
+          path,
+          s?.taskSummary,
+          s?.id,
+          s?.branch,
+          stateLabel(row),
+          ...(s?.tasks ?? []).flatMap((task) => [
+            task.title,
+            task.description,
+            task.reason,
+          ]),
+        ].join(" "),
       )
         .toLowerCase()
         .includes(view.query.toLowerCase())
@@ -440,6 +575,7 @@ export function renderDashboard(
   },
   view: DashboardView = defaultDashboardView,
   now = new Date(),
+  pane: DetailPaneState = { focused: false, offset: 0 },
 ): string[] {
   const framed = width >= 114 && height >= 27;
   if (!framed)
@@ -452,6 +588,7 @@ export function renderDashboard(
       navigation,
       view,
       now,
+      pane,
     );
   width = Math.floor(width);
   height = Math.floor(height);
@@ -465,6 +602,7 @@ export function renderDashboard(
     navigation,
     view,
     now,
+    pane,
   );
   const border = "+" + "-".repeat(width - 2) + "+";
   const top = "/" + "-".repeat(width - 2) + "\\";
@@ -501,6 +639,7 @@ function renderDashboardContent(
   },
   view: DashboardView = defaultDashboardView,
   now = new Date(),
+  pane: DetailPaneState = { focused: false, offset: 0 },
 ): string[] {
   width = Math.max(1, Math.floor(width));
   height = Math.max(1, Math.floor(height));
@@ -571,57 +710,29 @@ function renderDashboardContent(
       : refresh,
     controls,
     wide
-      ? fit(`Sessions  ${position}`, leftWidth) + " | " + "Selected item"
+      ? fit(
+          `Sessions  ${position}${pane.focused ? "" : " [focused]"}`,
+          leftWidth,
+        ) +
+        " | " +
+        `Selected item${pane.focused ? " [focused]" : ""}`
       : `Sessions ${position}  Enter for details`,
     wide
-      ? fit(table("repo", "status", "task", "updated"), leftWidth) + " | "
+      ? fit(table("repo", "status", "task / done", "updated"), leftWidth) +
+        " | "
       : taskWidth >= 10
-        ? table("repo", "status", "task", "updated")
+        ? table("repo", "status", "task / done", "updated")
         : "repo / status / task",
   ];
   const footer =
     width >= 100
-      ? "Up/Down select   Enter details   / search   Left/Right status   p repo   s sort   r refresh   q quit"
-      : "Up/Down select  Left/Right status  p repo  s sort  Enter details  q quit";
+      ? `Tab ${pane.focused ? "sessions" : "details"}   Up/Down/PgUp/PgDn ${pane.focused ? "scroll" : "select"}   Enter expand   / search   p repo   s sort   r refresh   q quit`
+      : "Tab/Enter details  Up/Down select  f filter  p repo  s sort  q quit";
   const actions = "v validate   i integrate   R resume";
   const count = Math.max(1, height - lines.length - (wide ? 2 : 3));
   const start = Math.max(0, cursor - count + 1);
-  const s = selectedRow?.session;
   const details = selectedRow
-    ? [
-        ...wrapLines([s?.taskSummary ?? "No session"], rightWidth).slice(0, 2),
-        "",
-        `Repository  ${name(selectedRow)}`,
-        `Status      ${stateLabel(selectedRow)}`,
-        `Branch      ${s?.branch ?? "-"}`,
-        `Session     ${s?.id ?? "-"}`,
-        `Updated     ${age(selectedRow)} (saved event)`,
-        "-".repeat(rightWidth),
-        "Next action",
-        ...wrapLines([nextStep(selectedRow)], rightWidth),
-        "-".repeat(rightWidth),
-        "Recent activity",
-        ...(s?.validationFailure
-          ? wrapLines(
-              [`Validation failed: ${s.validationFailure.message}`],
-              rightWidth,
-            )
-          : []),
-        ...(s?.latestError ? wrapLines([s.latestError], rightWidth) : []),
-        ...dashboardActivity([selectedRow])
-          .slice(0, 3)
-          .map(
-            (e) =>
-              `${e.at.slice(0, 10)} ${e.at.slice(11, 19)}  ${e.text.split(" | ")[0]}`,
-          ),
-        ...(!s?.validationFailure &&
-        !s?.latestError &&
-        !dashboardActivity([selectedRow]).length
-          ? ["No saved milestones yet."]
-          : []),
-        "",
-        "Enter for full details and follow-ups",
-      ]
+    ? renderDetailPane(selectedRow, rightWidth, count, pane.offset).lines
     : ["Select a session to inspect its next action."];
   for (let i = 0; i < count; i++) {
     const row = visible[start + i];
@@ -631,11 +742,11 @@ function renderDashboardContent(
         ? table(
             name(row),
             stateLabel(row),
-            row.session?.taskSummary ?? "Run begin",
+            sessionTaskCell(row.session, taskWidth),
             age(row),
             marker,
           )
-        : `${marker} ${name(row)} | ${stateLabel(row)} | ${row.session?.taskSummary ?? "Run begin"}`
+        : `${marker} ${name(row)} | ${stateLabel(row)} | ${sessionTaskCell(row.session, width)}`
       : i === 0
         ? "No matches. Clear filters or run register / begin."
         : "";
@@ -752,6 +863,23 @@ export async function dashboardCommand(): Promise<void> {
   };
   let mode: "list" | "details" | "form" | "confirm" | "output" = "list";
   let scroll = 0;
+  let detailFocused = false;
+  const detailOffsets = new Map<string, number>();
+  const detailKey = () =>
+    rows[selected]?.session?.id ?? rows[selected]?.repository?.path ?? "";
+  const detailPage = () => {
+    const width = Math.max(1, (stdout.columns || 80) - 1);
+    const height = Math.max(1, (stdout.rows || 24) - (message ? 1 : 0));
+    const framed = mode === "list" && width >= 114 && height >= 27;
+    const innerWidth = width - (framed ? 4 : 0);
+    const split = mode === "list" && innerWidth >= 110 && height >= 20;
+    return renderDetailPane(
+      rows[selected]!,
+      split ? innerWidth - Math.floor(innerWidth * 0.68) - 3 : width,
+      split ? height - (framed ? 7 : 0) - 6 : height - 2,
+      detailOffsets.get(detailKey()) ?? 0,
+    );
+  };
   let message = "";
   let field: "summary" | "rollout" | "followUp" = "summary";
   let buffer = "";
@@ -784,9 +912,18 @@ export async function dashboardCommand(): Promise<void> {
     const height = Math.max(1, stdout.rows || 24);
     let lines: string[];
     let overlay: ReturnType<typeof dashboardPickerLayout> | undefined;
+    if (
+      mode === "list" &&
+      detailFocused &&
+      (width < 110 || height < 20) &&
+      rows[selected]
+    )
+      mode = "details";
     if (width < 35 || height < 10) {
       lines = ["Terminal too small.", "Resize to at least 36 x 10.", "q quit"];
     } else if (mode === "list") {
+      const offset = rows[selected] ? detailPage().offset : 0;
+      if (rows[selected]) detailOffsets.set(detailKey(), offset);
       lines = renderDashboard(
         rows,
         selected,
@@ -795,6 +932,11 @@ export async function dashboardCommand(): Promise<void> {
         refreshedAt,
         navigation,
         view,
+        new Date(),
+        {
+          focused: detailFocused,
+          offset,
+        },
       );
       if (searching) {
         const framed = lines[0]?.startsWith("/");
@@ -807,26 +949,22 @@ export async function dashboardCommand(): Promise<void> {
         lines[framed ? 2 : 1] = framed ? `| ${search} |` : search;
       }
       if (picker) overlay = dashboardPickerLayout(lines, picker, width);
+    } else if (mode === "details") {
+      if (!rows[selected]) return;
+      const page = detailPage();
+      detailOffsets.set(detailKey(), page.offset);
+      lines = [
+        ...page.lines,
+        "Up/Down/PgUp/PgDn scroll | Home/End",
+        "Tab/Esc back  v/i/R actions  q quit",
+      ];
     } else {
       const row = rows[selected];
       if (!row) return;
       let content: string[];
       let footer: string[];
-      if (mode === "details") {
-        content = [
-          ...detailLines(row),
-          "",
-          ...(["validate", "integrate", "resume"] as const).map(
-            (a) =>
-              `${a === "resume" ? "R" : a[0]} ${a}: ${actionReason(row, a) ?? "available"}`,
-          ),
-        ];
-        footer = [
-          "v validate | i integrate | R resume",
-          "Esc back | r refresh | q quit",
-        ];
-      } else if (mode === "confirm") {
-        content = [`Confirm ${pending}`, ...detailLines(row)];
+      if (mode === "confirm") {
+        content = [`Confirm ${pending}`, ...detailLines(row, false)];
         if (pending === "integrate")
           content.push(
             "",
@@ -1175,6 +1313,7 @@ export async function dashboardCommand(): Promise<void> {
     if (key.name === "escape") {
       mode = mode === "confirm" ? "details" : "list";
       scroll = 0;
+      detailFocused = false;
       return;
     }
     if (mode === "confirm") {
@@ -1191,15 +1330,45 @@ export async function dashboardCommand(): Promise<void> {
       await refresh();
       return;
     }
-    if (key.name === "down" || key.name === "up") {
-      const delta = key.name === "down" ? 1 : -1;
-      if (mode === "list") {
-        navigation = navigateDashboard(rows, navigation, key.name);
+    if (key.name === "tab") {
+      if (mode === "details") {
+        mode = "list";
+        detailFocused = false;
+      } else if (rows[selected]) {
+        if ((stdout.columns || 80) - 1 >= 110 && (stdout.rows || 24) >= 20)
+          detailFocused = !detailFocused;
+        else mode = "details";
+      }
+      return;
+    }
+    if (
+      ["down", "up", "pageup", "pagedown", "home", "end"].includes(
+        key.name ?? "",
+      )
+    ) {
+      if (rows[selected] && (mode === "details" || detailFocused)) {
+        const page = detailPage();
+        detailOffsets.set(
+          detailKey(),
+          scrollDetailPane(
+            page.offset,
+            key.name!,
+            page.pageSize,
+            page.maxOffset,
+          ),
+        );
+      } else {
+        const pageSize = Math.max(1, (stdout.rows || 24) - 13);
+        navigation.sessions = scrollDetailPane(
+          navigation.sessions,
+          key.name!,
+          pageSize,
+          Math.max(0, rows.length - 1),
+        );
         selected = dashboardSelection(rows, navigation);
-      } else scroll = Math.max(0, scroll + delta);
+      }
     } else if (key.name === "return" && rows[selected]) {
       mode = "details";
-      scroll = 0;
     } else if (
       rows[selected] &&
       (["v", "i", "s"].includes(key.name ?? "") ||

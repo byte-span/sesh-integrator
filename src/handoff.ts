@@ -443,16 +443,18 @@ async function findSessionsLaunchedFrom(
   );
 }
 
-async function resolveSourceSession(
+export async function resolveSourceSession(
   statuses: Session["status"][],
   sessionId?: string,
+  requireEnabled = true,
 ): Promise<{
   source: Awaited<ReturnType<typeof inspectGit>>;
   repository: RepositoryConfig;
   session: Session;
 }> {
   const config = await readConfig();
-  assertRepositoryEnabled(config, await repositoryCommonDir(process.cwd()));
+  if (requireEnabled)
+    assertRepositoryEnabled(config, await repositoryCommonDir(process.cwd()));
   const current = await inspectGit(process.cwd());
   const repository = findRepository(config, current.gitCommonDir);
   if (sessionId) {

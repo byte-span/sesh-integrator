@@ -24,11 +24,14 @@ import {
   detailLines,
   loadDashboard,
   renderDashboard,
+  renderDetailPane,
+  scrollDetailPane,
   renderDashboardPicker,
   terminalText,
   wrapLines,
   type DashboardRow,
 } from "../src/dashboard.js";
+import { editTasks } from "../src/tasks.js";
 import { defaultConfig } from "../src/runtime.js";
 
 const roots: string[] = [];
@@ -483,5 +486,113 @@ it("keeps scrolling pickers inside compact and framed dashboards", () => {
     expect(lines.every((line) => line.length <= width!)).toBe(true);
     expect(lines.join("\n")).toContain("> repo-49");
     expect(lines.join("\n")).toContain("Esc cancel");
+  }
+});
+
+it("shows the current task and progress, searches checklist text, and flags task blockers", () => {
+  const r = row();
+  r.session!.tasks = editTasks([], {
+    action: "add",
+    titles: ["Inspect", "Build CLI", "Validate"],
+  });
+  r.session!.tasks = editTasks(r.session!.tasks, {
+    action: "update",
+    id: 1,
+    status: "completed",
+  });
+  r.session!.tasks = editTasks(r.session!.tasks, {
+    action: "update",
+    id: 2,
+    status: "in_progress",
+    description: "Handle persistent task metadata",
+  });
+  const output = renderDashboard([r], 0, 180, 40).join("\n");
+  expect(output).toContain("Build CLI");
+  expect(output).toContain("1/3");
+  expect(output).toContain("1/3 completed");
+  expect(output).toContain("[x] Inspect");
+  expect(output).toContain("[>] Build CLI");
+  expect(
+    filterDashboard([r], {
+      ...defaultDashboardView,
+      query: "persistent task metadata",
+    }),
+  ).toEqual([r]);
+  r.session!.tasks = editTasks(r.session!.tasks, {
+    action: "update",
+    id: 2,
+    status: "blocked",
+    reason: "Need a fixture",
+  });
+  expect(
+    filterDashboard([r], {
+      ...defaultDashboardView,
+      filter: "needs attention",
+    }),
+  ).toEqual([r]);
+});
+
+it("wraps every task and follow-up within an independently scrollable pane with pinned progress", () => {
+  const r = row();
+  r.session!.tasks = editTasks([], {
+    action: "add",
+    titles: Array.from(
+      { length: 9 },
+      (_, i) => `Task ${i + 1}: ` + "long content ".repeat(12),
+    ),
+  });
+  r.session!.tasks = editTasks(r.session!.tasks, {
+    action: "update",
+    id: 1,
+    status: "completed",
+  });
+  r.session!.tasks = editTasks(r.session!.tasks, {
+    action: "update",
+    id: 2,
+    status: "in_progress",
+  });
+  r.session!.tasks = editTasks(r.session!.tasks, {
+    action: "update",
+    id: 9,
+    status: "skipped",
+    reason: "Replaced by end-to-end coverage",
+  });
+  r.session!.rolloutFollowUps = [
+    "Configure the fixture on a trusted machine. ".repeat(10),
+  ];
+  for (const [width, height] of [
+    [32, 14],
+    [79, 22],
+    [35, 7],
+  ]) {
+    let pane = renderDetailPane(r, width!, height!);
+    const pinned = pane.lines.slice(0, 2);
+    let content = "";
+    for (let offset = 0; offset <= pane.maxOffset; offset++) {
+      pane = renderDetailPane(r, width!, height!, offset);
+      expect(pane.lines.length).toBe(height);
+      expect(pane.lines.every((line) => line.length <= width!)).toBe(true);
+      expect(pane.lines.slice(0, pinned.length)).toEqual(pinned);
+      content += pane.lines.join("");
+    }
+    expect(content).toContain("Task 9:");
+    expect(content).toContain("trusted machine");
+    expect(pane.lines.at(-1)).not.toContain("v below");
+    expect(pane.lines.at(-1)).toContain("^ above");
+    expect(renderDetailPane(r, width!, height!, 99999).offset).toBe(
+      pane.maxOffset,
+    );
+    expect(scrollDetailPane(0, "pageup", pane.pageSize, pane.maxOffset)).toBe(
+      0,
+    );
+    expect(scrollDetailPane(0, "pagedown", pane.pageSize, pane.maxOffset)).toBe(
+      pane.pageSize,
+    );
+    expect(scrollDetailPane(0, "end", pane.pageSize, pane.maxOffset)).toBe(
+      pane.maxOffset,
+    );
+    expect(
+      scrollDetailPane(pane.maxOffset, "home", pane.pageSize, pane.maxOffset),
+    ).toBe(0);
   }
 });
