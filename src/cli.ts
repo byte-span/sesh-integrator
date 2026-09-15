@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { setupCommand } from "./setup.js";
 import { parseHarness, type Harness } from "./harness.js";
 import { enablementCommand } from "./enablement.js";
 import { realpathSync } from "node:fs";
@@ -37,6 +38,10 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   if (instrument) startPerformance(command!);
   try {
     switch (command) {
+      case "setup":
+      case "uninstall":
+        await setupCommand(args, command === "uninstall");
+        break;
       case "finish": {
         if (
           !args.includes("--no-changes") ||
@@ -395,6 +400,8 @@ const helpText = `seshx - one-shot Git integration (sesh-integrator)
 Compatibility commands: sesh-integrator, pintx, parallel-integrator, codex-handoff
 
 Usage:
+  seshx setup [--detected | --harness <name>...] [--yes]
+  seshx uninstall [--harness <name>...] [--yes]
   seshx init
   seshx disable [repo-path]
   seshx enable [repo-path]

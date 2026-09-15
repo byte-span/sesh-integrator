@@ -124,7 +124,7 @@ export async function doctorCommand(
     checks.push(
       fail(
         "Workflow skill",
-        `missing installation at ${skillRoot}; run scripts/install-skill.sh --harness ${harness}`,
+        `missing installation at ${skillRoot}; run seshx setup --harness ${harness}`,
       ),
     );
   } else if (
@@ -134,7 +134,7 @@ export async function doctorCommand(
     checks.push(
       fail(
         "Workflow skill",
-        `installed files differ from this CLI; run scripts/install-skill.sh --harness ${harness}`,
+        `installed files differ from this CLI; run seshx setup --harness ${harness}`,
       ),
     );
   } else {
@@ -692,7 +692,7 @@ export async function doctorInstalledCommand(
   const installed = installedHarnesses(home);
   if (!installed.length)
     throw new Error(
-      "No harness workflow installed; run scripts/install-skill.sh --harness <name>",
+      "No harness workflow installed; run seshx setup --harness <name>",
     );
   for (const harness of installed) {
     process.stdout.write(`\nHarness: ${harnessInfo[harness].name}\n`);

@@ -2,6 +2,13 @@
 
 Complete personal MVP implementation checklist.
 
+## Public installation
+
+- [x] Package the built CLI with a prepack build
+- [x] Add guided setup with PATH detection and explicit unattended selection
+- [x] Preserve customized files during setup and uninstall
+- [x] Separate source installation from opt-in maintainer safeguards
+
 ## Foundation
 
 - [x] Expose `seshx` as the preferred command while preserving compatibility aliases

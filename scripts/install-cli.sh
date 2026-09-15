@@ -22,4 +22,4 @@ ln -sfn "$source_file" "$target_dir/parallel-integrator"
 ln -sfn "$source_file" "$target_dir/codex-handoff"
 
 printf '%s\n' "Installed seshx at $target_file"
-"$script_dir/install-machine-safeguards.sh"
+printf '%s\n' "Run seshx setup to select and install harness integrations."

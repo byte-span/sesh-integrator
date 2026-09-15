@@ -42,7 +42,8 @@
     "benchmark": "pnpm build && node dist/cli.js benchmark",
     "benchmark:check": "pnpm build && node dist/cli.js benchmark --check",
     "format": "prettier --write \"{src,test}/**/*.ts\" \"*.{json,md}\" \"skill/**/*.md\"",
-    "format:check": "prettier --check \"{src,test}/**/*.ts\" \"*.{json,md}\" \"skill/**/*.md\""
+    "format:check": "prettier --check \"{src,test}/**/*.ts\" \"*.{json,md}\" \"skill/**/*.md\"",
+    "prepack": "npm run build"
   },
   "engines": {
     "node": ">=20"

@@ -51,7 +51,8 @@ stable so recovery, PR ownership checks, and guidance replacement keep working.
 These are storage identifiers, not the product name.
 
 After renaming your source folder, rebuild and rerun `scripts/install-cli.sh`
-to refresh CLI links, hooks, the skill, and the timer. The installer disables
+to refresh CLI links. Run `seshx setup` to refresh integrations and explicitly rerun
+`scripts/install-machine-safeguards.sh` to refresh hooks and the timer. The safeguard installer disables
 the previous health timer before enabling the new one. Existing repository
 instructions can continue using the compatibility command until synchronized.
 
@@ -81,22 +82,68 @@ The repository script is the export template; it requires an appended bundle pay
 
 ### Install
 
-- Node.js 20 or newer
-- Git
-- pnpm
-- the `codex` executable only when legacy nested conflict resolution is enabled
+Requires Node.js 20+ and Git. The npm package includes the built CLI; users do
+not need pnpm or a source checkout. Once the package is published to npm:
 
-From this repository:
+```bash
+npm install -g sesh-integrator
+seshx setup
+```
+
+`setup` detects `codex`, `claude`, `gemini`, and `grok` executables on `PATH`,
+preselects detected harnesses, and lets you choose integrations. It previews the
+skill and global instruction paths before confirmation, initializes configuration,
+and verifies Git and installed files. Detection does not execute harnesses or
+check authentication. Personal instructions outside the managed block are preserved.
+Customized skill files are preserved; back them up and move them before reinstalling.
+Standard home directories are supported; custom harness homes require manual setup.
+
+For unattended installation, explicitly choose integrations:
+
+```bash
+seshx setup --detected --yes
+seshx setup --harness claude --harness gemini --yes
+```
+
+Then, in your project:
+
+```bash
+seshx register --auto-config
+seshx doctor --installed
+```
+
+To remove installed integrations, run `seshx uninstall` (or `--yes` unattended).
+Use `--harness <name>` to remove one integration. Only unchanged managed files and
+managed guidance are removed; customized content, configuration, sessions, and
+worktrees remain. Empty skill directories may remain. Remove the npm CLI afterward:
+
+```bash
+npm uninstall -g sesh-integrator
+```
+
+### Install from source
+
+Before npm publication, or for development, use a checkout with pnpm:
 
 ```bash
 corepack enable
 pnpm install
 pnpm build
 ./scripts/install-cli.sh
-seshx init
+seshx setup
 ```
 
-The CLI installer creates idempotent `seshx`, `sesh-integrator`, `pintx`, `parallel-integrator`, and `codex-handoff` symlinks in `~/.local/bin`, which must be on `PATH`. Set `SESH_INTEGRATOR_BIN_DIR` (or the previous `PARALLEL_INTEGRATOR_BIN_DIR`) to choose another user-writable bin directory. It also installs the machine safeguards: the bundled skill, global managed guidance, conservative self-hosting Git hooks, and a bounded six-hourly user systemd health check on Linux. macOS installs guidance and hooks without invoking systemd; existing scheduled jobs continue through the checkout compatibility symlink. The health check safely fetches `origin/main` and fast-forwards a clean local `dev` after a remote dev-to-main merge; dirty or divergent state is reported and preserved.
+The source installer creates CLI symlinks in `~/.local/bin`; ensure it is on
+`PATH`. Set `SESH_INTEGRATOR_BIN_DIR` to choose another user-writable directory.
+Neither installation method installs Git hooks or scheduled maintenance.
+
+### Optional maintainer safeguards
+
+For maintainers of this repository only, `./scripts/install-machine-safeguards.sh`
+explicitly installs self-hosting Git hooks and a six-hourly Linux systemd health
+check. The check can fetch `origin/main` and fast-forward a clean local `dev`.
+macOS installs hooks without systemd. These safeguards are separate from public
+setup and are not removed by `seshx uninstall`.
 
 `scripts/install-skill.sh` idempotently installs the supplied skill at `~/.agents/skills/sesh-integrator-workflow/`. It accepts an alternate destination for testing:
 
@@ -1089,14 +1136,14 @@ For rollback, stop invoking the new skill, restore the previous global guidance,
 Install the shared workflow and global instructions for each harness you use:
 
 ```bash
-scripts/install-skill.sh --harness claude
-scripts/install-skill.sh --harness gemini
-scripts/install-skill.sh --harness grok
+seshx setup --harness claude
+seshx setup --harness gemini
+seshx setup --harness grok
 ```
 
-The installers preserve personal text outside the managed instruction block and
-leave repository instructions untouched. No arguments retains the existing Codex
-skill installation behavior; a positional custom skill directory remains supported.
+Setup preserves personal text outside the managed instruction block and leaves
+repository instructions untouched. The legacy `scripts/install-skill.sh` keeps
+its no-argument Codex default and positional custom skill directory support.
 
 | Harness                       | Identifier | User skill directory | Global instructions   |
 | ----------------------------- | ---------- | -------------------- | --------------------- |
@@ -1156,7 +1203,7 @@ global instructions. The machine safeguard installer and post-merge hook use it.
 any fails. Scheduled health checks and macOS upgrade checks use this mode.
 An installed workflow is identified by its native `sesh-integrator-workflow/SKILL.md`;
 unused harnesses are not installed by bulk refresh or machine safeguards. On a
-fresh installation, choose a harness with `scripts/install-skill.sh --harness <name>`
+fresh installation, run `seshx setup` or choose a harness with `seshx setup --harness <name>`
 before running the health check. The no-argument Codex default
 and positional custom-directory installer remain compatible.
 
