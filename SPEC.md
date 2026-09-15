@@ -883,8 +883,10 @@ and never reclaims unknown owners. Task state does not change integration status
 Git contents, validation evidence, promotion gates, or rollout requirements.
 
 The dashboard shows current task and completed/total count in session rows. Its
-selected pane contains the full checklist and session details with wrapping,
-independent keyboard scrolling, pinned heading/progress, and overflow indicators.
+selected pane keeps the title and status pinned, shows the next action first,
+and places the full checklist after session details. It provides wrapping,
+independent keyboard scrolling, and a separate footer labeling the visible line
+range and remaining content above or below.
 Tab changes pane focus; arrows, Page Up/Down, and Home/End navigate the focused
 area. Narrow terminals open full details with Tab/Enter. Refresh and selection
 changes preserve per-session detail offsets, clamped to the available content.

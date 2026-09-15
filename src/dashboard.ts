@@ -206,13 +206,20 @@ function sessionCurrentTask(session?: Session): string {
     : "";
 }
 
-function sessionRowStatus(row: DashboardRow): string {
+function sessionStatusLabel(row: DashboardRow): string {
   const session = row.session;
   if (!row.repository || !session) return stateLabel(row);
   if (session.status === "no_changes") return "No changes";
   if (session.status === "succeeded") return "Integrated";
-  const status = session.status === "active" ? "In progress" : stateLabel(row);
-  return session.tasks?.length
+  return session.status === "active" ? "In progress" : stateLabel(row);
+}
+
+function sessionRowStatus(row: DashboardRow): string {
+  const status = sessionStatusLabel(row);
+  const session = row.session;
+  return row.repository &&
+    session?.tasks?.length &&
+    !["succeeded", "no_changes"].includes(session.status)
     ? `${status} | ${sessionProgress(session)}`
     : status;
 }
@@ -233,7 +240,7 @@ function sessionProgress(session?: Session): string {
   return `${completed}/${session.tasks.length}${skipped ? `, ${skipped} skipped` : ""}`;
 }
 
-/** The heading and progress stay pinned; every body line remains reachable. */
+/** The title and status stay pinned; tasks follow the session details. */
 export function renderDetailPane(
   row: DashboardRow,
   width: number,
@@ -244,25 +251,28 @@ export function renderDetailPane(
   height = Math.max(4, height);
   const s = row.session;
   const heading = terminalText(s?.taskSummary ?? "No session");
+  const titleLines: string[] = [];
+  let remaining = heading;
+  while (remaining.length > width) {
+    const space = remaining.lastIndexOf(" ", width);
+    const end = space > 0 ? space : width;
+    titleLines.push(remaining.slice(0, end));
+    remaining = remaining.slice(end).trimStart();
+  }
+  titleLines.push(remaining);
+  const titleLimit = Math.min(3, Math.max(1, height - 6));
+  const title = titleLines.slice(0, titleLimit);
+  if (titleLines.length > titleLimit)
+    title[titleLimit - 1] =
+      title[titleLimit - 1]!.slice(0, Math.max(0, width - 3)) +
+      "...".slice(0, width);
   const header = [
-    heading.length > width
-      ? heading.slice(0, Math.max(0, width - 3)) + "..."
-      : heading,
-    ...wrapLines([taskProgress(s)], width).slice(0, Math.min(2, height - 3)),
+    ...title,
+    terminalText(sessionStatusLabel(row)).slice(0, width),
   ];
   const body = wrapLines(
     [
-      "-".repeat(width),
-      ...(s?.tasks?.length
-        ? [
-            "Tasks",
-            `Current: ${currentTask(s)}`,
-            ...taskLines(s, true),
-            "[ ] pending  [>] in progress",
-            "[x] completed  [!] blocked  [-] skipped",
-            "-".repeat(width),
-          ]
-        : []),
+      "",
       "Next action",
       nextStep(row),
       "-".repeat(width),
@@ -276,24 +286,46 @@ export function renderDetailPane(
       ...(!dashboardActivity([row]).length ? ["No saved milestones yet."] : []),
       "-".repeat(width),
       ...detailLines(row, false),
+      ...(s?.tasks?.length
+        ? [
+            "-".repeat(width),
+            "Tasks",
+            taskProgress(s),
+            ...taskLines(s, true),
+            "[ ] pending  [>] in progress",
+            "[x] completed  [!] blocked  [-] skipped",
+          ]
+        : []),
     ],
     width,
   );
-  const pageSize = Math.max(1, height - header.length - 1);
+  const footerHeight = Math.min(3, height - 3);
+  const pageSize = Math.max(1, height - header.length - footerHeight);
   const maxOffset = Math.max(0, body.length - pageSize);
   const offset = Math.max(0, Math.min(requestedOffset, maxOffset));
   const shown = body.slice(offset, offset + pageSize);
   while (shown.length < pageSize) shown.push("");
   const end = Math.min(body.length, offset + pageSize);
+  const position = `Lines ${offset + 1}-${end} of ${body.length}`;
+  const remainingContent =
+    offset > 0
+      ? end < body.length
+        ? "More above and below"
+        : "End of details - more above"
+      : end < body.length
+        ? "More below"
+        : "All content shown";
+  const footer =
+    footerHeight === 3
+      ? ["-".repeat(width), position, remainingContent]
+      : footerHeight === 2
+        ? ["-".repeat(width), position]
+        : [position];
   return {
     offset,
     maxOffset,
     pageSize,
-    lines: [
-      ...header,
-      ...shown,
-      `${offset + 1}-${end}/${body.length}${offset > 0 ? " ^ above" : ""}${end < body.length ? " v below" : ""}`,
-    ],
+    lines: [...header, ...shown, ...footer.map((line) => line.slice(0, width))],
   };
 }
 

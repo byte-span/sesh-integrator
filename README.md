@@ -287,8 +287,9 @@ data was loaded and changes only when data is refreshed. Details include the
 exact UTC session start time.
 Use Tab to switch focus between the session list and selected-item pane.
 Up/Down and Page Up/Down move through the focused area; Home/End jump to its
-boundaries. The pane wraps long text and shows a line range with above/below
-indicators. Its session heading and progress stay pinned while the body scrolls.
+boundaries. The pane keeps its session title and status pinned, with the next
+action first and the task checklist after session details. A separate footer
+labels the visible line range and whether more content is above or below.
 Scroll positions are retained per session across selection changes and live
 refreshes, and clamped when content shrinks.
 Use Enter to expand details, `r` to refresh immediately, and `q` to quit.

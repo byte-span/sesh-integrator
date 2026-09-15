@@ -198,7 +198,8 @@ it("refreshes automatically, defers updates during input, and clears timers on e
     await vi.advanceTimersByTimeAsync(30_000);
     expect(screen).toContain("Clock\r\n");
     expect(screen).not.toContain("New arrival");
-    expect(screen).toMatch(/2-\d+\/\d+ \^ above v below/);
+    expect(screen).toMatch(/Lines 2-\d+ of \d+/);
+    expect(screen).toContain("More above and below");
     vi.mocked(readSessions).mockRejectedValueOnce(
       new Error("temporary read failure"),
     );
@@ -224,18 +225,18 @@ it("refreshes automatically, defers updates during input, and clears timers on e
     await press("tab");
     expect(screen).toContain("Selected item [focused]");
     await press("pagedown");
-    expect(screen).toContain("^ above");
+    expect(screen).toMatch(/More above|more above/);
     expect(screen).toContain("1/1");
-    const position = screen.match(/(\d+-\d+\/\d+) \^ above/)?.[1];
+    const position = screen.match(/(Lines \d+-\d+ of \d+)/)?.[1];
     expect(position).toBeTruthy();
     screen = "";
     await vi.advanceTimersByTimeAsync(30_000);
     expect(screen).toContain(position!);
     expect(screen).toContain("Selected item [focused]");
     await press("end");
-    expect(screen).not.toContain("v below");
+    expect(screen).toContain("End of details - more above");
     await press("home");
-    expect(screen).not.toContain("^ above");
+    expect(screen).toContain("More below");
     await press("tab");
     expect(screen).toContain("Sessions  1/1 [focused]");
     // Compact terminals use the full detail screen with the same controls.
@@ -243,7 +244,7 @@ it("refreshes automatically, defers updates during input, and clears timers on e
     await press("tab");
     expect(screen).toContain("Tab/Esc back");
     await press("pagedown");
-    expect(screen).toContain("^ above");
+    expect(screen).toMatch(/More above|more above/);
     await press("tab");
     expect(screen).toContain("Enter for details");
   } finally {

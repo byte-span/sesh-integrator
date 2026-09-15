@@ -458,7 +458,9 @@ it("separates the header, table, detail sections and footer without overflow", (
   expect(lines[8]).toMatch(/^\| -+ \| /);
   for (const title of ["Next action", "Recent activity"]) {
     const index = lines.findIndex((line) => line.includes(title));
-    expect(lines[index - 1]).toMatch(/\| -+ \|$/);
+    expect(lines[index - 1]).toMatch(
+      title === "Next action" ? /\| +\|$/ : /\| -+ \|$/,
+    );
   }
   expect(lines.at(-4)).toMatch(/^\+-+\+$/);
   expect(colorDashboardLine(lines[0]!, true, true)).toContain("┌");
@@ -511,9 +513,16 @@ it("shows the current task and progress, searches checklist text, and flags task
   const output = renderDashboard([r], 0, 180, 40).join("\n");
   expect(output).toContain("Build CLI");
   expect(output).toContain("1/3");
-  expect(output).toContain("1/3 completed");
-  expect(output).toContain("[x] Inspect");
-  expect(output).toContain("[>] Build CLI");
+  expect(output).not.toContain("1/3 completed");
+  const checklist = renderDetailPane(
+    r,
+    60,
+    25,
+    Number.MAX_SAFE_INTEGER,
+  ).lines.join("\n");
+  expect(checklist).toContain("1/3 completed");
+  expect(checklist).toContain("[x] Inspect");
+  expect(checklist).toContain("[>] Build CLI");
   expect(
     filterDashboard([r], {
       ...defaultDashboardView,
@@ -534,7 +543,7 @@ it("shows the current task and progress, searches checklist text, and flags task
   ).toEqual([r]);
 });
 
-it("wraps every task and follow-up within an independently scrollable pane with pinned progress", () => {
+it("wraps every task and follow-up within an independently scrollable pane with pinned title and status", () => {
   const r = row();
   r.session!.tasks = editTasks([], {
     action: "add",
@@ -579,8 +588,8 @@ it("wraps every task and follow-up within an independently scrollable pane with 
     }
     expect(content).toContain("Task 9:");
     expect(content).toContain("trusted machine");
-    expect(pane.lines.at(-1)).not.toContain("v below");
-    expect(pane.lines.at(-1)).toContain("^ above");
+    expect(pane.lines.at(-1)).not.toContain("More below");
+    expect(pane.lines.at(-1)).toBe("End of details - more above");
     expect(renderDetailPane(r, width!, height!, 99999).offset).toBe(
       pane.maxOffset,
     );
@@ -694,6 +703,63 @@ it("shows skipped progress explicitly and moves verified no-change sessions out 
   ).toEqual([r]);
   expect(actionReason(r, "integrate")).toContain("finished without changes");
   screen = renderDashboard([r], 0, 180, 36).join("\n");
-  expect(screen).toContain("No changes needed");
-  expect(screen).toContain("2 skipped");
+  expect(screen).toContain("No changes");
+  expect(screen).not.toContain("2 skipped");
+  const checklist = renderDetailPane(
+    r,
+    60,
+    25,
+    Number.MAX_SAFE_INTEGER,
+  ).lines.join("\n");
+  expect(checklist).toContain("2 skipped");
+});
+
+it("puts the checklist last and keeps a readable title and status above the next action", () => {
+  const r = row();
+  r.session!.taskSummary =
+    "Align README sign-in instructions with hosted authentication";
+  r.session!.status = "no_changes";
+  r.session!.tasks = editTasks([], {
+    action: "add",
+    titles: ["Review documentation"],
+  });
+  r.session!.tasks = editTasks(r.session!.tasks, {
+    action: "update",
+    id: 1,
+    status: "skipped",
+    reason: "Already implemented",
+  });
+  const pane = renderDetailPane(r, 40, 100);
+  const text = pane.lines.join("\n");
+  expect(pane.lines.slice(0, 3)).toEqual([
+    "Align README sign-in instructions with",
+    "hosted authentication",
+    "No changes",
+  ]);
+  expect(text.indexOf("Next action")).toBeLessThan(
+    text.indexOf("Recent activity"),
+  );
+  expect(text.indexOf("Source branch:")).toBeLessThan(text.indexOf("Tasks\n"));
+  expect(text.indexOf("Tasks\n")).toBeLessThan(
+    text.indexOf("1. [-] Review documentation"),
+  );
+  expect(text).not.toContain("Current:");
+});
+
+it("separates and labels scroll position and remaining content", () => {
+  const r = row();
+  const top = renderDetailPane(r, 40, 14);
+  expect(top.lines.at(-3)).toBe("-".repeat(40));
+  expect(top.lines.at(-2)).toMatch(/^Lines 1-\d+ of \d+$/);
+  expect(top.lines.at(-1)).toBe("More below");
+  const middle = renderDetailPane(r, 40, 14, 2);
+  expect(middle.lines.at(-1)).toBe("More above and below");
+  const bottom = renderDetailPane(r, 40, 14, Number.MAX_SAFE_INTEGER);
+  expect(bottom.lines.at(-1)).toBe("End of details - more above");
+  expect(renderDetailPane(r, 100, 100).lines.at(-1)).toBe("All content shown");
+  for (const height of [4, 5, 6, 7]) {
+    const small = renderDetailPane(r, 20, height);
+    expect(small.lines).toHaveLength(height);
+    expect(small.lines.every((line) => line.length <= 20)).toBe(true);
+  }
 });
