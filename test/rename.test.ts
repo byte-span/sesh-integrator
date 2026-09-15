@@ -62,7 +62,7 @@ it("installs seshx and both compatibility commands against the same CLI", async 
     ]) {
       expect(manifest.bin[name]).toBe("dist/cli.js");
       expect(await realpath(join(bin, name))).toBe(
-        join(project, "dist/cli.js"),
+        await realpath(join(project, "dist/cli.js")),
       );
       const help = execFileSync(join(bin, name), ["--help"], {
         encoding: "utf8",

@@ -977,6 +977,16 @@ overhead separately from user-configured commands. `--check` enforces CI
 regression budgets. `PARALLEL_INTEGRATOR_BENCHMARK_BUDGET_SCALE` scales them for a
 consistently slower runner.
 
+Benchmark cleanup retries transient filesystem errors up to three attempts.
+Set `SESH_INTEGRATOR_BENCHMARK_DIAGNOSTICS_DIR` to a directory outside the
+benchmark fixture to capture each failed attempt: up to 200 remaining path
+names/types and Git/Node process IDs and executable names. File contents,
+process arguments, and environment values are excluded. CI uploads these
+snapshots alongside Git traces from three separate macOS benchmark runs as
+`benchmark-diagnostics-macos-latest-node-<version>` artifacts, retained for
+seven days. Snapshots are captured even when a later cleanup retry succeeds;
+repeated cleanup failure still fails the benchmark.
+
 ### Real macOS signing reliability
 
 Install current native Homebrew GnuPG and pinentry, then run the idempotent host

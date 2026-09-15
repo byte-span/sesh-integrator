@@ -1,4 +1,3 @@
-# Copy to .github/workflows/ci.yml in the sesh-integrator repository.
 # Action documentation: https://github.com/actions/setup-node
 name: CI
 
@@ -28,15 +27,15 @@ jobs:
         node: [20, 22, 24]
     steps:
       - name: Check out source
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
 
       - name: Install pnpm from package.json
-        uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+        uses: pnpm/action-setup@a8198c4bff370c8506180b035930dea56dbd5288 # v5
 
       - name: Set up Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: ${{ matrix.node }}
           cache: pnpm
@@ -51,10 +50,51 @@ jobs:
       - name: Check types
         run: pnpm typecheck
 
+      - name: Prepare macOS benchmark diagnostics
+        if: runner.os == 'macOS'
+        run: mkdir -p "$RUNNER_TEMP/sesh-benchmark-diagnostics"
+
       # The pretest script builds dist before Vitest starts.
       - name: Build and test
+        env:
+          SESH_INTEGRATOR_BENCHMARK_DIAGNOSTICS_DIR: ${{ runner.os == 'macOS' && format('{0}/sesh-benchmark-diagnostics', runner.temp) || '' }}
         run: pnpm test
 
       - name: Check performance budgets
         if: matrix.os == 'ubuntu-latest' && matrix.node == 22
         run: pnpm benchmark:check
+
+      # Run even after test failures. Trace only disposable benchmark Git commands.
+      - name: Diagnose macOS benchmark cleanup
+        if: always() && runner.os == 'macOS'
+        env:
+          SESH_INTEGRATOR_BENCHMARK_DIAGNOSTICS_DIR: ${{ runner.temp }}/sesh-benchmark-diagnostics
+          GIT_TRACE2_EVENT: ${{ runner.temp }}/sesh-benchmark-diagnostics/git-trace.jsonl
+        shell: bash
+        run: |
+          mkdir -p "$SESH_INTEGRATOR_BENCHMARK_DIAGNOSTICS_DIR"
+          test -f dist/cli.js
+          node --version > "$SESH_INTEGRATOR_BENCHMARK_DIAGNOSTICS_DIR/versions.txt"
+          git --version >> "$SESH_INTEGRATOR_BENCHMARK_DIAGNOSTICS_DIR/versions.txt"
+          sw_vers >> "$SESH_INTEGRATOR_BENCHMARK_DIAGNOSTICS_DIR/versions.txt"
+          result=0
+          for attempt in 1 2 3; do
+            if node dist/cli.js benchmark --runs 2 --json \
+              > "$SESH_INTEGRATOR_BENCHMARK_DIAGNOSTICS_DIR/benchmark-$attempt.json" \
+              2> "$SESH_INTEGRATOR_BENCHMARK_DIAGNOSTICS_DIR/benchmark-$attempt.stderr.txt"; then
+              echo "Benchmark attempt $attempt passed"
+            else
+              result=1
+              cat "$SESH_INTEGRATOR_BENCHMARK_DIAGNOSTICS_DIR/benchmark-$attempt.stderr.txt"
+            fi
+          done
+          exit "$result"
+
+      - name: Upload macOS benchmark diagnostics
+        if: always() && runner.os == 'macOS'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: benchmark-diagnostics-${{ matrix.os }}-node-${{ matrix.node }}
+          path: ${{ runner.temp }}/sesh-benchmark-diagnostics/
+          if-no-files-found: warn
+          retention-days: 7

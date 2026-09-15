@@ -530,12 +530,12 @@ process.stdout.write(JSON.stringify({response:"resolved",text:"resolved",result:
     const fixture = await createFixture();
     const remote = await configureSharedTargetPromotion(fixture);
     const fake = await createFakeGh(fixture);
-    const moving = await createMovingGit(fixture, remote);
+    const moving = await createMovingGit(fixture, remote, fake.env);
     await runCliOkWithEnv(
       fixture,
       fixture.repo,
       ["begin", "--summary", "moving"],
-      { ...fake.env, ...moving.env },
+      moving.env,
     );
     commitFile(fixture.repo, "local.txt", "local\n", "local change");
 
@@ -543,12 +543,13 @@ process.stdout.write(JSON.stringify({response:"resolved",text:"resolved",result:
       fixture,
       fixture.repo,
       ["integrate", "--summary", "moving"],
-      { ...fake.env, ...moving.env },
+      moving.env,
     );
 
     expect(result.code).toBe(1);
     const pending = (await sessions(fixture))[0]!;
-    expect(pending.remoteRecoveryAttempts).toBe(3);
+    expect(pending.remoteRecoveryAttempts, pending.latestError).toBe(3);
+    expect(await readFile(fake.log, "utf8")).toContain("auth status");
     expect(pending.latestError).toContain(
       "kept moving after 3 validated recovery attempts",
     );
@@ -3872,6 +3873,7 @@ function replaceRemoteHistory(fixture: Fixture, remote: string): void {
 async function createMovingGit(
   fixture: Fixture,
   remote: string,
+  baseEnv: NodeJS.ProcessEnv,
 ): Promise<{ env: NodeJS.ProcessEnv }> {
   const bin = join(fixture.root, "moving-git-bin");
   const writer = join(fixture.root, "moving-writer");
@@ -3908,7 +3910,8 @@ process.exit(result.status == null ? 1 : result.status);
   await chmod(executable, 0o755);
   return {
     env: {
-      PATH: `${bin}:${process.env.PATH ?? ""}`,
+      ...baseEnv,
+      PATH: `${bin}:${baseEnv.PATH ?? process.env.PATH ?? ""}`,
       FAKE_MOVING_WRITER: writer,
       FAKE_MOVING_COUNT: join(fixture.root, "moving-count"),
     },
