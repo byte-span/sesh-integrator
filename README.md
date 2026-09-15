@@ -1260,7 +1260,8 @@ to the harness identifier. `codexCommand` remains a legacy fallback for Codex;
 `harnessCommands.codex` takes precedence. Current-session remains the default.
 
 `scripts/install-skill.sh --installed` refreshes all installed workflows and their
-global instructions. The machine safeguard installer and post-merge hook use it.
+global instructions. The machine safeguard installer uses it; post-merge hooks
+do not refresh workflows or global instructions.
 `seshx doctor --installed` checks those same installations and reports failure if
 any fails. Scheduled health checks and macOS upgrade checks use this mode.
 An installed workflow is identified by its native `sesh-integrator-workflow/SKILL.md`;
