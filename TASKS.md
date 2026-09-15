@@ -200,3 +200,9 @@ Complete personal MVP implementation checklist.
 - [x] Provide a no-autostart health-checking wrapper with launchd recovery
 - [x] Provide a keepalive canonical-agent LaunchAgent installer with config backups
 - [x] Retain fake-GPG coverage and add an opt-in real sandboxed end-to-end test
+
+## Concurrent self-development
+
+- [x] Support stable coordinator snapshots outside development worktrees
+- [x] Enable self-repository registration checks and isolated sessions targeting dev
+- [x] Keep merge hooks and health checks from independently moving dev or installing candidate code

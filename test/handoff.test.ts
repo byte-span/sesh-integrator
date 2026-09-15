@@ -3753,15 +3753,13 @@ process.stdout.write(JSON.stringify({response:"resolved",text:"resolved",result:
     expect(result.stdout).toContain("NOT READY");
   });
 
-  it("reports the sesh-integrator repository as intentionally self-managed", async () => {
+  it("checks registration for the sesh-integrator repository too", async () => {
     const fixture = await createFixture();
 
     const result = await runCli(fixture, process.cwd(), ["doctor"]);
 
-    expect(result.stdout).toContain(
-      "SKIP  Current repository: sesh-integrator is intentionally self-managed and excluded from registration",
-    );
-    expect(result.stdout).not.toContain("Current repository: not registered");
+    expect(result.stdout).toContain("Current repository: not registered");
+    expect(result.code).toBe(1);
   });
 
   it("benchmarks disposable small, large, conflict, and concurrent scenarios", async () => {

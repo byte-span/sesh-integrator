@@ -198,14 +198,6 @@ export async function doctorCommand(
 }
 
 async function repositoryChecks(config: Config, cwd: string): Promise<Check[]> {
-  if (await isSelfHostingRepository(cwd)) {
-    return [
-      skip(
-        "Current repository",
-        "sesh-integrator is intentionally self-managed and excluded from registration",
-      ),
-    ];
-  }
   try {
     if (isRepositoryDisabled(config, await repositoryCommonDir(cwd)))
       return [
@@ -301,19 +293,6 @@ async function repositoryChecks(config: Config, cwd: string): Promise<Check[]> {
     );
   }
   return checks;
-}
-
-async function isSelfHostingRepository(cwd: string): Promise<boolean> {
-  try {
-    const toolRoot = fileURLToPath(new URL("..", import.meta.url));
-    const [current, self] = await Promise.all([
-      realpath((await inspectGit(cwd)).gitCommonDir),
-      realpath((await inspectGit(toolRoot)).gitCommonDir),
-    ]);
-    return current === self;
-  } catch {
-    return false;
-  }
 }
 
 async function pullRequestPromotionCheck(

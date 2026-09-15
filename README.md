@@ -67,6 +67,68 @@ git remote -v
 
 See [GitHub's repository rename instructions](https://docs.github.com/en/repositories/creating-and-managing-repositories/renaming-a-repository).
 
+### Developing sesh-integrator concurrently
+
+This repository supports the same isolated sessions, serialized integration, and
+agent-assisted conflict recovery as other projects. Use local `dev` as the
+target; keep `main` behind the shared `dev` to `main` PR with `scram-j` review.
+Local task branches are never published for separate PRs.
+
+Install a validated build as a separate coordinator snapshot before starting
+concurrent development. From a clean, validated checkout:
+
+```bash
+pnpm install --frozen-lockfile
+pnpm typecheck
+pnpm test
+pnpm build
+scripts/install-cli.sh --stable
+```
+
+`--stable` copies the built CLI and bundled resources to a new directory under
+`~/.local/share/sesh-integrator/releases/` and points the command aliases there.
+`SESH_INTEGRATOR_RELEASE_DIR` can override that directory; keep it outside all
+source worktrees. Previous releases remain available. Installation without
+`--stable` links to the development build and is unsuitable for self-integration.
+The installer does not validate the build or refresh skills/hooks automatically.
+
+Pin the real path once per session (record it with your task notes for recovery):
+
+```bash
+export SESH_COORDINATOR="$(node -e 'console.log(require("node:fs").realpathSync(process.argv[1]))' "$(command -v seshx)")"
+node "$SESH_COORDINATOR" status
+node "$SESH_COORDINATOR" register --auto-config
+```
+
+In the runtime's `config.json` (use the `Runtime:` path from status), set this
+repository's `targetBranch` to `dev`. Leave `promotion` unset for local-only
+integration; remote pushes require explicit authorization. Auto-configuration
+provides dependency setup and validation commands. Then each agent runs:
+
+```bash
+node "$SESH_COORDINATOR" begin --create-worktree --harness codex --summary "Task description"
+# cd to the printed source worktree and implement the task there.
+node "$SESH_COORDINATOR" commit --message "Describe the change"
+node "$SESH_COORDINATOR" validate
+node "$SESH_COORDINATOR" integrate --summary "Describe the result" --rollout none
+```
+
+Maintain the normal session checklist. For conflicts, the current agent resolves
+and stages the reported integration worktree, then runs
+`node "$SESH_COORDINATOR" resume` from its source worktree. The same coordinator
+must handle every lifecycle command; candidate `dist` builds are only for tests.
+Dirty files in the launch checkout are preserved and may defer promotion.
+
+Finish all sessions before upgrading the coordinator, particularly when changing
+runtime schemas. Install a new validated snapshot, explicitly refresh installed
+workflows with its `scripts/install-skill.sh --installed`, and use its path for
+new sessions. Retain old snapshots for recovery. Neither merge hooks nor health
+checks synchronize `dev` or install candidate builds automatically. The optional
+`self-hosting-sync-dev` script is a manual maintenance operation only; do not run
+it during active sessions. Existing hook/timer installations should point at the
+stable snapshot's scripts; run its
+`scripts/install-machine-safeguards.sh --repo /path/to/sesh-integrator` to refresh them.
+
 ### macOS upgrade export
 
 The exported `update-sesh-integrator-macos.sh` includes a Git bundle of the validated

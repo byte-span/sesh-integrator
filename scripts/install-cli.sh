@@ -12,6 +12,26 @@ if [ ! -f "$source_file" ]; then
   exit 1
 fi
 
+case "${1:-}" in
+  "") ;;
+  --stable)
+    # Each release is independent of Git worktrees and previous releases.
+    # Pin its printed CLI path for the full lifetime of a development session.
+    release_root=${SESH_INTEGRATOR_RELEASE_DIR:-"${HOME}/.local/share/sesh-integrator/releases"}
+    mkdir -p "$release_root"
+    release_root=$(CDPATH= cd -- "$release_root" && pwd -P)
+    case "$release_root/" in
+      "$project_dir/"*) printf '%s\n' "Stable releases must be outside the source checkout." >&2; exit 1 ;;
+    esac
+    release_dir=$(mktemp -d "$release_root/release.XXXXXXXX")
+    for entry in dist skill scripts systemd package.json harnesses.json GLOBAL_AGENTS_SNIPPET.md; do
+      cp -R "$project_dir/$entry" "$release_dir/$entry"
+    done
+    source_file="$release_dir/dist/cli.js"
+    ;;
+  *) printf '%s\n' "Usage: install-cli.sh [--stable]" >&2; exit 1 ;;
+esac
+
 mkdir -p "$target_dir"
 chmod +x "$source_file"
 ln -sfn "$source_file" "$target_file"
@@ -23,3 +43,5 @@ ln -sfn "$source_file" "$target_dir/codex-handoff"
 
 printf '%s\n' "Installed seshx at $target_file"
 printf '%s\n' "Run seshx setup to select and install harness integrations."
+
+[ "${1:-}" != --stable ] || printf '%s\n' "Pinned coordinator: $source_file"

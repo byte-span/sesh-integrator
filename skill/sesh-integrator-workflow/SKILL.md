@@ -1,6 +1,6 @@
 ---
 name: sesh-integrator-workflow
-description: Use for most code-changing coding-agent tasks in Git repositories that should run in an isolated source worktree and be validated and promoted by the local sesh-integrator tool. Automatically register and begin or continue a session, then create a focused commit, validate, integrate, and resume when safe. Never use for read-only work, non-Git directories, sesh-integrator itself, its integration branch, or the legacy codex-integrator workflow.
+description: Use for most code-changing coding-agent tasks in Git repositories that should run in an isolated source worktree and be validated and promoted by the local sesh-integrator tool. Automatically register and begin or continue a session, then create a focused commit, validate, integrate, and resume when safe. Never use for read-only work, non-Git directories, its integration branch, or the legacy codex-integrator workflow.
 ---
 
 # Sesh Integrator Workflow
@@ -20,6 +20,13 @@ All harnesses share the same features; keep exceptions limited to documented
 harness behavior. `seshx doctor --installed` checks every installed workflow.
 Read repository `AGENTS.md` and your harness's project instructions, such as
 `CLAUDE.md` or `GEMINI.md`, before editing.
+
+When developing `sesh-integrator` itself, follow its repository instructions:
+use isolated source worktrees and a stable installed coordinator outside the
+source repository. Pin the resolved coordinator CLI path for the entire session,
+including resume, and run lifecycle commands through that path. Never coordinate
+integration with the candidate build being modified or replace the coordinator
+during unfinished sessions. See the repository README for snapshot installation.
 
 Use `seshx` as the preferred command. `sesh-integrator`, `pintx`,
 `parallel-integrator`, and `codex-handoff` remain compatible aliases. Existing
@@ -42,7 +49,7 @@ Only enable the repository when the user requests it.
 Before modifying files:
 
 1. Confirm this is code-changing work in a Git repository and is not work on
-   `sesh-integrator` itself or its configured integration branch.
+   its configured integration branch.
 2. Inspect repository instructions and Git state. Never reset, overwrite,
    discard, clean, or silently stash existing user state.
 3. Check whether `seshx` is available and inspect

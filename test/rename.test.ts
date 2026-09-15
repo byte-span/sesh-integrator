@@ -112,3 +112,98 @@ it("keeps existing sessions and locks in the original runtime after the rename",
     await rm(home, { recursive: true, force: true });
   }
 });
+
+it("keeps a pinned coordinator working after source rebuilds and later installs", async () => {
+  const root = await mkdtemp(join(tmpdir(), "seshx-stable-"));
+  try {
+    const project = join(root, "project");
+    const bin = join(root, "bin");
+    await mkdir(project);
+    for (const entry of [
+      "dist",
+      "scripts",
+      "skill",
+      "systemd",
+      "package.json",
+      "harnesses.json",
+      "GLOBAL_AGENTS_SNIPPET.md",
+    ]) {
+      await cp(join(process.cwd(), entry), join(project, entry), {
+        recursive: true,
+      });
+    }
+    const env = {
+      ...process.env,
+      SESH_INTEGRATOR_BIN_DIR: bin,
+      SESH_INTEGRATOR_RELEASE_DIR: join(root, "releases"),
+    };
+    const install = () =>
+      execFileSync(
+        "sh",
+        [join(project, "scripts/install-cli.sh"), "--stable"],
+        {
+          env,
+          encoding: "utf8",
+        },
+      );
+    expect(() =>
+      execFileSync(
+        "sh",
+        [join(project, "scripts/install-cli.sh"), "--stable"],
+        {
+          env: {
+            ...env,
+            SESH_INTEGRATOR_RELEASE_DIR: join(project, "releases"),
+          },
+          stdio: "pipe",
+        },
+      ),
+    ).toThrow();
+    expect(install()).toContain("Pinned coordinator:");
+    const pinned = await realpath(join(bin, "seshx"));
+    expect(pinned.startsWith(join(root, "releases"))).toBe(true);
+    expect(install()).toContain("Pinned coordinator:");
+    expect(await realpath(join(bin, "seshx"))).not.toBe(pinned);
+    // Install snapshot hooks into a separate repository, without systemd.
+    const repo = join(root, "repo");
+    execFileSync("git", ["init", "--quiet", repo]);
+    await writeFile(join(bin, "uname"), "#!/bin/sh\necho Darwin\n", {
+      mode: 0o755,
+    });
+    const snapshot = join(pinned, "../..");
+    execFileSync(
+      "sh",
+      [join(snapshot, "scripts/install-machine-safeguards.sh"), "--repo", repo],
+      {
+        env: {
+          ...env,
+          HOME: join(root, "home"),
+          PATH: `${bin}:${process.env.PATH}`,
+        },
+      },
+    );
+    expect(await realpath(join(repo, ".git/hooks/post-merge"))).toBe(
+      join(snapshot, "scripts/self-hosting-post-merge"),
+    );
+    // Simulate a broken candidate build and missing candidate resources.
+    await writeFile(join(project, "dist/cli.js"), "throw new Error('broken');");
+    await rm(join(project, "harnesses.json"));
+    for (const cli of [pinned, join(bin, "seshx")]) {
+      expect(
+        execFileSync("node", [cli, "--help"], { encoding: "utf8" }),
+      ).toContain("seshx - one-shot Git integration");
+      expect(
+        execFileSync("node", [cli, "setup", "--harness", "codex", "--yes"], {
+          env: {
+            ...env,
+            HOME: join(root, "home"),
+            SESH_INTEGRATOR_HOME: join(root, "runtime"),
+          },
+          encoding: "utf8",
+        }),
+      ).toContain("codex");
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

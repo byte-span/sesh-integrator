@@ -1,8 +1,7 @@
 # sesh-integrator global workflow
 
-For most code-changing tasks inside a Git repository, use `sesh-integrator` from
-the current CLI checkout. Do not use it for read-only work, non-Git
-directories, or changes to the `sesh-integrator` repository itself. Do not invoke
+For most code-changing tasks inside a Git repository, use the installed `sesh-integrator` CLI. Do not use it for read-only work, non-Git
+directories, or its configured integration branch. Do not invoke
 the legacy `codex-integrator` workflow for repositories using `sesh-integrator`.
 
 Operate autonomously by default. Do not ask for routine approval to register,
@@ -20,6 +19,13 @@ All harnesses share the same features; keep exceptions limited to documented
 harness behavior. `seshx doctor --installed` checks every installed workflow.
 Read repository `AGENTS.md` and your harness's project instructions, such as
 `CLAUDE.md` or `GEMINI.md`, before editing.
+
+When developing `sesh-integrator` itself, follow its repository instructions:
+use isolated source worktrees and a stable installed coordinator outside the
+source repository. Pin the resolved coordinator CLI path for the entire session,
+including resume, and run lifecycle commands through that path. Never coordinate
+integration with the candidate build being modified or replace the coordinator
+during unfinished sessions. See the repository README for snapshot installation.
 
 Use `seshx` as the preferred command. `sesh-integrator`, `pintx`,
 `parallel-integrator`, and `codex-handoff` remain compatible aliases. Existing

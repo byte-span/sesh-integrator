@@ -109,7 +109,8 @@ describe("bundled workflow trigger policy", () => {
     expect(timer).toContain("OnUnitActiveSec=6h");
     expect(service).toContain("TimeoutStartSec=130");
     expect(prePush).toContain("merge-base --is-ancestor origin/main dev");
-    expect(postMerge).toContain("merge --ff-only");
+    expect(postMerge).not.toContain("merge --ff-only");
+    expect(postMerge).not.toContain("install-machine-safeguards.sh");
     expect(syncDev).toContain("merge-base --is-ancestor dev origin/main");
   });
 });
