@@ -29,7 +29,10 @@
     "scripts/com.codex.gpg-agent.plist",
     "GLOBAL_AGENTS_SNIPPET.md",
     "scripts/parallel-integrator-health-check",
-    "scripts/update-macos.sh"
+    "scripts/update-macos.sh",
+    "harnesses.json",
+    "scripts/harness-metadata.mjs",
+    "scripts/install-harnesses.mjs"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",

@@ -24,6 +24,10 @@ it("installs seshx and both compatibility commands against the same CLI", async 
       recursive: true,
     });
     await cp(
+      join(process.cwd(), "harnesses.json"),
+      join(project, "harnesses.json"),
+    );
+    await cp(
       join(process.cwd(), "package.json"),
       join(project, "package.json"),
     );

@@ -38,46 +38,59 @@ function session(overrides: Partial<Session> = {}): Session {
   };
 }
 
-async function configureCodex(executable: string): Promise<void> {
+async function configureCodex(
+  executable: string,
+  harness = "codex",
+): Promise<void> {
   const paths = await ensureRuntime();
   const config = JSON.parse(await readFile(paths.config, "utf8"));
-  config.codexCommand = executable;
+  config.harnessCommands = { [harness]: executable };
+  config.codexCommand = join(paths.root, "must-not-launch-other-harness");
   await writeFile(paths.config, `${JSON.stringify(config, null, 2)}\n`);
 }
 
 describe("failure incidents", () => {
-  it("stores a schema-validated agent diagnosis and links its ticket", async () => {
-    const root = await mkdtemp(join(tmpdir(), "handoff-incident-"));
-    roots.push(root);
-    process.env.PARALLEL_INTEGRATOR_HOME = root;
-    const fake = join(root, "fake-codex");
-    await writeFile(
-      fake,
-      `#!/usr/bin/env node
+  it.each(["codex", "claude", "gemini", "grok"])(
+    "stores a validated %s diagnosis and links its ticket",
+    async (harness) => {
+      const root = await mkdtemp(join(tmpdir(), "handoff-incident-"));
+      roots.push(root);
+      process.env.PARALLEL_INTEGRATOR_HOME = root;
+      const fake = join(root, "fake-codex");
+      await writeFile(
+        fake,
+        `#!/usr/bin/env node
 const fs=require("fs");
-const args=process.argv.slice(2);const output=args[args.indexOf("--output-last-message")+1];
-fs.writeFileSync(output,JSON.stringify({category:"workflow gap",confidence:"high",diagnosis:"The workflow omitted a required recovery step.",proposedFix:"Update the workflow instructions with the recovered step.",fixScope:"instructions"}));
+const args=process.argv.slice(2);
+const diagnosis={category:"workflow gap",confidence:"high",diagnosis:"The workflow omitted a required recovery step.",proposedFix:"Update the workflow instructions with the recovered step.",fixScope:"instructions"};
+const harness=${JSON.stringify(harness)};
+if(harness==="codex") fs.writeFileSync(args[args.indexOf("--output-last-message")+1],JSON.stringify(diagnosis));
+else if(harness==="claude") process.stdout.write(JSON.stringify({structured_output:diagnosis}));
+else if(harness==="gemini") process.stdout.write(JSON.stringify({response:JSON.stringify(diagnosis)}));
+else process.stdout.write(JSON.stringify({text:JSON.stringify(diagnosis),stopReason:"end_turn"}));
 `,
-    );
-    await chmod(fake, 0o755);
-    await configureCodex(fake);
-    const value = session({
-      repositoryPath: root,
-      worktreePath: root,
-      latestError: "signing timeout 123",
-    });
-    const incident = await recordIncident(value, value.latestError!);
-    expect(incident.id).toMatch(/^CH-\d{8}-[0-9A-F]{6}$/);
-    expect(value.latestIncidentId).toBe(incident.id);
-    const names = await readdir(join(root, "incidents"));
-    expect(names).toEqual([`${incident.id}.json`]);
-    const stored = JSON.parse(
-      await readFile(join(root, "incidents", names[0]!), "utf8"),
-    );
-    expect(stored.investigationSource).toBe("agent");
-    expect(stored.fixScope).toBe("instructions");
-    await expect(incidentCommand(incident.id)).resolves.toBeUndefined();
-  });
+      );
+      await chmod(fake, 0o755);
+      await configureCodex(fake, harness);
+      const value = session({
+        harness: harness as Session["harness"],
+        repositoryPath: root,
+        worktreePath: root,
+        latestError: "signing timeout 123",
+      });
+      const incident = await recordIncident(value, value.latestError!);
+      expect(incident.id).toMatch(/^CH-\d{8}-[0-9A-F]{6}$/);
+      expect(value.latestIncidentId).toBe(incident.id);
+      const names = await readdir(join(root, "incidents"));
+      expect(names).toEqual([`${incident.id}.json`]);
+      const stored = JSON.parse(
+        await readFile(join(root, "incidents", names[0]!), "utf8"),
+      );
+      expect(stored.investigationSource).toBe("agent");
+      expect(stored.fixScope).toBe("instructions");
+      await expect(incidentCommand(incident.id)).resolves.toBeUndefined();
+    },
+  );
 
   it("records a neutral fallback when investigation is unavailable", async () => {
     const root = await mkdtemp(join(tmpdir(), "handoff-incident-"));

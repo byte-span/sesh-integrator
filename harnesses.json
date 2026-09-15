@@ -1,0 +1,34 @@
+{
+  "codex": {
+    "name": "Codex CLI",
+    "directory": ".codex",
+    "instructions": "AGENTS.md",
+    "skillDirectory": ".agents",
+    "metadataFiles": ["agents/openai.yaml"],
+    "versionArgs": ["--version"]
+  },
+  "claude": {
+    "name": "Claude Code",
+    "directory": ".claude",
+    "instructions": "CLAUDE.md",
+    "skillDirectory": ".claude",
+    "metadataFiles": [],
+    "versionArgs": ["--version"]
+  },
+  "gemini": {
+    "name": "Gemini CLI",
+    "directory": ".gemini",
+    "instructions": "GEMINI.md",
+    "skillDirectory": ".gemini",
+    "metadataFiles": [],
+    "versionArgs": ["--version"]
+  },
+  "grok": {
+    "name": "Grok Build",
+    "directory": ".grok",
+    "instructions": "AGENTS.md",
+    "skillDirectory": ".grok",
+    "metadataFiles": [],
+    "versionArgs": ["version"]
+  }
+}

@@ -1,4 +1,10 @@
-import { harnessInfo, type Harness } from "./harness.js";
+import {
+  harnessInfo,
+  harnessCommand,
+  installedHarnesses,
+  validateHarnessConfig,
+  type Harness,
+} from "./harness.js";
 import { isRepositoryDisabled, repositoryCommonDir } from "./enablement.js";
 import { constants } from "node:fs";
 import { access, readFile, readdir, realpath } from "node:fs/promises";
@@ -48,7 +54,6 @@ export async function doctorCommand(
   const requiredPaths = [
     paths.config,
     paths.state,
-    paths.codexHome,
     paths.sessions,
     paths.locks,
     paths.logs,
@@ -80,34 +85,20 @@ export async function doctorCommand(
     checks.push(fail("Configuration", errorMessage(error)));
   }
 
-  if (
-    harness === "codex" &&
-    config?.conflictResolutionMode === "nested-codex"
-  ) {
-    try {
-      await access(paths.codexHome, constants.W_OK);
-      checks.push(pass("Resolver state", `${paths.codexHome} is writable`));
-    } catch {
-      checks.push(
-        fail("Resolver state", `${paths.codexHome} must be writable by Codex`),
-      );
-    }
+  if (config)
     checks.push(
-      await executableCheck("Codex CLI", config.codexCommand, ["--version"]),
-    );
-  }
-
-  if (harness !== "codex") {
-    checks.push(
-      await executableCheck(selectedHarness.name, harness, ["--version"]),
-    );
-    checks.push(
-      pass(
-        "Conflict resolution",
-        "current agent session; nested investigation is Codex-only",
+      await executableCheck(
+        selectedHarness.name,
+        harnessCommand(config, harness),
+        selectedHarness.versionArgs,
       ),
     );
-  }
+  checks.push(
+    pass(
+      "Agent features",
+      "current-session recovery, nested resolution, and automated diagnosis",
+    ),
+  );
 
   const home = process.env.PARALLEL_INTEGRATOR_DOCTOR_HOME ?? homedir();
   const skillRoot = join(
@@ -118,16 +109,16 @@ export async function doctorCommand(
   );
   const skillFiles = [
     join(skillRoot, "SKILL.md"),
-    ...(harness === "codex" ? [join(skillRoot, "agents", "openai.yaml")] : []),
+    ...selectedHarness.metadataFiles.map((file) => join(skillRoot, file)),
   ];
   const bundledSkillRoot = fileURLToPath(
     new URL("../skill/sesh-integrator-workflow", import.meta.url),
   );
   const bundledSkillFiles = [
     join(bundledSkillRoot, "SKILL.md"),
-    ...(harness === "codex"
-      ? [join(bundledSkillRoot, "agents", "openai.yaml")]
-      : []),
+    ...selectedHarness.metadataFiles.map((file) =>
+      join(bundledSkillRoot, file),
+    ),
   ];
   if (!(await allExist(skillFiles))) {
     checks.push(
@@ -513,8 +504,6 @@ function validateConfig(config: Config): void {
   if (
     !config ||
     typeof config.lockWaitSeconds !== "number" ||
-    typeof config.codexCommand !== "string" ||
-    config.codexCommand.length === 0 ||
     !Array.isArray(config.repositories)
   ) {
     throw new Error("invalid config.json structure");
@@ -529,13 +518,7 @@ function validateConfig(config: Config): void {
   if (!validDefaultPromotionConfig(config.defaultPromotion)) {
     throw new Error("invalid defaultPromotion");
   }
-  if (
-    config.conflictResolutionMode !== undefined &&
-    config.conflictResolutionMode !== "current-session" &&
-    config.conflictResolutionMode !== "nested-codex"
-  ) {
-    throw new Error("invalid conflictResolutionMode");
-  }
+  validateHarnessConfig(config);
   for (const repository of config.repositories) {
     if (
       typeof repository.path !== "string" ||
@@ -700,4 +683,19 @@ function managedSection(contents: string): string | undefined {
 
 function hasStaleConcurrencyRule(contents: string): boolean {
   return STALE_CONCURRENCY_RULES.some((pattern) => pattern.test(contents));
+}
+
+export async function doctorInstalledCommand(
+  cwd = process.cwd(),
+): Promise<void> {
+  const home = process.env.PARALLEL_INTEGRATOR_DOCTOR_HOME ?? homedir();
+  const installed = installedHarnesses(home);
+  if (!installed.length)
+    throw new Error(
+      "No harness workflow installed; run scripts/install-skill.sh --harness <name>",
+    );
+  for (const harness of installed) {
+    process.stdout.write(`\nHarness: ${harnessInfo[harness].name}\n`);
+    await doctorCommand(cwd, harness);
+  }
 }

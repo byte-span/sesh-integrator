@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { harnessInfo, selectHarnesses } from "./harness-metadata.mjs";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { homedir } from "node:os";
@@ -51,23 +52,16 @@ async function update(path, managed) {
 }
 
 const args = process.argv.slice(2);
-if (args.length && (args.length !== 2 || args[0] !== "--harness"))
-  throw new Error("Usage: sync-managed-guidance.mjs [--harness codex|claude|gemini|grok]");
-const harness = args[1] ?? "codex";
-const destinations = {
-  codex: [".codex", "AGENTS.md"],
-  claude: [".claude", "CLAUDE.md"],
-  gemini: [".gemini", "GEMINI.md"],
-  grok: [".grok", "AGENTS.md"],
-};
-if (!Object.hasOwn(destinations, harness)) throw new Error(`Unknown harness: ${harness}`);
+const selected = selectHarnesses(args, doctorHome);
 
 const globalManaged = block(
   await readFile(join(project, "GLOBAL_AGENTS_SNIPPET.md"), "utf8"),
 );
 const changed = [];
-if (await update(join(doctorHome, ...destinations[harness]), globalManaged))
-  changed.push("global guidance");
+for (const harness of selected) {
+  const info = harnessInfo[harness];
+  if (await update(join(doctorHome, info.directory, info.instructions), globalManaged)) changed.push("global guidance");
+}
 
 console.log(
   changed.length

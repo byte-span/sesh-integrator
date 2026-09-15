@@ -67,5 +67,5 @@ pnpm build
 pnpm typecheck
 ./scripts/install-cli.sh
 printf '%s\n' "Updated checkout: $new_repo" 'Installed seshx and compatibility commands. Runtime data and configured branches were preserved.'
-node dist/cli.js doctor
+node dist/cli.js doctor --installed
 exit 0

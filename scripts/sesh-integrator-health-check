@@ -8,7 +8,7 @@ node_binary=${PARALLEL_INTEGRATOR_NODE:-node}
 set +e
 "$script_dir/self-hosting-sync-dev"
 sync_status=$?
-timeout "$timeout_seconds" "$node_binary" "$project_dir/dist/cli.js" doctor
+timeout "$timeout_seconds" "$node_binary" "$project_dir/dist/cli.js" doctor --installed
 status=$?
 set -e
 if [ "$sync_status" -ne 0 ]; then

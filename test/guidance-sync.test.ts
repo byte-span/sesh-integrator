@@ -123,3 +123,54 @@ it.each([
     }
   },
 );
+
+it("refreshes every installed harness without creating unused installations", async () => {
+  const home = await mkdtemp(join(tmpdir(), "sesh-refresh-"));
+  try {
+    const manifest = JSON.parse(await readFile("harnesses.json", "utf8"));
+    const install = (...args: string[]) =>
+      execFileSync(
+        "sh",
+        [join(process.cwd(), "scripts/install-skill.sh"), ...args],
+        { env: { ...process.env, HOME: home }, encoding: "utf8" },
+      );
+    expect(install("--installed")).toContain("No installed harness");
+    expect(await readdir(home)).toEqual([]);
+    for (const harness of Object.keys(manifest)) install("--harness", harness);
+    for (const info of Object.values(manifest) as any[]) {
+      await writeFile(
+        join(
+          home,
+          info.skillDirectory,
+          "skills/sesh-integrator-workflow/SKILL.md",
+        ),
+        "stale",
+      );
+      await writeFile(
+        join(home, info.directory, info.instructions),
+        "Personal text\n<!-- codex-handoff:managed:start -->\nStale\n<!-- codex-handoff:managed:end -->\n",
+      );
+    }
+    install("--installed");
+    for (const info of Object.values(manifest) as any[]) {
+      expect(
+        await readFile(
+          join(
+            home,
+            info.skillDirectory,
+            "skills/sesh-integrator-workflow/SKILL.md",
+          ),
+          "utf8",
+        ),
+      ).toBe(await readFile("skill/sesh-integrator-workflow/SKILL.md", "utf8"));
+      const guidance = await readFile(
+        join(home, info.directory, info.instructions),
+        "utf8",
+      );
+      expect(guidance).toContain("Personal text");
+      expect(guidance).not.toContain("Stale");
+    }
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});

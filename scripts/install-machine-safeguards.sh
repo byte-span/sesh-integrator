@@ -6,8 +6,10 @@ quiet=false
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 project_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
 
-"$script_dir/install-skill.sh" ${PARALLEL_INTEGRATOR_SKILL_DIR:+"$PARALLEL_INTEGRATOR_SKILL_DIR"}
-node "$script_dir/sync-managed-guidance.mjs"
+if [ -n "${PARALLEL_INTEGRATOR_SKILL_DIR:-}" ]; then
+  "$script_dir/install-skill.sh" "$PARALLEL_INTEGRATOR_SKILL_DIR"
+fi
+"$script_dir/install-skill.sh" --installed
 
 hooks_dir=$(git -C "$project_dir" rev-parse --path-format=absolute --git-path hooks)
 mkdir -p "$hooks_dir"

@@ -1,3 +1,4 @@
+import { runAgent } from "./agent.js";
 import { parseHarness, type Harness } from "./harness.js";
 import {
   assertRepositoryEnabled,
@@ -40,7 +41,6 @@ import {
   findLatestSessionForWorktree,
   finishNoChangesSession,
   makeSessionId,
-  prepareCodexResolverHome,
   readConfig,
   readRepositorySessionIndex,
   readSession,
@@ -1305,11 +1305,15 @@ async function mergeAndValidate(
         ).trim()}`,
       );
     }
+    const nested =
+      config.conflictResolutionMode === "nested-agent" ||
+      config.conflictResolutionMode === "nested-codex";
     const prompt = await buildConflictPrompt(
       repository,
       session,
       integrationHead,
       conflicted,
+      nested,
     );
     const promptPath = await writeLog(
       `${session.id}-conflict-prompt.txt`,
@@ -1320,25 +1324,38 @@ async function mergeAndValidate(
     session.awaitingConflictResolution = true;
     await snapshotRecoveryState(repository, session, worktree);
     await writeSession(session);
-    if (
-      config.conflictResolutionMode === "nested-codex" &&
-      (session.harness ?? "codex") === "codex"
-    ) {
-      const codexHome = await prepareCodexResolverHome();
-      const resolution = await run(
-        config.codexCommand,
-        ["exec", "--sandbox", "workspace-write", "-"],
+    if (nested) {
+      await runAgent({
+        config,
+        harness: session.harness ?? "codex",
+        purpose: "resolve",
+        cwd: worktree,
+        prompt,
+      });
+      if ((await git(["rev-parse", "HEAD"], worktree)) !== integrationHead)
+        throw new Error(
+          "Nested resolver changed integration HEAD; preserved for review",
+        );
+      const check = await run(
+        "git",
+        ["diff", "--check", "HEAD", "--", ...conflicted],
         {
           cwd: worktree,
-          input: prompt,
-          echo: true,
-          env: { ...process.env, CODEX_HOME: codexHome },
+          env: { ...process.env, LC_ALL: "C" },
         },
       );
-      if (resolution.code !== 0)
+      if (
+        check.stdout.includes("leftover conflict marker") ||
+        check.stderr.includes("leftover conflict marker")
+      )
         throw new Error(
-          `Codex conflict resolver exited with code ${resolution.code}`,
+          "Nested resolver left conflict markers; preserved for review",
         );
+      if (check.code !== 0 && !check.stdout.trim())
+        throw new Error(
+          "Could not inspect nested resolution; preserved for review",
+        );
+      await git(["add", "--", ...conflicted], worktree);
     } else {
       throw new Error(
         `Merge conflict requires resolution by the current agent session. ` +
@@ -2169,6 +2186,7 @@ async function buildConflictPrompt(
   session: Session,
   integrationHead: string,
   conflictedFiles: string[],
+  nested = false,
 ): Promise<string> {
   const laterIntegrations = (
     await readRepositorySessionIndex(session.repositoryId)
@@ -2229,8 +2247,10 @@ async function buildConflictPrompt(
     `- Preserve compatible intent from both sides.\n` +
     `- Prefer the validated current architecture.\n` +
     `- Do not remove behavior merely to make conflicts disappear.\n` +
-    `- Leave no unresolved conflict markers or unmerged paths.\n` +
-    `- Stage resolved files, but do not commit.\n`
+    `- Leave no unresolved conflict markers.\n` +
+    (nested
+      ? `- Edit the conflicted files only. Do not stage, commit, or run Git commands; seshx will stage the resolution.\n`
+      : `- Stage resolved files, but do not commit.\n`)
   );
 }
 

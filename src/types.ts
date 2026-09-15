@@ -72,8 +72,10 @@ export interface Config {
   /** Canonical Git common directories, independent of registration. */
   disabledRepositories?: string[];
   lockWaitSeconds: number;
-  codexCommand: string;
-  conflictResolutionMode?: "current-session" | "nested-codex";
+  /** Legacy alias for harnessCommands.codex. */
+  codexCommand?: string;
+  harnessCommands?: Partial<Record<import("./harness.js").Harness, string>>;
+  conflictResolutionMode?: "current-session" | "nested-agent" | "nested-codex";
   defaultTargetBranch?: string;
   defaultPromotion?: DefaultPromotionConfig;
   repositories: RepositoryConfig[];

@@ -4,7 +4,7 @@ import { enablementCommand } from "./enablement.js";
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { auditLegacyCommand } from "./audit.js";
-import { doctorCommand } from "./doctor.js";
+import { doctorCommand, doctorInstalledCommand } from "./doctor.js";
 import {
   beginCommand,
   commitCommand,
@@ -154,9 +154,13 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
         await cleanupGuidanceCommand(args[0] === "--apply");
         break;
       case "doctor":
+        if (args.length === 1 && args[0] === "--installed") {
+          await doctorInstalledCommand();
+          break;
+        }
         if (args.length && (args.length !== 2 || args[0] !== "--harness"))
           throw new Error(
-            "Usage: seshx doctor [--harness codex|claude|gemini|grok]",
+            "Usage: seshx doctor [--installed | --harness codex|claude|gemini|grok]",
           );
         await doctorCommand(process.cwd(), parseHarness(args[1] ?? "codex"));
         break;
@@ -411,7 +415,7 @@ Usage:
   seshx reconcile [repo-path] [--apply]
   seshx audit-legacy
   seshx cleanup-guidance [--apply]
-  seshx doctor [--harness codex|claude|gemini|grok]
+  seshx doctor [--installed | --harness codex|claude|gemini|grok]
   seshx benchmark [--runs <n>] [--json] [--check]
 `;
 

@@ -1,3 +1,4 @@
+import { harnesses } from "../src/harness.js";
 import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
@@ -83,7 +84,97 @@ describe.sequential("sesh-integrator repository workflow", () => {
       expect(result.stdout).toContain("PASS  Workflow skill");
       expect(result.stdout).toContain("PASS  Global guidance");
       expect(result.stdout).not.toContain("FAIL");
+      const installed = await runCli(
+        fixture,
+        fixture.repo,
+        ["doctor", "--installed"],
+        { PATH: `${bin}:${process.env.PATH}` },
+      );
+      expect(installed.code, installed.stdout + installed.stderr).toBe(0);
+      expect(installed.stdout).toContain("Harness:");
       expect(await exists(join(home, ".codex"))).toBe(false);
+    },
+  );
+
+  it.each(
+    harnesses.flatMap((harness) =>
+      [false, true].map((leaveMarkers) => [harness, leaveMarkers] as const),
+    ),
+  )(
+    "uses %s for nested conflict resolution (unresolved: %s)",
+    async (harness, leaveMarkers) => {
+      const fixture = await createFixture();
+      const first = await addWorktree(fixture, "nested-first");
+      const second = await addWorktree(fixture, "nested-second");
+      const fake = join(fixture.root, "fake-resolver");
+      await writeFile(
+        fake,
+        `#!/usr/bin/env node
+const fs=require("fs");const cp=require("child_process");const args=process.argv.slice(2);
+const prompt=args.includes("--prompt-file")?fs.readFileSync(args[args.indexOf("--prompt-file")+1],"utf8"):fs.readFileSync(0,"utf8");
+if(!prompt.includes("Do not commit")) process.exit(7);
+if (!${leaveMarkers}) fs.writeFileSync("shared.txt","first\\nsecond\\n");
+process.stdout.write(JSON.stringify({response:"resolved",text:"resolved",result:"resolved"}));
+`,
+        { mode: 0o755 },
+      );
+      await updateConfig(fixture, (config) => {
+        config.conflictResolutionMode = "nested-agent";
+        config.harnessCommands = { [harness]: fake };
+        config.codexCommand = join(fixture.root, "wrong-agent");
+      });
+      await runCliOk(fixture, first, [
+        "begin",
+        "--harness",
+        harness,
+        "--summary",
+        "first",
+      ]);
+      await runCliOk(fixture, second, [
+        "begin",
+        "--harness",
+        harness,
+        "--summary",
+        "second",
+      ]);
+      commitFile(first, "shared.txt", "first\n", "first");
+      commitFile(second, "shared.txt", "second\n", "second");
+      await runCliOk(fixture, first, ["integrate", "--summary", "first"]);
+      const result = await runCli(fixture, second, [
+        "integrate",
+        "--summary",
+        "second",
+      ]);
+      if (leaveMarkers) {
+        expect(result.code).toBe(1);
+        expect(result.stderr).toContain("left conflict markers");
+        expect(await readFile(join(fixture.repo, "shared.txt"), "utf8")).toBe(
+          "first\n",
+        );
+        const pending = (await sessions(fixture)).find(
+          (session) => session.worktreePath === second,
+        )!;
+        expect(pending.status).toBe("needs_review");
+        expect(
+          git(
+            pending.integrationWorktreePath,
+            "diff",
+            "--name-only",
+            "--diff-filter=U",
+          ),
+        ).toBe("shared.txt");
+        return;
+      }
+      expect(result.code, result.stderr).toBe(0);
+      expect(await readFile(join(fixture.repo, "shared.txt"), "utf8")).toBe(
+        "first\nsecond\n",
+      );
+      expect(
+        (await sessions(fixture)).every(
+          (session) => session.status === "succeeded",
+        ),
+      ).toBe(true);
+      expect(git(second, "status", "--porcelain")).toBe("");
     },
   );
 
@@ -3035,14 +3126,17 @@ describe.sequential("sesh-integrator repository workflow", () => {
     );
   });
 
-  it.each(["codex", "claude", "gemini", "grok"])(
+  it.each(harnesses)(
     "lets %s resolve a preserved conflict and resume",
     async (harness) => {
       const fixture = await createFixture("base\n");
       if (harness !== "codex") {
         await updateConfig(fixture, (config) => {
-          config.conflictResolutionMode = "nested-codex";
+          config.conflictResolutionMode = "current-session";
           config.codexCommand = join(fixture.root, "must-not-launch-codex");
+          config.harnessCommands = {
+            [harness]: join(fixture.root, "missing-agent"),
+          };
         });
       }
       const instructionFile =
@@ -3108,7 +3202,7 @@ describe.sequential("sesh-integrator repository workflow", () => {
             "utf8",
           ),
         );
-        expect(incident.investigationError).toContain("current agent session");
+        expect(incident.investigationError).toContain("missing-agent");
         expect(
           await exists(join(fixture.runtime, "codex-home", "auth.json")),
         ).toBe(false);

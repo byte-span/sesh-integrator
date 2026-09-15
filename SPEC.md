@@ -670,7 +670,7 @@ then invokes `seshx resume` from the source worktree. `resume` reacquires
 the lock and verifies the source snapshot, integration branch and HEAD,
 `MERGE_HEAD`, and absence of unmerged paths before continuing.
 
-Optional `nested-codex` mode invokes a non-interactive Codex command in the
+Optional `nested-agent` mode invokes the session's non-interactive harness in the
 integration worktree instead.
 
 After resolution:
@@ -695,7 +695,7 @@ If unresolved or validation fails:
 Incident proposals may improve the workflow skill or global instructions, but
 a failed session never edits its own policy. `seshx incident <ticket>`
 is read-only and exposes the stored diagnosis for a later session. Release the
-repository lock before invoking an ephemeral, read-only Codex investigation.
+repository lock before invoking a read-only investigation with the session's harness.
 Validate its response against a narrow schema; deterministic code captures
 evidence, fingerprints recurrence, and enforces safety, but does not maintain a
 failure-classification rule tree. An unavailable or invalid investigation
@@ -916,7 +916,11 @@ session-state event.
 `begin --harness codex|claude|gemini|grok` records the originating harness. Omitted
 flags and legacy session records mean Codex. Installation and `doctor --harness`
 select the native user skill and global instruction paths documented in README.
-All harnesses use the same current-session Git lifecycle. Nested Codex resolution
-and incident investigation apply only to Codex sessions; other sessions preserve
-failure evidence for the current agent. No provider credentials are required by
-seshx for current-session support.
+All harnesses share the Git lifecycle, nested resolution, and automated diagnosis.
+`nested-agent` selects the session's harness; `nested-codex` is a compatibility
+alias. Optional `harnessCommands` overrides executable paths. Shared response
+validation and failure preservation apply to every adapter. Installation metadata
+lives in `harnesses.json`; bulk refresh and `doctor --installed` cover every
+installed workflow. Harness-specific differences must reflect documented CLI
+behavior, not exclusive features. Current-session support requires no provider
+credentials in seshx.

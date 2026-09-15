@@ -1,14 +1,13 @@
+import { runAgent } from "./agent.js";
 import { createHash, randomBytes } from "node:crypto";
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { readFile, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   ensureRuntime,
-  prepareCodexResolverHome,
   readConfig,
   runtimePaths,
   writeSession,
 } from "./runtime.js";
-import { run } from "./process.js";
 import type { Incident, Session } from "./types.js";
 
 type Diagnosis = Pick<
@@ -82,23 +81,12 @@ async function investigateFailure(
     fixScope: "project",
     investigationSource: "fallback",
   };
-  if ((session.harness ?? "codex") !== "codex")
-    return {
-      ...fallback,
-      investigationError:
-        "Inspect preserved evidence in the current agent session; nested investigation is Codex-only.",
-    };
   if (process.env.PARALLEL_INTEGRATOR_TEST_INCIDENT_FALLBACK === "1")
     return {
       ...fallback,
       investigationError: "Agent investigation disabled by test harness",
     };
-  const paths = await ensureRuntime();
-  const temporary = await mkdtemp(join(paths.root, "incident-analysis-"));
   try {
-    const schemaPath = join(temporary, "schema.json");
-    const outputPath = join(temporary, "result.json");
-    await writeFile(schemaPath, `${JSON.stringify(investigationSchema)}\n`);
     const priorCount = (await readPriorIncidents(fingerprint)).length;
     const prompt = buildInvestigationPrompt(
       session,
@@ -107,30 +95,14 @@ async function investigateFailure(
       priorCount,
     );
     const config = await readConfig();
-    const codexHome = await prepareCodexResolverHome();
-    const result = await run(
-      config.codexCommand,
-      [
-        "exec",
-        "--ephemeral",
-        "--sandbox",
-        "read-only",
-        "--output-schema",
-        schemaPath,
-        "--output-last-message",
-        outputPath,
-        "-",
-      ],
-      {
-        cwd: session.repositoryPath,
-        input: prompt,
-        env: { ...process.env, CODEX_HOME: codexHome },
-        timeoutMs: 120_000,
-      },
-    );
-    if (result.code !== 0)
-      return { ...fallback, investigationError: `Codex exited ${result.code}` };
-    const parsed = JSON.parse(await readFile(outputPath, "utf8")) as unknown;
+    const parsed = await runAgent({
+      config,
+      harness: session.harness ?? "codex",
+      purpose: "diagnose",
+      cwd: session.repositoryPath,
+      prompt,
+      schema: investigationSchema,
+    });
     const diagnosis = validateDiagnosis(parsed);
     return { ...diagnosis, investigationSource: "agent" };
   } catch (errorValue) {
@@ -139,8 +111,6 @@ async function investigateFailure(
       investigationError:
         errorValue instanceof Error ? errorValue.message : String(errorValue),
     };
-  } finally {
-    await rm(temporary, { recursive: true, force: true });
   }
 }
 
