@@ -105,6 +105,8 @@ export interface SessionTask {
 }
 
 export interface Session {
+  /** Missing in legacy sessions means Codex. */
+  harness?: import("./harness.js").Harness;
   id: string;
   closedAt?: string;
   satisfiedBySessionId?: string;

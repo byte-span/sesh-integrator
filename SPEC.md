@@ -910,3 +910,13 @@ No Git or source-file changes occur. Dependencies continue to require a
 successfully integrated session. Guidance requires explicit no-change completion
 before the agent's final response; finishing a terminal conversation is not a
 session-state event.
+
+## Coding harness support
+
+`begin --harness codex|claude|gemini|grok` records the originating harness. Omitted
+flags and legacy session records mean Codex. Installation and `doctor --harness`
+select the native user skill and global instruction paths documented in README.
+All harnesses use the same current-session Git lifecycle. Nested Codex resolution
+and incident investigation apply only to Codex sessions; other sessions preserve
+failure evidence for the current agent. No provider credentials are required by
+seshx for current-session support.

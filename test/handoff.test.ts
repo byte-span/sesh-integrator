@@ -46,6 +46,64 @@ afterEach(async () => {
 });
 
 describe.sequential("sesh-integrator repository workflow", () => {
+  it.each(["claude", "gemini", "grok"])(
+    "installs and checks %s without Codex",
+    async (harness) => {
+      const fixture = await createFixture();
+      const home = fixture.auditHome;
+      execFileSync(
+        "sh",
+        [join(process.cwd(), "scripts/install-skill.sh"), "--harness", harness],
+        { env: { ...process.env, HOME: home } },
+      );
+      const bin = join(fixture.root, "bin");
+      await mkdir(bin);
+      await writeFile(
+        join(bin, harness),
+        "#!/bin/sh\nprintf 'test harness 1.0\n'\n",
+        { mode: 0o755 },
+      );
+      await updateConfig(fixture, (config) => {
+        config.codexCommand = join(fixture.root, "no-codex");
+        config.conflictResolutionMode = "nested-codex";
+        config.repositories[0].sourceValidationCommands = [
+          [process.execPath, "--version"],
+        ];
+        config.repositories[0].integrationValidationCommands = [
+          [process.execPath, "--version"],
+        ];
+      });
+      const result = await runCli(
+        fixture,
+        fixture.repo,
+        ["doctor", "--harness", harness],
+        { PATH: `${bin}:${process.env.PATH}` },
+      );
+      expect(result.code, result.stdout + result.stderr).toBe(0);
+      expect(result.stdout).toContain("PASS  Workflow skill");
+      expect(result.stdout).toContain("PASS  Global guidance");
+      expect(result.stdout).not.toContain("FAIL");
+      expect(await exists(join(home, ".codex"))).toBe(false);
+    },
+  );
+
+  it("rejects an unknown harness before creating a source worktree", async () => {
+    const fixture = await createFixture();
+    const before = git(fixture.repo, "worktree", "list", "--porcelain");
+    const result = await runCli(fixture, fixture.repo, [
+      "begin",
+      "--create-worktree",
+      "--summary",
+      "bad harness",
+      "--harness",
+      "unknown",
+    ]);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("--harness must be");
+    expect(await sessions(fixture)).toEqual([]);
+    expect(git(fixture.repo, "worktree", "list", "--porcelain")).toBe(before);
+  });
+
   it("requires and reports a technology-neutral external rollout classification", async () => {
     const fixture = await createFixture();
     await runCliOk(fixture, fixture.repo, [
@@ -2977,66 +3035,123 @@ describe.sequential("sesh-integrator repository workflow", () => {
     );
   });
 
-  it("lets the current session resolve a preserved conflict and resume", async () => {
-    const fixture = await createFixture("base\n");
-    const first = await addWorktree(fixture, "conflict-first");
-    const second = await addWorktree(fixture, "conflict-unresolved");
-    await runCliOk(fixture, first, ["begin", "--summary", "first"]);
-    await runCliOk(fixture, second, ["begin", "--summary", "second"]);
-    commitFile(first, "shared.txt", "first\n", "first");
-    commitFile(second, "shared.txt", "second\n", "second");
-    await runCliOk(fixture, first, ["integrate", "--summary", "first done"]);
-    const result = await runCli(fixture, second, [
-      "integrate",
-      "--summary",
-      "second unresolved",
-    ]);
-    expect(result.code).toBe(1);
-    expect(result.stderr).toContain(
-      "Merge conflict requires resolution by the current Codex session",
-    );
-    expect(result.stderr).toContain("seshx resume");
-    const failed = (await sessions(fixture)).find(
-      (session) => session.worktreePath === second,
-    )!;
-    expect(failed.status).toBe("needs_review");
-    expect(failed.awaitingConflictResolution).toBe(true);
-    expect(failed.conflictPromptPath).toBeTruthy();
-    const integrationPath = join(
-      fixture.runtime,
-      "worktrees",
-      failed.repositoryId,
-    );
-    expect(git(integrationPath, "diff", "--name-only", "--diff-filter=U")).toBe(
-      "shared.txt",
-    );
-    expect(git(second, "status", "--porcelain=v1")).toBe("");
+  it.each(["codex", "claude", "gemini", "grok"])(
+    "lets %s resolve a preserved conflict and resume",
+    async (harness) => {
+      const fixture = await createFixture("base\n");
+      if (harness !== "codex") {
+        await updateConfig(fixture, (config) => {
+          config.conflictResolutionMode = "nested-codex";
+          config.codexCommand = join(fixture.root, "must-not-launch-codex");
+        });
+      }
+      const instructionFile =
+        harness === "claude"
+          ? "CLAUDE.md"
+          : harness === "gemini"
+            ? "GEMINI.md"
+            : "AGENTS.md";
+      commitFile(
+        fixture.repo,
+        instructionFile,
+        "Keep compatible behavior.\n",
+        "project instructions",
+      );
+      const first = await addWorktree(fixture, "conflict-first");
+      const second = await addWorktree(fixture, "conflict-unresolved");
+      await runCliOk(fixture, first, [
+        "begin",
+        "--harness",
+        harness,
+        "--summary",
+        "first",
+      ]);
+      await runCliOk(fixture, second, [
+        "begin",
+        "--harness",
+        harness,
+        "--summary",
+        "second",
+      ]);
+      commitFile(first, "shared.txt", "first\n", "first");
+      commitFile(second, "shared.txt", "second\n", "second");
+      await runCliOk(fixture, first, ["integrate", "--summary", "first done"]);
+      const result = await runCli(
+        fixture,
+        second,
+        ["integrate", "--summary", "second unresolved"],
+        {
+          PARALLEL_INTEGRATOR_TEST_INCIDENT_FALLBACK:
+            harness === "codex" ? "1" : "0",
+        },
+      );
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain(
+        "Merge conflict requires resolution by the current agent session",
+      );
+      expect(result.stderr).toContain("seshx resume");
+      const failed = (await sessions(fixture)).find(
+        (session) => session.worktreePath === second,
+      )!;
+      expect(failed.harness).toBe(harness);
+      expect(await readFile(failed.conflictPromptPath, "utf8")).toContain(
+        "Keep compatible behavior.",
+      );
+      if (harness !== "codex") {
+        const incident = JSON.parse(
+          await readFile(
+            join(
+              fixture.runtime,
+              "incidents",
+              `${failed.latestIncidentId}.json`,
+            ),
+            "utf8",
+          ),
+        );
+        expect(incident.investigationError).toContain("current agent session");
+        expect(
+          await exists(join(fixture.runtime, "codex-home", "auth.json")),
+        ).toBe(false);
+      }
+      expect(failed.status).toBe("needs_review");
+      expect(failed.awaitingConflictResolution).toBe(true);
+      expect(failed.conflictPromptPath).toBeTruthy();
+      const integrationPath = join(
+        fixture.runtime,
+        "worktrees",
+        failed.repositoryId,
+      );
+      expect(
+        git(integrationPath, "diff", "--name-only", "--diff-filter=U"),
+      ).toBe("shared.txt");
+      expect(git(second, "status", "--porcelain=v1")).toBe("");
 
-    const prematureResume = await runCli(fixture, second, ["resume"]);
-    expect(prematureResume.code).toBe(1);
-    expect(prematureResume.stderr).toContain(
-      "Resolve and stage all conflicts before resume",
-    );
+      const prematureResume = await runCli(fixture, second, ["resume"]);
+      expect(prematureResume.code).toBe(1);
+      expect(prematureResume.stderr).toContain(
+        "Resolve and stage all conflicts before resume",
+      );
 
-    const reconstructedPath = (await sessions(fixture)).find(
-      (session) => session.worktreePath === second,
-    )!.integrationWorktreePath;
-    await writeFile(join(reconstructedPath, "shared.txt"), "first\nsecond\n");
-    git(reconstructedPath, "add", "shared.txt");
-    const resumed = await runCli(fixture, second, ["resume"]);
-    expect(resumed.code, resumed.stderr).toBe(0);
-    const completed = (await sessions(fixture)).find(
-      (session) => session.worktreePath === second,
-    )!;
-    expect(completed.status).toBe("succeeded");
-    expect(completed.awaitingConflictResolution).toBe(false);
-    expect(
-      await readFile(
-        join(completed.integrationWorktreePath, "shared.txt"),
-        "utf8",
-      ),
-    ).toBe("first\nsecond\n");
-  });
+      const reconstructedPath = (await sessions(fixture)).find(
+        (session) => session.worktreePath === second,
+      )!.integrationWorktreePath;
+      await writeFile(join(reconstructedPath, "shared.txt"), "first\nsecond\n");
+      git(reconstructedPath, "add", "shared.txt");
+      const resumed = await runCli(fixture, second, ["resume"]);
+      expect(resumed.code, resumed.stderr).toBe(0);
+      const completed = (await sessions(fixture)).find(
+        (session) => session.worktreePath === second,
+      )!;
+      expect(completed.status).toBe("succeeded");
+      expect(completed.awaitingConflictResolution).toBe(false);
+      expect(
+        await readFile(
+          join(completed.integrationWorktreePath, "shared.txt"),
+          "utf8",
+        ),
+      ).toBe("first\nsecond\n");
+    },
+  );
 
   it("lets a later session integrate while another session preserves conflicts", async () => {
     const fixture = await createFixture("base\n");

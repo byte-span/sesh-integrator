@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { parseHarness, type Harness } from "./harness.js";
 import { enablementCommand } from "./enablement.js";
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -101,6 +102,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
           options.dependsOn,
           options.autoBranch,
           options.createWorktree,
+          options.harness,
         );
         break;
       }
@@ -152,8 +154,11 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
         await cleanupGuidanceCommand(args[0] === "--apply");
         break;
       case "doctor":
-        rejectArguments(args);
-        await doctorCommand();
+        if (args.length && (args.length !== 2 || args[0] !== "--harness"))
+          throw new Error(
+            "Usage: seshx doctor [--harness codex|claude|gemini|grok]",
+          );
+        await doctorCommand(process.cwd(), parseHarness(args[1] ?? "codex"));
         break;
       case "benchmark":
         await benchmarkCommand(parseBenchmarkOptions(args));
@@ -210,6 +215,7 @@ function parseOptions(
   dependsOn: string[];
   autoBranch: boolean;
   createWorktree: boolean;
+  harness?: Harness;
   sessionId?: string;
   rolloutDisposition?: RolloutDisposition;
   rolloutFollowUps: string[];
@@ -218,6 +224,7 @@ function parseOptions(
   const dependsOn: string[] = [];
   let autoBranch = true;
   let createWorktree = false;
+  let harness: Harness | undefined;
   let sessionId: string | undefined;
   let rolloutDisposition: RolloutDisposition | undefined;
   const rolloutFollowUps: string[] = [];
@@ -233,6 +240,10 @@ function parseOptions(
       value !== undefined
     ) {
       dependsOn.push(value);
+      index += 1;
+    } else if (allowDependencies && argument === "--harness" && value) {
+      if (harness) throw new Error("--harness may be specified only once");
+      harness = parseHarness(value);
       index += 1;
     } else if (allowDependencies && argument === "--auto-branch") {
       autoBranch = true;
@@ -266,6 +277,7 @@ function parseOptions(
     dependsOn,
     autoBranch,
     createWorktree,
+    ...(harness ? { harness } : {}),
     rolloutFollowUps,
     ...(rolloutDisposition ? { rolloutDisposition } : {}),
     ...(sessionId ? { sessionId } : {}),
@@ -383,7 +395,7 @@ Usage:
   seshx disable [repo-path]
   seshx enable [repo-path]
   seshx register [repo-path] [--auto-config] [--setup-command '<json-array>']...
-  seshx begin --summary "..." [--create-worktree] [--no-auto-branch] [--depends-on <session-id>]...
+  seshx begin --summary "..." [--harness codex|claude|gemini|grok] [--create-worktree] [--no-auto-branch] [--depends-on <session-id>]...
   seshx commit --message "..." [--session <session-id>]
   seshx validate [--session <session-id>]
   seshx integrate --summary "..." --rollout <none|applied|automated|manual> [--follow-up "<action, destination, exact configuration names; no secret values>"]... [--session <session-id>]
@@ -399,7 +411,7 @@ Usage:
   seshx reconcile [repo-path] [--apply]
   seshx audit-legacy
   seshx cleanup-guidance [--apply]
-  seshx doctor
+  seshx doctor [--harness codex|claude|gemini|grok]
   seshx benchmark [--runs <n>] [--json] [--check]
 `;
 

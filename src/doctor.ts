@@ -1,3 +1,4 @@
+import { harnessInfo, type Harness } from "./harness.js";
 import { isRepositoryDisabled, repositoryCommonDir } from "./enablement.js";
 import { constants } from "node:fs";
 import { access, readFile, readdir, realpath } from "node:fs/promises";
@@ -29,7 +30,11 @@ const STALE_CONCURRENCY_RULES = [
   /(?:cannot|must not|do not) (?:start|begin|create)[^.\n]{0,180}(?:while|when)[^.\n]{0,120}(?:active|existing) session/i,
 ];
 
-export async function doctorCommand(cwd = process.cwd()): Promise<void> {
+export async function doctorCommand(
+  cwd = process.cwd(),
+  harness: Harness = "codex",
+): Promise<void> {
+  const selectedHarness = harnessInfo[harness];
   const checks: Check[] = [];
   const major = Number(process.versions.node.split(".")[0]);
   checks.push(
@@ -75,7 +80,10 @@ export async function doctorCommand(cwd = process.cwd()): Promise<void> {
     checks.push(fail("Configuration", errorMessage(error)));
   }
 
-  if (config?.conflictResolutionMode === "nested-codex") {
+  if (
+    harness === "codex" &&
+    config?.conflictResolutionMode === "nested-codex"
+  ) {
     try {
       await access(paths.codexHome, constants.W_OK);
       checks.push(pass("Resolver state", `${paths.codexHome} is writable`));
@@ -89,24 +97,43 @@ export async function doctorCommand(cwd = process.cwd()): Promise<void> {
     );
   }
 
+  if (harness !== "codex") {
+    checks.push(
+      await executableCheck(selectedHarness.name, harness, ["--version"]),
+    );
+    checks.push(
+      pass(
+        "Conflict resolution",
+        "current agent session; nested investigation is Codex-only",
+      ),
+    );
+  }
+
   const home = process.env.PARALLEL_INTEGRATOR_DOCTOR_HOME ?? homedir();
-  const skillRoot = join(home, ".agents", "skills", "sesh-integrator-workflow");
+  const skillRoot = join(
+    home,
+    selectedHarness.skillDirectory,
+    "skills",
+    "sesh-integrator-workflow",
+  );
   const skillFiles = [
     join(skillRoot, "SKILL.md"),
-    join(skillRoot, "agents", "openai.yaml"),
+    ...(harness === "codex" ? [join(skillRoot, "agents", "openai.yaml")] : []),
   ];
   const bundledSkillRoot = fileURLToPath(
     new URL("../skill/sesh-integrator-workflow", import.meta.url),
   );
   const bundledSkillFiles = [
     join(bundledSkillRoot, "SKILL.md"),
-    join(bundledSkillRoot, "agents", "openai.yaml"),
+    ...(harness === "codex"
+      ? [join(bundledSkillRoot, "agents", "openai.yaml")]
+      : []),
   ];
   if (!(await allExist(skillFiles))) {
     checks.push(
       fail(
         "Workflow skill",
-        `missing installation at ${skillRoot}; run scripts/install-skill.sh`,
+        `missing installation at ${skillRoot}; run scripts/install-skill.sh --harness ${harness}`,
       ),
     );
   } else if (
@@ -116,14 +143,18 @@ export async function doctorCommand(cwd = process.cwd()): Promise<void> {
     checks.push(
       fail(
         "Workflow skill",
-        `installed files differ from this CLI; run scripts/install-skill.sh`,
+        `installed files differ from this CLI; run scripts/install-skill.sh --harness ${harness}`,
       ),
     );
   } else {
     checks.push(pass("Workflow skill", skillRoot));
   }
 
-  const agentsPath = join(home, ".codex", "AGENTS.md");
+  const agentsPath = join(
+    home,
+    selectedHarness.directory,
+    selectedHarness.instructions,
+  );
   const bundledGuidancePath = fileURLToPath(
     new URL("../GLOBAL_AGENTS_SNIPPET.md", import.meta.url),
   );
@@ -468,7 +499,7 @@ async function executableCheck(
   args: string[],
 ): Promise<Check> {
   try {
-    const result = await run(command, args);
+    const result = await run(command, args, { timeoutMs: 10_000 });
     const detail = (result.stdout || result.stderr).trim().split("\n")[0];
     return result.code === 0
       ? pass(label, detail || command)

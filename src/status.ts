@@ -56,6 +56,7 @@ export async function statusCommand(sessionId?: string): Promise<void> {
       ? `${session.status} (waiting for lock)`
       : session.status;
     process.stdout.write(`\n${session.id}  ${state}\n`);
+    process.stdout.write(`  harness: ${session.harness ?? "codex"}\n`);
     process.stdout.write(`  repo: ${session.repositoryPath}\n`);
     process.stdout.write(`  worktree: ${session.worktreePath}\n`);
     if (session.launchWorktreePath) {

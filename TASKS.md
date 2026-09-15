@@ -126,6 +126,8 @@ Complete personal MVP implementation checklist.
 
 ## Skill and global guidance
 
+- [x] Support Claude Code, Gemini CLI, and Grok Build installation, harness metadata, readiness checks, and current-session recovery
+
 - [x] Provide explicit, previewable bulk cleanup of old repository blocks with backups
 
 - [x] Synchronize global guidance only; leave repository instructions optional and untouched

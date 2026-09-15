@@ -1,6 +1,6 @@
 # sesh-integrator (`seshx`)
 
-`sesh-integrator` is a personal, one-shot Git integration CLI for Codex sessions working in parallel worktrees. It has no integration daemon, polling service, LaunchAgent, or background queue.
+`sesh-integrator` is a personal, one-shot Git integration CLI for Codex CLI, Claude Code, Gemini CLI, and Grok Build sessions working in parallel worktrees. It has no integration daemon, polling service, LaunchAgent, or background queue.
 
 ```text
 seshx begin
@@ -1072,3 +1072,52 @@ For rollback, stop invoking the new skill, restore the previous global guidance,
 - Optional nested conflict resolution requires a compatible networked `codex exec`; `codexCommand` is a single executable path, not a shell command.
 - Stale-lock recovery is intentionally narrow. Ambiguous, dirty, unfinished, missing-metadata, or other-host cases require manual inspection.
 - JSON state is designed for a personal local tool, not distributed or multi-host coordination.
+
+## Additional coding harnesses
+
+Install the shared workflow and global instructions for each harness you use:
+
+```bash
+scripts/install-skill.sh --harness claude
+scripts/install-skill.sh --harness gemini
+scripts/install-skill.sh --harness grok
+```
+
+The installers preserve personal text outside the managed instruction block and
+leave repository instructions untouched. No arguments retains the existing Codex
+skill installation behavior; a positional custom skill directory remains supported.
+
+| Harness                       | Identifier | User skill directory | Global instructions   |
+| ----------------------------- | ---------- | -------------------- | --------------------- |
+| Codex CLI                     | `codex`    | `~/.agents/skills/`  | `~/.codex/AGENTS.md`  |
+| Claude Code                   | `claude`   | `~/.claude/skills/`  | `~/.claude/CLAUDE.md` |
+| Gemini CLI                    | `gemini`   | `~/.gemini/skills/`  | `~/.gemini/GEMINI.md` |
+| Grok Build (official xAI CLI) | `grok`     | `~/.grok/skills/`    | `~/.grok/AGENTS.md`   |
+
+Each skill directory contains `sesh-integrator-workflow/SKILL.md`. These commands
+use the standard user directories under HOME. Custom harness home directories
+require installing the skill and global instructions at the corresponding custom
+paths yourself; doctor checks the standard paths.
+
+```bash
+seshx doctor --harness claude
+seshx begin --harness claude --create-worktree --summary "Implement the change"
+```
+
+Substitute `gemini` or `grok` as appropriate. Session status records the harness;
+old sessions and omitted flags retain Codex behavior. All four use the same
+commit, validation, integration, checklist, and recovery commands. Conflicts are
+resolved by the active agent, followed by `seshx resume`. Claude and Gemini project
+instructions are included alongside `AGENTS.md` in saved conflict context.
+
+Support for the additional harnesses is instruction-driven. Nested conflict
+resolution and schema-constrained incident investigation remain Codex-only;
+non-Codex failures retain evidence for the current agent to investigate and never
+silently launch Codex. Tests exercise installation and Git lifecycles in disposable
+repositories without provider calls; live authenticated harness sessions are not
+part of automated validation.
+
+References: [Claude skills](https://code.claude.com/docs/en/skills),
+[Gemini skills](https://geminicli.com/docs/cli/using-agent-skills/),
+[Grok skills](https://docs.x.ai/build/features/skills-plugins-marketplaces),
+[Grok global rules](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/01-getting-started.md).

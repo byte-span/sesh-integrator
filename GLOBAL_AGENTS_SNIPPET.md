@@ -1,13 +1,22 @@
 # sesh-integrator global workflow
 
 For most code-changing tasks inside a Git repository, use `sesh-integrator` from
-the current Codex CLI checkout. Do not use it for read-only work, non-Git
+the current CLI checkout. Do not use it for read-only work, non-Git
 directories, or changes to the `sesh-integrator` repository itself. Do not invoke
 the legacy `codex-integrator` workflow for repositories using `sesh-integrator`.
 
 Operate autonomously by default. Do not ask for routine approval to register,
 begin, validate, commit, integrate, resume, or safely promote local work that is
 already within the user's request.
+
+Supported harnesses are Codex CLI (`codex`), Claude Code (`claude`), Gemini CLI
+(`gemini`), and Grok Build (`grok`). When beginning a session, pass
+`--harness <your-harness>` with the matching identifier; omission means Codex
+for compatibility. Use the same identifier with `seshx doctor --harness`.
+Resolve conflicts and inspect failure evidence in the current agent session.
+Optional nested resolution and automated incident investigation remain Codex-only.
+Read repository `AGENTS.md` and your harness's project instructions, such as
+`CLAUDE.md` or `GEMINI.md`, before editing.
 
 Use `seshx` as the preferred command. `sesh-integrator`, `pintx`,
 `parallel-integrator`, and `codex-handoff` remain compatible aliases. Existing

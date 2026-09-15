@@ -1,3 +1,4 @@
+import { parseHarness, type Harness } from "./harness.js";
 import {
   assertRepositoryEnabled,
   isRepositoryDisabled,
@@ -275,7 +276,9 @@ export async function beginCommand(
   dependsOn: string[],
   autoBranch = true,
   createWorktree = false,
+  harness: Harness = "codex",
 ): Promise<Session> {
+  parseHarness(harness);
   if (!summary.trim()) throw new Error('begin requires --summary "..."');
   if (createWorktree && !autoBranch) {
     throw new Error(
@@ -414,6 +417,7 @@ export async function beginCommand(
       integrationCommitAtStart,
       startedAt: new Date().toISOString(),
       taskSummary: summary.trim(),
+      harness,
       dependsOn: [...new Set(dependsOn)],
       gitBaseline: baseline,
     };
@@ -1316,7 +1320,10 @@ async function mergeAndValidate(
     session.awaitingConflictResolution = true;
     await snapshotRecoveryState(repository, session, worktree);
     await writeSession(session);
-    if (config.conflictResolutionMode === "nested-codex") {
+    if (
+      config.conflictResolutionMode === "nested-codex" &&
+      (session.harness ?? "codex") === "codex"
+    ) {
       const codexHome = await prepareCodexResolverHome();
       const resolution = await run(
         config.codexCommand,
@@ -1334,7 +1341,7 @@ async function mergeAndValidate(
         );
     } else {
       throw new Error(
-        `Merge conflict requires resolution by the current Codex session. ` +
+        `Merge conflict requires resolution by the current agent session. ` +
           `Resolve and stage files in ${worktree} using ${promptPath}, then run seshx resume from ${session.worktreePath}`,
       );
     }
@@ -2179,10 +2186,24 @@ async function buildConflictPrompt(
   } catch {
     // AGENTS.md is optional.
   }
+  const extraInstruction =
+    session.harness === "claude"
+      ? "CLAUDE.md"
+      : session.harness === "gemini"
+        ? "GEMINI.md"
+        : undefined;
+  if (extraInstruction) {
+    try {
+      repositoryInstructions += `\n\nRepository ${extraInstruction}:\n${await readFile(join(repository.path, extraInstruction), "utf8")}`;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+  }
   return (
     `Resolve the current Git merge conflicts in this integration worktree. Do not commit.\n\n` +
     `Incoming session:\n` +
     `- ID: ${session.id}\n` +
+    `- Harness: ${session.harness ?? "codex"}\n` +
     `- Task summary: ${session.taskSummary}\n` +
     `- Completion summary: ${session.completionSummary}\n` +
     `- Source branch: ${session.branch}\n` +

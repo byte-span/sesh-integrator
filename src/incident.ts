@@ -82,6 +82,12 @@ async function investigateFailure(
     fixScope: "project",
     investigationSource: "fallback",
   };
+  if ((session.harness ?? "codex") !== "codex")
+    return {
+      ...fallback,
+      investigationError:
+        "Inspect preserved evidence in the current agent session; nested investigation is Codex-only.",
+    };
   if (process.env.PARALLEL_INTEGRATOR_TEST_INCIDENT_FALLBACK === "1")
     return {
       ...fallback,

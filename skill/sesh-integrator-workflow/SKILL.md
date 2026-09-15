@@ -1,6 +1,6 @@
 ---
 name: sesh-integrator-workflow
-description: Use for most code-changing Codex CLI tasks in Git repositories that should run in an isolated source worktree and be validated and promoted by the local sesh-integrator tool. Automatically register and begin or continue a session, then create a focused commit, validate, integrate, and resume when safe. Never use for read-only work, non-Git directories, sesh-integrator itself, its integration branch, or the legacy codex-integrator workflow.
+description: Use for most code-changing coding-agent tasks in Git repositories that should run in an isolated source worktree and be validated and promoted by the local sesh-integrator tool. Automatically register and begin or continue a session, then create a focused commit, validate, integrate, and resume when safe. Never use for read-only work, non-Git directories, sesh-integrator itself, its integration branch, or the legacy codex-integrator workflow.
 ---
 
 # Sesh Integrator Workflow
@@ -8,6 +8,15 @@ description: Use for most code-changing Codex CLI tasks in Git repositories that
 This skill coordinates a coding session with the local `sesh-integrator` CLI.
 
 It does not perform daemon monitoring.
+
+Supported harnesses are Codex CLI (`codex`), Claude Code (`claude`), Gemini CLI
+(`gemini`), and Grok Build (`grok`). When beginning a session, pass
+`--harness <your-harness>` with the matching identifier; omission means Codex
+for compatibility. Use the same identifier with `seshx doctor --harness`.
+Resolve conflicts and inspect failure evidence in the current agent session.
+Optional nested resolution and automated incident investigation remain Codex-only.
+Read repository `AGENTS.md` and your harness's project instructions, such as
+`CLAUDE.md` or `GEMINI.md`, before editing.
 
 Use `seshx` as the preferred command. `sesh-integrator`, `pintx`,
 `parallel-integrator`, and `codex-handoff` remain compatible aliases. Existing
