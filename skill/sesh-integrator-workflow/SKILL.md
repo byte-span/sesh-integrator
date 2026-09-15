@@ -37,6 +37,28 @@ or compatibility `CODEX_HANDOFF_HOME` is set, use that directory instead.
 Otherwise reuse `~/.codex-handoff/` first, then `~/.parallel-integrator/` if present;
 fresh installations use `~/.sesh-integrator/`. Do not move existing session or worktree data.
 
+## Adoption and installation continuity
+
+Repository-scoped registration/begin reports existing dirty work and managed
+sessions. Isolated tasks may start from dirty launch checkouts; never import,
+commit, stash, or discard old edits automatically. Global setup cannot discover
+intended repositories or enroll already-open conversations. Inspect status in
+each known repository and continue tasks by session ID.
+
+New sessions retain a content-hashed coordinator and resource copy under the
+runtime's `coordinators/` directory. `status --session <id>` identifies it and
+reports missing assets. Keep the pinned coordinator for unfinished tasks;
+compatible reinstall can recover if the original executable is missing.
+`seshx installation-check` rejects incompatible state before installation changes.
+Do not run older pre-contract executables on newer session records.
+
+Uninstall stops new enrollment for selected harnesses and defers guidance removal
+while their sessions are unfinished. Existing sessions can finish using retained
+executables; rerun uninstall afterward. Direct npm package removal can bypass
+uninstall, so preserve runtime data, recovery bundles and Git refs. Reinstall with
+the same runtime home and a compatible build. Never remove an ambiguous lock to
+make installation or recovery proceed.
+
 ## Start of a code-changing task
 
 Check `seshx status` for the current repository's enablement before registration
@@ -218,6 +240,11 @@ Before saying the task is complete:
     condition (for example, check out the target branch or save and clean user
     changes in its worktree)
     and run `seshx resume`. Do not reset, clean, or discard user state.
+    If its owner committed the old target edits, resume reconciles both histories
+    in an isolated worktree and runs full integration validation. Resolve/stage
+    conflicts in the reported worktree without committing, then resume. Each
+    resume makes one local reconciliation attempt; another target movement stays
+    pending. Never replace the recorded expected SHA manually.
 11. If shared-target remote recovery reports a conflict, resolve and stage only
     the preserved integration worktree it names, then run `seshx
 resume`. Do not fetch, merge, push, reset, or retry manually; the CLI owns

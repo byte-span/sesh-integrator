@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { preflightRuntimeCompatibility } from "./coordinator.js";
 import { setupCommand } from "./setup.js";
 import { parseHarness, type Harness } from "./harness.js";
 import { enablementCommand } from "./enablement.js";
@@ -37,7 +38,48 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   ]).has(command ?? "");
   if (instrument) startPerformance(command!);
   try {
+    if (
+      [
+        "setup",
+        "uninstall",
+        "register",
+        "enable",
+        "disable",
+        "begin",
+        "commit",
+        "validate",
+        "integrate",
+        "resume",
+        "finish",
+      ].includes(command ?? "") ||
+      (command === "tasks" && args[0] !== "list") ||
+      (command === "reconcile" && args.includes("--apply"))
+    ) {
+      const sessionIndex = args.indexOf("--session");
+      const sessionId = sessionIndex >= 0 ? args[sessionIndex + 1] : undefined;
+      const scoped = [
+        "begin",
+        "commit",
+        "validate",
+        "integrate",
+        "resume",
+        "finish",
+        "tasks",
+      ].includes(command ?? "");
+      await preflightRuntimeCompatibility(
+        scoped
+          ? { cwd: process.cwd(), ...(sessionId ? { sessionId } : {}) }
+          : undefined,
+      );
+    }
     switch (command) {
+      case "installation-check":
+        rejectArguments(args);
+        await preflightRuntimeCompatibility();
+        process.stdout.write(
+          "Existing runtime contracts are compatible; runtime data and recovery assets retained.\n",
+        );
+        break;
       case "setup":
       case "uninstall":
         await setupCommand(args, command === "uninstall");
@@ -402,6 +444,7 @@ Compatibility commands: sesh-integrator, pintx, parallel-integrator, codex-hando
 Usage:
   seshx setup [--detected | --harness <name>...] [--yes]
   seshx uninstall [--harness <name>...] [--yes]
+  seshx installation-check
   seshx init
   seshx disable [repo-path]
   seshx enable [repo-path]

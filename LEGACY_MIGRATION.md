@@ -200,3 +200,20 @@ resumed sessions then push their own source branch and use a session-marked PR;
 existing shared-target PRs are not closed, merged, edited, or deleted. Confirm
 the remote base exists and run `seshx doctor` to verify branch syntax,
 remote configuration, and GitHub CLI authentication before first use.
+
+## Adoption during existing work
+
+Run repository-scoped status/register before adopting an existing checkout.
+Dirty work remains owned by its original conversation and is excluded from new
+isolated sessions. Installing guidance does not retroactively enroll open
+conversations. If dirty target work blocks managed promotion, its owner may
+commit it; then `seshx resume` merges and revalidates both histories in the same
+session. Do not edit the recorded expected SHA. Historical `reconcile --apply`
+remains limited to proven fast-forwards.
+
+Uninstall now stops enrollment and defers guidance removal for unfinished
+selected-harness sessions. Runtime coordinator copies survive npm package
+removal. Reinstall with the same runtime home and a compatible state/recovery
+contract; use status to locate the retained executable. Legacy records have no
+provable original build identity. Never use an older pre-contract executable to
+mutate newer session state, or delete runtime/Git recovery assets during upgrade.

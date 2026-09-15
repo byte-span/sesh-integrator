@@ -117,14 +117,16 @@ it.each([
           "utf8",
         ),
       ).toBe(await readFile("skill/sesh-integrator-workflow/SKILL.md", "utf8"));
-      expect(await readdir(home)).toEqual([directory]);
+      expect(await readdir(home)).toEqual(
+        expect.arrayContaining([directory, ".sesh-integrator"]),
+      );
     } finally {
       await rm(home, { recursive: true, force: true });
     }
   },
 );
 
-it("refreshes every installed harness without creating unused installations", async () => {
+it("refreshes installed harnesses and refuses customized content without changing other integrations", async () => {
   const home = await mkdtemp(join(tmpdir(), "sesh-refresh-"));
   try {
     const manifest = JSON.parse(await readFile("harnesses.json", "utf8"));
@@ -137,6 +139,7 @@ it("refreshes every installed harness without creating unused installations", as
     expect(install("--installed")).toContain("No installed harness");
     expect(await readdir(home)).toEqual([]);
     for (const harness of Object.keys(manifest)) install("--harness", harness);
+    install("--installed");
     for (const info of Object.values(manifest) as any[]) {
       await writeFile(
         join(
@@ -151,7 +154,7 @@ it("refreshes every installed harness without creating unused installations", as
         "Personal text\n<!-- codex-handoff:managed:start -->\nStale\n<!-- codex-handoff:managed:end -->\n",
       );
     }
-    install("--installed");
+    expect(() => install("--installed")).toThrow();
     for (const info of Object.values(manifest) as any[]) {
       expect(
         await readFile(
@@ -162,13 +165,13 @@ it("refreshes every installed harness without creating unused installations", as
           ),
           "utf8",
         ),
-      ).toBe(await readFile("skill/sesh-integrator-workflow/SKILL.md", "utf8"));
+      ).toBe("stale");
       const guidance = await readFile(
         join(home, info.directory, info.instructions),
         "utf8",
       );
       expect(guidance).toContain("Personal text");
-      expect(guidance).not.toContain("Stale");
+      expect(guidance).toContain("Stale");
     }
   } finally {
     await rm(home, { recursive: true, force: true });

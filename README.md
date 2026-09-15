@@ -90,7 +90,7 @@ scripts/install-cli.sh --stable
 `SESH_INTEGRATOR_RELEASE_DIR` can override that directory; keep it outside all
 source worktrees. Previous releases remain available. Installation without
 `--stable` links to the development build and is unsuitable for self-integration.
-The installer does not validate the build or refresh skills/hooks automatically.
+The installer checks existing runtime compatibility before atomically publishing each alias. It does not validate the build or refresh skills/hooks automatically. Interrupted alias publication can be retried; complete older releases remain available.
 
 Pin the real path once per session (record it with your task notes for recovery):
 
@@ -119,8 +119,7 @@ and stages the reported integration worktree, then runs
 must handle every lifecycle command; candidate `dist` builds are only for tests.
 Dirty files in the launch checkout are preserved and may defer promotion.
 
-Finish all sessions before upgrading the coordinator, particularly when changing
-runtime schemas. Install a new validated snapshot, explicitly refresh installed
+Keep the pinned coordinator for unfinished self-development sessions. Compatible upgrades may be installed for new sessions; incompatible contracts are rejected before lifecycle mutation. Finish sessions with their retained coordinator before adopting incompatible runtime schemas. Install a new validated snapshot, explicitly refresh installed
 workflows with its `scripts/install-skill.sh --installed`, and use its path for
 new sessions. Retain old snapshots for recovery. Neither merge hooks nor health
 checks synchronize `dev` or install candidate builds automatically. The optional
@@ -177,11 +176,61 @@ seshx doctor --installed
 To remove installed integrations, run `seshx uninstall` (or `--yes` unattended).
 Use `--harness <name>` to remove one integration. Only unchanged managed files and
 managed guidance are removed; customized content, configuration, sessions, and
-worktrees remain. Empty skill directories may remain. Remove the npm CLI afterward:
+worktrees remain. Uninstall stops new enrollment for selected harnesses. If any of their sessions are unfinished (including waiting, conflicted, validation-pending, or promotion-pending), removal is deferred and their guidance and recovery assets stay installed. Finish those sessions and rerun uninstall. Empty skill directories may remain. Remove the npm CLI separately:
 
 ```bash
 npm uninstall -g sesh-integrator
 ```
+
+### Adopting existing work and changing installations
+
+Repository-scoped `register` and `begin` report observable dirty checkout state
+and unfinished managed sessions. `begin --create-worktree` continues to preserve
+and exclude dirty launch-checkout work. Its owner decides how to settle those
+edits; the tool never commits, stashes, imports, or discards them. Dirty target
+files may block eventual promotion. After their owner commits them, `resume`
+reconciles that target with the preserved integration and validates both.
+
+Global setup cannot know which repositories you intend to adopt. Neither setup
+nor Git inspection discovers or enrolls already-open agent conversations. Tell
+those conversations to inspect status and continue an appropriate session or
+start an isolated task; do not copy old edits into it automatically.
+
+New sessions record a SHA-256 identity of the executable and bundled resources,
+package version, state contract, recovery contract, and an independent CLI path
+under `<runtime>/coordinators/<build-id>/dist/cli.js`. Setup and begin retain these
+assets before enrollment; no automatic pruning removes them. Local builds with
+the same version can have different identities. `status --session <id>` reports
+the original coordinator, missing/modified assets, and the coordinator used for
+recovery. Use `node <recorded-cli-path> resume --session <id>` from the source
+worktree. Node.js 20+, Git, project dependencies and any configured external
+commands must still be available; they are not bundled.
+
+`seshx installation-check` performs a read-only compatibility check. Source
+installation runs it before changing aliases, and mutation commands check
+unfinished session and recovery contracts. Contract 1 readers accept legacy
+records without a contract and compatible contract 1 builds; unknown contracts
+are refused with the original executable path and required contract numbers.
+Legacy build identity cannot be reconstructed; first recovery retains the
+current compatible build. Pre-contract older CLIs cannot enforce new contracts:
+keep their pinned executables and do not use them on newer recovery records.
+
+Reinstall reuses the existing runtime home (including legacy home precedence),
+configuration, sessions, locks and recovery bundles. Keep the same home/env
+settings. Setup displays unfinished sessions and re-enables enrollment only for
+the selected, successfully installed harnesses. Customized skills and guidance
+are preserved, as are other harness integrations. Per-file installation receipts
+retain the previous digest across interrupted upgrades. A leftover configuration
+lock requires inspecting the owning operation before retrying; it is never
+blindly removed. Installation does not resume integrations or clear repository
+locks on your behalf.
+
+Direct `npm uninstall -g sesh-integrator` cannot be prevented. Independent runtime
+coordinator copies survive package removal; reinstall a compatible build if the
+original copy is also missing. A same-build reinstall can retain an independent
+replacement for damaged assets without overwriting them. If runtime data or Git
+objects were separately deleted, reinstall cannot recreate lost work. Back up
+runtime data and repositories together. Do not delete recovery refs or bundles.
 
 ### Install from source
 
@@ -996,10 +1045,28 @@ commits, unresolved files, or a moved integration branch. It also retries an
 unchanged clean merge after validation or commit creation failed, but only when
 the staged tree exactly matches Git's reconstructed merge tree.
 
-For `promotion_pending`, `resume` retries only the recorded validated staging
-commit against the recorded expected target SHA. It does not rebuild from a
-source branch that may have advanced. Post-integration failures are likewise
-resumable and rerun their configured checks from the promoted target worktree.
+For `promotion_pending`, an unchanged target retries the exact validated staging
+commit. If the local target advanced normally from the recorded baseline,
+`resume` merges that exact target commit with the preserved result in a detached
+session-owned recovery worktree under the repository lock. Later staging history
+is included when it contains the preserved result. Full integration validation
+runs without source-tier cache reuse, then promotion uses the newly observed
+expected-old SHA and safely synchronizes the checked-out target. The recorded
+ready source and original bundle snapshots remain unchanged.
+
+Local reconciliation performs at most one merge/validation/promotion attempt per
+`resume`. Further target movement leaves `promotion_pending`; rerun resume after
+reviewing evidence. Rewritten target history or staging history that no longer
+contains the result requires ancestry review, not an expected-SHA override.
+Conflicts use the saved current-agent prompt: resolve and stage the named worktree,
+do not commit, then resume. Failed validation preserves the exact resolved tree
+in `validation_pending`, even if that disposable worktree is later lost.
+Recovery inputs, resolved trees, validations and results are appended to the
+bundle with immutable Git refs. Hash-linked local recovery evidence can repair
+an interrupted session-pointer publication; unknown or corrupted evidence stops
+recovery. A leftover repository lock still requires safe owner/state inspection.
+Post-integration failures remain resumable and rerun their configured checks from
+the promoted target worktree.
 
 A validation failure leaves that session's integration worktree intact, records `validation_pending`, releases the one-shot lock, and exits nonzero so the agent can assess the evidence and resume safely. An unresolved conflict records `needs_review`. Later sessions use detached session-owned integration worktrees when the canonical worktree contains preserved review state, and atomically advance staging only after validation. A failed post-integration command also records `needs_review`, but preserves the already-promoted target commit; its command, exit code, stdout, and stderr remain in the session record for diagnosis. If post-integration commands are configured and the target is not checked out in exactly one clean accessible worktree, promotion remains pending. Post-integration commands are skipped when the ready commit was already present and the staging branch did not advance. The source worktree is never modified.
 

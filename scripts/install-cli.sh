@@ -12,6 +12,10 @@ if [ ! -f "$source_file" ]; then
   exit 1
 fi
 
+# Check candidate compatibility before publishing any executable links. npm removal
+# can bypass this; every lifecycle command also checks persisted contracts.
+node "$source_file" installation-check
+
 case "${1:-}" in
   "") ;;
   --stable)
@@ -34,12 +38,13 @@ esac
 
 mkdir -p "$target_dir"
 chmod +x "$source_file"
-ln -sfn "$source_file" "$target_file"
-ln -sfn "$source_file" "$target_dir/sesh-integrator"
-ln -sfn "$source_file" "$target_dir/pintx"
-ln -sfn "$source_file" "$target_dir/parallel-integrator"
-# Older installed guidance and repository scripts can continue to invoke it.
-ln -sfn "$source_file" "$target_dir/codex-handoff"
+# Publish each alias atomically only after the complete snapshot exists. A retry
+# after interruption converges; old snapshots remain usable throughout.
+for command in seshx sesh-integrator pintx parallel-integrator codex-handoff; do
+  temporary_link="$target_dir/.$command.$$"
+  ln -s "$source_file" "$temporary_link"
+  mv -f "$temporary_link" "$target_dir/$command"
+done
 
 printf '%s\n' "Installed seshx at $target_file"
 printf '%s\n' "Run seshx setup to select and install harness integrations."
