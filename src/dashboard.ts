@@ -180,6 +180,47 @@ export function detailLines(row: DashboardRow, includeTasks = true): string[] {
   return lines;
 }
 
+const detailLabelPattern = /^([A-Z][A-Za-z -]{1,30}:)(?: |$)/;
+
+/** Keep field values together and align wrapped continuations. */
+export function detailFieldLines(row: DashboardRow, width: number): string[] {
+  width = Math.max(1, Math.floor(width));
+  const fields = detailLines(row, false).map(terminalText);
+  const labelWidth = Math.max(
+    ...fields.map((line) => line.match(detailLabelPattern)?.[1]?.length ?? 0),
+  );
+  const tabular = width >= 72;
+  const indent = tabular ? labelWidth + 2 : Math.min(2, width - 1);
+  return fields.flatMap((line, index) => {
+    const match = line.match(detailLabelPattern);
+    const label = match?.[1];
+    const value = label ? line.slice(match![0].length) : line;
+    const values = wrapWords(value, width - indent);
+    const content = tabular
+      ? values.map(
+          (part, i) =>
+            `${(i === 0 ? (label ?? "") : "").padEnd(indent)}${part}`,
+        )
+      : [
+          ...(label ? wrapLines([label], width) : []),
+          ...values.map((part) => `${" ".repeat(indent)}${part}`),
+        ];
+    return [...(index && label ? [""] : []), ...content];
+  });
+}
+
+function wrapWords(text: string, width: number): string[] {
+  const lines: string[] = [];
+  while (text.length > width) {
+    const space = text.lastIndexOf(" ", width);
+    const end = space > 0 ? space : width;
+    lines.push(text.slice(0, end));
+    text = text.slice(end).trimStart();
+  }
+  lines.push(text);
+  return lines;
+}
+
 export function wrapLines(lines: string[], width: number): string[] {
   width = Math.max(1, width);
   return lines.flatMap((line) => {
@@ -251,15 +292,7 @@ export function renderDetailPane(
   height = Math.max(4, height);
   const s = row.session;
   const heading = terminalText(s?.taskSummary ?? "No session");
-  const titleLines: string[] = [];
-  let remaining = heading;
-  while (remaining.length > width) {
-    const space = remaining.lastIndexOf(" ", width);
-    const end = space > 0 ? space : width;
-    titleLines.push(remaining.slice(0, end));
-    remaining = remaining.slice(end).trimStart();
-  }
-  titleLines.push(remaining);
+  const titleLines = wrapWords(heading, width);
   const titleLimit = Math.min(3, Math.max(1, height - 6));
   const title = titleLines.slice(0, titleLimit);
   if (titleLines.length > titleLimit)
@@ -285,7 +318,7 @@ export function renderDetailPane(
         ),
       ...(!dashboardActivity([row]).length ? ["No saved milestones yet."] : []),
       "-".repeat(width),
-      ...detailLines(row, false),
+      ...detailFieldLines(row, width),
       ...(s?.tasks?.length
         ? [
             "-".repeat(width),
@@ -871,8 +904,11 @@ export function colorDashboardLine(
     safe.length >= 110 && safe.slice(split, split + 3) === " | " ? split : -1;
   const left = divider >= 0 ? safe.slice(0, divider) : safe;
   const right = divider >= 0 ? safe.slice(divider + 3) : "";
-  const decorate = (text: string) =>
-    /^-{3,}\s*$/.test(text)
+  const decorate = (text: string) => {
+    const label = text.match(detailLabelPattern)?.[1];
+    if (label)
+      return `\x1b[1;${accent}m${label}\x1b[22;${base}m${text.slice(label.length)}`;
+    return /^-{3,}\s*$/.test(text)
       ? paint(unicode ? text.replace(/-/g, "─") : text, muted)
       : text.replace(
           /\b(validation failed|merge conflict|needs review|needs attention|promotion pending|validation pending|active|ready|completed)\b/g,
@@ -888,6 +924,7 @@ export function colorDashboardLine(
                     : "94",
             ),
         );
+  };
   const style =
     /^(sesh-integrator|Sessions|Next action|Selected item|Recent activity)/.test(
       safe.trim(),

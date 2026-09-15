@@ -183,7 +183,7 @@ it("refreshes automatically, defers updates during input, and clears timers on e
     await vi.advanceTimersByTimeAsync(0);
     screen = "";
     await vi.advanceTimersByTimeAsync(60_000);
-    expect(screen).toContain("Started: 2026-09-12 09:00:00 UTC");
+    expect(screen).toMatch(/Started:\s+2026-09-12 09:00:00 UTC/);
     expect(screen).toContain("Esc back");
     expect(readSessions).toHaveBeenCalledTimes(10);
     // A newer session must not steal selection or reset detail scrolling.

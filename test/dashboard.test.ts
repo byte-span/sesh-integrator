@@ -22,6 +22,7 @@ import {
   actionArguments,
   actionReason,
   detailLines,
+  detailFieldLines,
   loadDashboard,
   renderDashboard,
   renderDetailPane,
@@ -761,5 +762,63 @@ it("separates and labels scroll position and remaining content", () => {
     const small = renderDetailPane(r, 20, height);
     expect(small.lines).toHaveLength(height);
     expect(small.lines.every((line) => line.length <= 20)).toBe(true);
+  }
+});
+
+it("aligns detail values on wide panels and stacks distinct fields on narrow panels", () => {
+  const r = row();
+  r.session!.worktreePath = "/source/" + "long-path/".repeat(20);
+  for (const width of [20, 52, 72, 100]) {
+    const lines = detailFieldLines(r, width);
+    expect(lines.every((line) => line.length <= width)).toBe(true);
+    const repository = lines.findIndex((line) =>
+      line.startsWith("Repository:"),
+    );
+    const target = lines.findIndex((line) => line.startsWith("Target:"));
+    const worktree = lines.findIndex((line) =>
+      line.startsWith("Source worktree:"),
+    );
+    const end = lines.indexOf("", worktree + 1);
+    const parts = lines.slice(worktree, end);
+    if (width >= 72) {
+      const valueStart = lines[repository]!.indexOf("/repo");
+      expect(lines[target]!.indexOf("main")).toBe(valueStart);
+      expect(
+        parts.slice(1).every((line) => line.startsWith(" ".repeat(valueStart))),
+      ).toBe(true);
+      expect(
+        parts
+          .map((line, index) =>
+            index ? line.trimStart() : line.slice(valueStart),
+          )
+          .join(""),
+      ).toBe(r.session!.worktreePath);
+    } else {
+      expect(lines[repository]).toBe("Repository:");
+      expect(lines[repository + 1]).toBe("  /repo");
+      expect(lines[target - 1]).toBe("");
+      expect(
+        parts
+          .slice(1)
+          .map((line) => line.trimStart())
+          .join(""),
+      ).toBe(r.session!.worktreePath);
+    }
+  }
+});
+
+it("bolds detail labels while restoring normal weight before their values", () => {
+  for (const rich of [false, true]) {
+    for (const line of ["Repository:  /repo", "Validation tier:"]) {
+      const painted = colorDashboardLine(line, rich);
+      expect(painted).toContain("\x1b[1;");
+      expect(painted).toMatch(/:\x1b\[22;/);
+      expect(terminalText(painted)).toBe(line);
+    }
+    const label = "Repository:  /repo";
+    const split = "".padEnd(108) + " | " + label.padEnd(49);
+    const painted = colorDashboardLine(split, rich);
+    expect(painted).toContain("\x1b[1;");
+    expect(terminalText(painted)).toBe(split);
   }
 });

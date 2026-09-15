@@ -288,7 +288,9 @@ exact UTC session start time.
 Use Tab to switch focus between the session list and selected-item pane.
 Up/Down and Page Up/Down move through the focused area; Home/End jump to its
 boundaries. The pane keeps its session title and status pinned, with the next
-action first and the task checklist after session details. A separate footer
+action first and the task checklist after session details. Detail labels are
+bold, with aligned values in wide panels and stacked values in narrow panels.
+A separate footer
 labels the visible line range and whether more content is above or below.
 Scroll positions are retained per session across selection changes and live
 refreshes, and clamped when content shrinks.
