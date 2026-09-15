@@ -290,6 +290,9 @@ Up/Down and Page Up/Down move through the focused area; Home/End jump to its
 boundaries. The pane keeps its session title and status pinned, with the next
 action first and the task checklist after session details. Detail labels are
 bold, with aligned values in wide panels and stacked values in narrow panels.
+Tasks use Status, #, and Task columns; titles wrap, with muted descriptions and
+reasons underneath. Very narrow panels stack each task beneath its status and
+number.
 A separate footer
 labels the visible line range and whether more content is above or below.
 Scroll positions are retained per session across selection changes and live

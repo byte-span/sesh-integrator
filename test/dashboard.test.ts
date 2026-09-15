@@ -23,6 +23,7 @@ import {
   actionReason,
   detailLines,
   detailFieldLines,
+  taskTableLines,
   loadDashboard,
   renderDashboard,
   renderDetailPane,
@@ -522,8 +523,8 @@ it("shows the current task and progress, searches checklist text, and flags task
     Number.MAX_SAFE_INTEGER,
   ).lines.join("\n");
   expect(checklist).toContain("1/3 completed");
-  expect(checklist).toContain("[x] Inspect");
-  expect(checklist).toContain("[>] Build CLI");
+  expect(checklist).toMatch(/Completed +\| 1 \| Inspect/);
+  expect(checklist).toContain("In progress | 2 | Build CLI");
   expect(
     filterDashboard([r], {
       ...defaultDashboardView,
@@ -742,7 +743,7 @@ it("puts the checklist last and keeps a readable title and status above the next
   );
   expect(text.indexOf("Source branch:")).toBeLessThan(text.indexOf("Tasks\n"));
   expect(text.indexOf("Tasks\n")).toBeLessThan(
-    text.indexOf("1. [-] Review documentation"),
+    text.indexOf("Skipped | 1 | Review documentation"),
   );
   expect(text).not.toContain("Current:");
 });
@@ -820,5 +821,78 @@ it("bolds detail labels while restoring normal weight before their values", () =
     const painted = colorDashboardLine(split, rich);
     expect(painted).toContain("\x1b[1;");
     expect(terminalText(painted)).toBe(split);
+  }
+});
+
+it("keeps task status and order readable while wrapping titles and supporting text", () => {
+  const r = row();
+  const statuses = [
+    "pending",
+    "in_progress",
+    "completed",
+    "blocked",
+    "skipped",
+  ] as const;
+  r.session!.tasks = editTasks([], {
+    action: "add",
+    titles: Array.from(
+      { length: 12 },
+      (_, i) => `Task ${i + 1} with a longer title`,
+    ),
+  }).map((task, index) => ({
+    ...task,
+    status: statuses[index % statuses.length]!,
+    description: "Helpful extra context",
+    reason: "Waiting for a fixture",
+  }));
+  for (const width of [20, 32, 52, 100]) {
+    const lines = taskTableLines(r.session!, width);
+    expect(lines.every((line) => line.length <= width)).toBe(true);
+    const text = lines.join("\n");
+    for (const status of [
+      "Pending",
+      "In progress",
+      "Completed",
+      "Blocked",
+      "Skipped",
+    ])
+      expect(text).toContain(status);
+    if (width >= 32) {
+      expect(lines[0]).toMatch(/^Status +\| +# \| Task$/);
+      expect(text).toMatch(/Pending +\| +1 \| Task 1/);
+      expect(text).toMatch(/In progress +\| 12 \| Task 12/);
+    }
+    const values = lines
+      .map((line) =>
+        width >= 32 ? line.split("|").at(-1)!.trim() : line.trim(),
+      )
+      .join(" ");
+    expect(values).toContain("Helpful extra context");
+    expect(values).toContain("Reason: Waiting for a fixture");
+    expect(text).not.toContain("[x]");
+  }
+  expect(taskTableLines({ ...r.session!, tasks: [] }, 40)).toEqual([]);
+});
+
+it("mutes task supporting text without muting wrapped titles", () => {
+  const r = row();
+  r.session!.tasks = editTasks([], {
+    action: "add",
+    titles: ["A long task title that wraps"],
+  });
+  r.session!.tasks[0]!.description = "Helpful extra context";
+  for (const width of [20, 32]) {
+    const lines = taskTableLines(r.session!, width);
+    const description = lines.find((line) => line.includes("Helpful"))!;
+    const continuation = lines.find((line) => line.includes("that wraps"))!;
+    expect(colorDashboardLine(description, true)).toContain("38;2;158;183;195");
+    expect(colorDashboardLine(continuation, true)).not.toContain(
+      "38;2;158;183;195",
+    );
+    if (width >= 32) {
+      const header = colorDashboardLine(lines[0]!, true);
+      expect(header).toContain("\x1b[1;");
+      expect(header).toContain("\x1b[22;");
+    }
   }
 });

@@ -209,6 +209,67 @@ export function detailFieldLines(row: DashboardRow, width: number): string[] {
   });
 }
 
+/** Keep status and order compact while giving task text the remaining width. */
+export function taskTableLines(session: Session, width: number): string[] {
+  width = Math.max(1, Math.floor(width));
+  const tasks = session.tasks ?? [];
+  if (!tasks.length) return [];
+  const labels = {
+    pending: "Pending",
+    in_progress: "In progress",
+    completed: "Completed",
+    blocked: "Blocked",
+    skipped: "Skipped",
+  };
+  const statusWidth = Math.max(
+    6,
+    ...tasks.map((task) => labels[task.status].length),
+  );
+  const numberWidth = String(tasks.length).length;
+  const prefixWidth = statusWidth + numberWidth + 6;
+  const tabular = width - prefixWidth >= 10;
+  const taskWidth = tabular ? width - prefixWidth : width;
+  const row = (status: string, number: string, text: string) =>
+    `${status.padEnd(statusWidth)} | ${number.padStart(numberWidth)} | ${text}`;
+  const lines = tabular ? [row("Status", "#", "Task"), "-".repeat(width)] : [];
+  tasks.forEach((task, index) => {
+    if (index) lines.push("");
+    const title = wrapWords(terminalText(task.title), taskWidth);
+    if (tabular) {
+      lines.push(
+        ...title.map((part, line) =>
+          row(
+            line === 0 ? labels[task.status] : "",
+            line === 0 ? String(index + 1) : "",
+            part,
+          ),
+        ),
+      );
+    } else {
+      lines.push(
+        ...wrapWords(`${labels[task.status]} | ${index + 1}`, width),
+        ...title,
+      );
+    }
+    for (const detail of [
+      task.description,
+      task.reason ? `Reason: ${task.reason}` : undefined,
+    ]) {
+      if (!detail) continue;
+      const indent = Math.min(tabular ? 2 : 4, taskWidth - 1);
+      const wrapped = wrapWords(terminalText(detail), taskWidth - indent);
+      lines.push(
+        ...wrapped.map((part) =>
+          tabular
+            ? row("", "", `${" ".repeat(indent)}${part}`)
+            : `${" ".repeat(indent)}${part}`,
+        ),
+      );
+    }
+  });
+  return lines;
+}
+
 function wrapWords(text: string, width: number): string[] {
   const lines: string[] = [];
   while (text.length > width) {
@@ -324,9 +385,7 @@ export function renderDetailPane(
             "-".repeat(width),
             "Tasks",
             taskProgress(s),
-            ...taskLines(s, true),
-            "[ ] pending  [>] in progress",
-            "[x] completed  [!] blocked  [-] skipped",
+            ...taskTableLines(s, width),
           ]
         : []),
     ],
@@ -905,6 +964,24 @@ export function colorDashboardLine(
   const left = divider >= 0 ? safe.slice(0, divider) : safe;
   const right = divider >= 0 ? safe.slice(divider + 3) : "";
   const decorate = (text: string) => {
+    if (/^Status +\| +# +\| Task/.test(text))
+      return `\x1b[1;${accent}m${text}\x1b[22;${base}m`;
+    if (/^ +\| +\| {3}|^ {4}\S/.test(text)) return paint(text, muted);
+    const taskStatus = text.match(
+      /^(Pending|In progress|Completed|Blocked|Skipped)(?= +\|)/,
+    )?.[1];
+    if (taskStatus) {
+      const color =
+        taskStatus === "Blocked"
+          ? "91"
+          : taskStatus === "Completed"
+            ? "92"
+            : taskStatus === "In progress"
+              ? "93"
+              : muted;
+      return paint(taskStatus, color) + text.slice(taskStatus.length);
+    }
+
     const label = text.match(detailLabelPattern)?.[1];
     if (label)
       return `\x1b[1;${accent}m${label}\x1b[22;${base}m${text.slice(label.length)}`;
