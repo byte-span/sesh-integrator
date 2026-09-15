@@ -1234,8 +1234,10 @@ export async function dashboardCommand(): Promise<void> {
           : ""),
     );
   };
-  const refresh = async () => {
+  const refresh = async (followNewSession = true) => {
     const oldSession = rows[navigation.sessions];
+    const wasAtTop = navigation.sessions === 0;
+    const knownSessions = new Set(allRows.map((row) => row.session?.id));
     const id = rows[selected]?.session?.id;
     const path = rows[selected]?.repository?.path;
     allRows = await loadDashboard();
@@ -1261,6 +1263,11 @@ export async function dashboardCommand(): Promise<void> {
         : Math.max(0, Math.min(fallback, list.length - 1));
     };
     navigation.sessions = preserve(rows, oldSession, navigation.sessions);
+    const topId = rows[0]?.session?.id;
+    if (followNewSession && wasAtTop && topId && !knownSessions.has(topId)) {
+      navigation.sessions = 0;
+      scroll = 0;
+    }
     selected = dashboardSelection(rows, navigation);
     if (!rows.length) mode = "list";
   };
@@ -1294,7 +1301,7 @@ export async function dashboardCommand(): Promise<void> {
       ? targetBranch(rows[selected]!.repository!)
       : undefined;
     const id = rows[selected]?.session?.id;
-    await refresh();
+    await refresh(false);
     const row = rows[selected];
     if (!row || row.session?.id !== id)
       throw new Error("Selected session disappeared; refresh and select again");

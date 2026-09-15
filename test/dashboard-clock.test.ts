@@ -191,14 +191,36 @@ it("refreshes automatically, defers updates during input, and clears timers on e
     expect(screen).toMatch(/Started:\s+2026-09-12 09:00:00 UTC/);
     expect(screen).toContain("Esc back");
     expect(readSessions).toHaveBeenCalledTimes(10);
-    // A newer session must not steal selection or reset detail scrolling.
+    // Follow a newly detected top session while the previous top is selected.
+    const newSession = {
+      ...session,
+      id: "new-session",
+      taskSummary: "New arrival",
+      readyAt: "2026-09-12T14:01:00Z",
+    };
+    vi.mocked(readSessions).mockResolvedValue([session, newSession]);
+    screen = "";
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(screen).toContain("new-session");
+    expect(screen).toContain("New arrival");
+    // Selecting a lower session opts out of following new arrivals.
+    await press("escape");
+    await press("down");
+    await press("return");
+    expect(screen).toContain("clock-session");
     output.rows = 10;
     input.emit("keypress", "", { name: "down" });
     await vi.advanceTimersByTimeAsync(0);
     screen = "";
     vi.mocked(readSessions).mockResolvedValue([
       session,
-      { ...session, id: "new-session", taskSummary: "New arrival" },
+      newSession,
+      {
+        ...newSession,
+        id: "newest-session",
+        taskSummary: "Newest arrival",
+        readyAt: "2026-09-12T14:02:00Z",
+      },
     ]);
     await vi.advanceTimersByTimeAsync(30_000);
     expect(screen).toContain("Clock\r\n");
