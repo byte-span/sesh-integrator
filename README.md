@@ -223,11 +223,16 @@ or external rollout has completed.
 
 Run `seshx dashboard` in an interactive terminal to browse all
 registered repositories and their sessions. The dashboard shows a compact session
-table with repository, integration status, current task and completed/total count,
-and time since the latest saved event. Sessions without checklists show their
-original task summary. The selected-item pane shows the ordered checklist, task
+table with separate Repository, Session description, Current task, Progress, and
+Session status columns. The session description always shows the overall purpose;
+Current task shows the current checklist step, and Progress shows completed/total.
+Completed sessions show Complete under Current task. Sessions without checklists
+show No tasks yet and a dash for progress. Narrow tables use three labeled lines
+per session to keep the description, current task, progress, and status readable. The selected-item pane shows the ordered checklist, task
 descriptions and blocked/skipped reasons, next-action guidance, saved milestones,
-and the full session record. Task updates contribute to sorting and search;
+and the full session record. Active is the default filter and includes all
+unfinished sessions, including blocked sessions. Completed and All are available
+through the status filter. Task updates contribute to sorting and search;
 blocked tasks appear in the needs-attention filter. Sessions default to most recent saved event first. Optional priority sorting
 puts blockers first, then the latest saved event.
 Activity and update times reflect recorded evidence, not a live process monitor.
@@ -247,7 +252,7 @@ cycle status filters, `p` to open the repository picker, and `s` to open the
 sort picker (priority, updated, or repository). In either picker, Up/Down moves
 the highlight, Enter applies the selection, and Escape cancels. Search applies as you type; Enter finishes and
 Escape restores the previous query.
-The Updated ages advance when saved data refreshes; browsing does not read Git.
+Session ordering follows saved update times; browsing does not read Git.
 Automatic updates preserve selection, filters, and detail scroll position.
 Updates wait while searching, using a picker, editing a form, confirming an
 action, or viewing command output, then resume when browsing resumes. Last refresh shows the exact UTC date/time when

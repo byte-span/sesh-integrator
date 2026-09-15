@@ -281,11 +281,11 @@ it("prioritizes blockers without losing sessions and shows recorded milestones",
     new Date("2026-09-12T12:00:00Z"),
   ).join("\n");
   for (const label of [
-    "2 active",
+    "3 active",
     "1 attention",
-    "filter: [all]",
+    "[active]",
     "repo",
-    "updated",
+    "Session description",
     "Next action",
     "Recent activity",
     "Selected item",
@@ -365,7 +365,7 @@ it("keeps details tied to the selected session", () => {
   expect(before.join("\n")).toContain("unique-task-1");
   expect(after.join("\n")).toContain("unique-task-2");
   expect(after.filter((l) => /^(?:\| )?> /.test(l))).toHaveLength(1);
-  expect(after.join("\n")).toContain("filter: [all]");
+  expect(after.join("\n")).toContain("[active]");
 });
 it("clamps navigation at list boundaries", () => {
   const nav: DashboardNavigation = { sessions: 0 };
@@ -393,9 +393,11 @@ it("filters across task, branch and repository and sorts by saved event time", (
   };
   const rows = [active, blocked, done];
   const ids = (view: Partial<typeof defaultDashboardView>) =>
-    filterDashboard(rows, { ...defaultDashboardView, ...view }).map(
-      (r) => r.session!.id,
-    );
+    filterDashboard(rows, {
+      ...defaultDashboardView,
+      filter: "all",
+      ...view,
+    }).map((r) => r.session!.id);
   expect(ids({})).toEqual(["done", "session_example", "blocked"]);
   expect(ids({ sort: "priority" })).toEqual([
     "blocked",
@@ -407,7 +409,7 @@ it("filters across task, branch and repository and sorts by saved event time", (
     "session_example",
     "blocked",
   ]);
-  expect(ids({ filter: "active" })).toEqual(["session_example"]);
+  expect(ids({ filter: "active" })).toEqual(["session_example", "blocked"]);
   expect(ids({ filter: "needs attention" })).toEqual(["blocked"]);
   expect(ids({ filter: "review" })).toEqual(["done"]);
   expect(ids({ filter: "completed" })).toEqual(["done"]);
@@ -595,4 +597,65 @@ it("wraps every task and follow-up within an independently scrollable pane with 
       scrollDetailPane(pane.maxOffset, "home", pane.pageSize, pane.maxOffset),
     ).toBe(0);
   }
+});
+
+it("defaults to unfinished sessions and separates session purpose, current task and progress", () => {
+  const active = row();
+  active.session!.taskSummary = "Add login flow";
+  active.session!.tasks = editTasks([], {
+    action: "add",
+    titles: ["Design form", "Test reset"],
+  });
+  active.session!.tasks = editTasks(active.session!.tasks, {
+    action: "update",
+    id: 1,
+    status: "completed",
+  });
+  active.session!.tasks = editTasks(active.session!.tasks, {
+    action: "update",
+    id: 2,
+    status: "in_progress",
+  });
+  const completed = row();
+  completed.session = {
+    ...active.session!,
+    id: "finished",
+    status: "succeeded",
+  };
+  const blocked = row();
+  blocked.session = {
+    ...active.session!,
+    id: "blocked",
+    status: "promotion_pending",
+  };
+  expect(defaultDashboardView.filter).toBe("active");
+  expect(
+    filterDashboard([active, completed, blocked], defaultDashboardView).map(
+      (r) => r.session!.id,
+    ),
+  ).toEqual(["session_example", "blocked"]);
+  expect(
+    filterDashboard([active, completed], {
+      ...defaultDashboardView,
+      filter: "completed",
+    }),
+  ).toEqual([completed]);
+  const output = renderDashboard([active, completed], 0, 180, 36).join("\n");
+  for (const heading of [
+    "Repository",
+    "Session description",
+    "Current task",
+    "Progress",
+    "Session status",
+  ])
+    expect(output).toContain(heading);
+  expect(output).toContain("Add login flow");
+  expect(output).toContain("Test reset");
+  expect(output).toContain("1/2");
+  expect(output).toContain("Complete");
+  expect(output).not.toContain("task / done");
+  const compact = renderDashboard([active], 0, 79, 24).join("\n");
+  expect(compact).toContain("Add login flow");
+  expect(compact).toContain("Current: Test reset");
+  expect(compact).toContain("Progress: 1/2");
 });

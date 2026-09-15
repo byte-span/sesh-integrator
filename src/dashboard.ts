@@ -191,19 +191,13 @@ export interface DetailPaneState {
   offset: number;
 }
 
-function sessionTaskCell(session: Session | undefined, width: number): string {
-  if (!session?.tasks?.length) return session?.taskSummary ?? "Run begin";
-  const done = session.tasks.filter(
-    (task) => task.status === "completed",
-  ).length;
-  const progress = ` ${done}/${session.tasks.length}`;
-  const available = Math.max(1, width - progress.length);
-  const title = terminalText(currentTask(session));
-  return (
-    (title.length > available && available > 3
-      ? title.slice(0, available - 3) + "..."
-      : title.slice(0, available)) + progress
-  );
+function sessionCurrentTask(session?: Session): string {
+  return session?.status === "succeeded" ? "Complete" : currentTask(session);
+}
+
+function sessionProgress(session?: Session): string {
+  if (!session?.tasks?.length) return "-";
+  return `${session.tasks.filter((task) => task.status === "completed").length}/${session.tasks.length}`;
 }
 
 /** The heading and progress stay pinned; every body line remains reachable. */
@@ -413,7 +407,7 @@ export interface DashboardView {
   sort: "priority" | "updated" | "repository";
 }
 export const defaultDashboardView: DashboardView = {
-  filter: "all",
+  filter: "active",
   repository: "",
   query: "",
   sort: "updated",
@@ -523,10 +517,7 @@ export function filterDashboard(
     const matches =
       view.filter === "all" ||
       (view.filter === "needs attention" && needsAttention(row)) ||
-      (view.filter === "active" &&
-        !!s &&
-        ["active", "ready"].includes(s.status) &&
-        !needsAttention(row)) ||
+      (view.filter === "active" && !!s && s.status !== "succeeded") ||
       (view.filter === "review" &&
         (s?.status === "needs_review" || !!s?.pullRequestUrl)) ||
       (view.filter === "completed" && s?.status === "succeeded");
@@ -654,44 +645,44 @@ function renderDashboardContent(
   };
   const name = (r: DashboardRow) =>
     basename(r.repository?.path ?? r.session?.repositoryPath ?? "-");
-  const age = (r: DashboardRow) => {
-    const at = updatedAt(r);
-    if (!at) return "-";
-    const minutes = Math.max(0, Math.floor((now.getTime() - at) / 60000));
-    return minutes < 1
-      ? "now"
-      : minutes < 60
-        ? `${minutes}m`
-        : minutes < 1440
-          ? `${Math.floor(minutes / 60)}h`
-          : `${Math.floor(minutes / 1440)}d`;
-  };
   const visible = rows;
   const cursor = navigation.sessions;
   const selectedRow = rows[selected];
   const attention = rows.filter(needsAttention).length;
   const active = rows.filter(
-    (r) =>
-      r.session &&
-      ["active", "ready"].includes(r.session.status) &&
-      !needsAttention(r),
+    (r) => r.session && r.session.status !== "succeeded",
   ).length;
   const title = `sesh-integrator  ${visible.length} visible | ${attention} attention | ${active} active`;
   const refresh = `Last refresh ${exactTime(refreshedAt.getTime())}`;
   const wide = width >= 110 && height >= 20;
   const leftWidth = wide ? Math.floor(width * 0.68) : width;
   const rightWidth = wide ? width - leftWidth - 3 : width;
-  const repoWidth = Math.min(25, Math.max(10, Math.floor(leftWidth * 0.25)));
+  const tabular = leftWidth >= 80;
+  const rowHeight = tabular ? 1 : 3;
+  const repoWidth = Math.min(18, Math.max(10, Math.floor(leftWidth * 0.14)));
   const statusWidth = 18;
-  const taskWidth = leftWidth - repoWidth - statusWidth - 12;
+  const progressWidth = 8;
+  const textWidth = leftWidth - repoWidth - statusWidth - progressWidth - 6;
+  const descriptionWidth = Math.max(19, Math.ceil(textWidth * 0.55));
+  const currentWidth = textWidth - descriptionWidth;
   const table = (
     repo: string,
+    description: string,
+    current: string,
+    progress: string,
     status: string,
-    task: string,
-    updated: string,
     marker = " ",
   ) =>
-    `${marker} ${fit(repo, repoWidth)} ${fit(status, statusWidth)} ${fit(task, taskWidth)} ${fit(updated, 7)}`;
+    `${marker} ${fit(repo, repoWidth)} ${fit(description, descriptionWidth)} ${fit(current, currentWidth)} ${fit(progress, progressWidth)} ${fit(status, statusWidth)}`;
+  const columnHeading = tabular
+    ? table(
+        "Repository",
+        "Session description",
+        "Current task",
+        "Progress",
+        "Session status",
+      )
+    : "Repository / Session description";
   const position = `${visible.length ? cursor + 1 : 0}/${visible.length}`;
   const filterLabel = view.filter;
   const filters =
@@ -717,12 +708,7 @@ function renderDashboardContent(
         " | " +
         `Selected item${pane.focused ? " [focused]" : ""}`
       : `Sessions ${position}  Enter for details`,
-    wide
-      ? fit(table("repo", "status", "task / done", "updated"), leftWidth) +
-        " | "
-      : taskWidth >= 10
-        ? table("repo", "status", "task / done", "updated")
-        : "repo / status / task",
+    wide ? fit(columnHeading, leftWidth) + " | " : columnHeading,
   ];
   const footer =
     width >= 100
@@ -730,25 +716,36 @@ function renderDashboardContent(
       : "Tab/Enter details  Up/Down select  f filter  p repo  s sort  q quit";
   const actions = "v validate   i integrate   R resume";
   const count = Math.max(1, height - lines.length - (wide ? 2 : 3));
-  const start = Math.max(0, cursor - count + 1);
+  const visibleSessions = Math.max(1, Math.floor(count / rowHeight));
+  const start = Math.max(0, cursor - visibleSessions + 1);
   const details = selectedRow
     ? renderDetailPane(selectedRow, rightWidth, count, pane.offset).lines
     : ["Select a session to inspect its next action."];
   for (let i = 0; i < count; i++) {
-    const row = visible[start + i];
-    const marker = start + i === cursor ? ">" : " ";
+    const rowIndex = start + Math.floor(i / rowHeight);
+    const row =
+      Math.floor(i / rowHeight) < visibleSessions
+        ? visible[rowIndex]
+        : undefined;
+    const lineInRow = i % rowHeight;
+    const marker = rowIndex === cursor ? ">" : " ";
     const left = row
-      ? taskWidth >= 10
+      ? tabular
         ? table(
             name(row),
+            row.session?.taskSummary ?? "No session",
+            sessionCurrentTask(row.session),
+            sessionProgress(row.session),
             stateLabel(row),
-            sessionTaskCell(row.session, taskWidth),
-            age(row),
             marker,
           )
-        : `${marker} ${name(row)} | ${stateLabel(row)} | ${sessionTaskCell(row.session, width)}`
+        : [
+            `${marker} ${name(row)} | ${row.session?.taskSummary ?? "No session"}`,
+            `  Current: ${sessionCurrentTask(row.session)}`,
+            `  Progress: ${sessionProgress(row.session)} | ${stateLabel(row)}`,
+          ][lineInRow]!
       : i === 0
-        ? "No matches. Clear filters or run register / begin."
+        ? "No matches. f changes filter; / searches."
         : "";
     lines.push(
       wide
@@ -1358,7 +1355,17 @@ export async function dashboardCommand(): Promise<void> {
           ),
         );
       } else {
-        const pageSize = Math.max(1, (stdout.rows || 24) - 13);
+        const width = (stdout.columns || 80) - 1;
+        const height = (stdout.rows || 24) - (message ? 1 : 0);
+        const framed = width >= 114 && height >= 27;
+        const innerWidth = width - (framed ? 4 : 0);
+        const split = innerWidth >= 110 && height >= 20;
+        const listWidth = split ? Math.floor(innerWidth * 0.68) : innerWidth;
+        const rowHeight = listWidth >= 80 ? 1 : 3;
+        const pageSize = Math.max(
+          1,
+          Math.floor((height - (framed ? 7 : 0) - (split ? 6 : 7)) / rowHeight),
+        );
         navigation.sessions = scrollDetailPane(
           navigation.sessions,
           key.name!,
