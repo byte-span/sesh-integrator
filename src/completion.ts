@@ -9,7 +9,8 @@ export function writeCompletionSummary(session: Session): void {
       : []),
     ...(session.rolloutFollowUps ?? []),
   ];
-  const succeeded = session.status === "succeeded";
+  const noChanges = session.status === "no_changes";
+  const succeeded = session.status === "succeeded" || noChanges;
   const unclassified = !session.rolloutDisposition;
   const missingActions =
     session.rolloutDisposition === "manual" &&
@@ -17,9 +18,17 @@ export function writeCompletionSummary(session: Session): void {
   process.stdout.write(
     `Completion summary:\n` +
       `  Session: ${session.id}\n` +
-      `  Source commit: ${session.readyCommit ?? "Not recorded"}\n` +
-      `  Staging integration commit: ${session.integratedCommit ?? "Not recorded"}\n` +
-      `  Target promotion: ${session.targetBranch ?? "Not recorded"} at ${session.promotedCommit ?? "Not promoted"}\n` +
+      `  Source commit: ${noChanges ? `No new commit (base ${session.startCommit})` : (session.readyCommit ?? "Not recorded")}\n` +
+      `  Staging integration commit: ${noChanges ? "Not required" : (session.integratedCommit ?? "Not recorded")}\n` +
+      (noChanges
+        ? "  Target promotion: Not performed; no new changes.\n"
+        : `  Target promotion: ${session.targetBranch ?? "Not recorded"} at ${session.promotedCommit ?? "Not promoted"}\n`) +
+      (noChanges
+        ? `  Outcome: Finished - no changes needed.\n  Summary: ${session.completionSummary ?? ""}\n`
+        : "") +
+      (session.satisfiedBySessionId
+        ? `  Satisfied by session: ${session.satisfiedBySessionId}\n`
+        : "") +
       `  Source integration: ${session.status}\n` +
       `  Pull request: ${session.pullRequestUrl ?? "None"}\n` +
       `  External rollout: ${formatRolloutDisposition(session.rolloutDisposition)}\n` +

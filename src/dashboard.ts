@@ -3,6 +3,8 @@ import { basename } from "node:path";
 import { emitKeypressEvents, type Key } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { stripVTControlCharacters } from "node:util";
+import { watchDashboard } from "./dashboard-watch.js";
+import { currentTask, taskProgress, taskLines } from "./tasks.js";
 import { targetBranch } from "./promotion.js";
 import { pullRequestPromotion } from "./pull-request.js";
 import { readConfig, readSessions } from "./runtime.js";
@@ -54,6 +56,7 @@ export function actionReason(
   if (!row.repository) return "Repository is no longer registered";
   if (s.waitingForLock)
     return "Session is already waiting for the repository lock";
+  if (s.status === "no_changes") return "Session finished without changes";
   if (s.status === "succeeded") return "Session already integrated";
   if (action === "validate")
     return s.status === "active"
@@ -110,7 +113,7 @@ export function exactTime(value: string | number): string {
     : `${date.toISOString().slice(0, 19).replace("T", " ")} UTC`;
 }
 
-export function detailLines(row: DashboardRow): string[] {
+export function detailLines(row: DashboardRow, includeTasks = true): string[] {
   const { session: s, repository: r } = row;
   const lines = [
     `Repository: ${r?.path ?? s?.repositoryPath ?? "-"}`,
@@ -133,6 +136,19 @@ export function detailLines(row: DashboardRow): string[] {
     `Target promotion: ${s.promotedCommit ?? "not promoted"}`,
     `Rollout: ${s.rolloutDisposition ?? "unclassified"}`,
   );
+  if (includeTasks)
+    lines.splice(
+      2,
+      0,
+      `Tasks: ${taskProgress(s)}`,
+      `Current task: ${currentTask(s)}`,
+      ...taskLines(s),
+      "",
+    );
+  if (s.closedAt)
+    lines.push(`Finished without changes: ${exactTime(s.closedAt)}`);
+  if (s.satisfiedBySessionId)
+    lines.push(`Satisfied by session: ${s.satisfiedBySessionId}`);
   if (s.completionSummary) lines.push(`Completion: ${s.completionSummary}`);
   if (s.rolloutDisposition === "automated")
     lines.push("External automation delegated; completion not verified.");
@@ -164,6 +180,108 @@ export function detailLines(row: DashboardRow): string[] {
   return lines;
 }
 
+const detailLabelPattern = /^([A-Z][A-Za-z -]{1,30}:)(?: |$)/;
+
+/** Keep field values together and align wrapped continuations. */
+export function detailFieldLines(row: DashboardRow, width: number): string[] {
+  width = Math.max(1, Math.floor(width));
+  const fields = detailLines(row, false).map(terminalText);
+  const labelWidth = Math.max(
+    ...fields.map((line) => line.match(detailLabelPattern)?.[1]?.length ?? 0),
+  );
+  const tabular = width >= 72;
+  const indent = tabular ? labelWidth + 2 : Math.min(2, width - 1);
+  return fields.flatMap((line, index) => {
+    const match = line.match(detailLabelPattern);
+    const label = match?.[1];
+    const value = label ? line.slice(match![0].length) : line;
+    const values = wrapWords(value, width - indent);
+    const content = tabular
+      ? values.map(
+          (part, i) =>
+            `${(i === 0 ? (label ?? "") : "").padEnd(indent)}${part}`,
+        )
+      : [
+          ...(label ? wrapLines([label], width) : []),
+          ...values.map((part) => `${" ".repeat(indent)}${part}`),
+        ];
+    return [...(index && label ? [""] : []), ...content];
+  });
+}
+
+/** Keep status and order compact while giving task text the remaining width. */
+export function taskTableLines(session: Session, width: number): string[] {
+  width = Math.max(1, Math.floor(width));
+  const tasks = session.tasks ?? [];
+  if (!tasks.length) return [];
+  const labels = {
+    pending: "Pending",
+    in_progress: "In progress",
+    completed: "Completed",
+    blocked: "Blocked",
+    skipped: "Skipped",
+  };
+  const statusWidth = Math.max(
+    6,
+    ...tasks.map((task) => labels[task.status].length),
+  );
+  const numberWidth = String(tasks.length).length;
+  const prefixWidth = statusWidth + numberWidth + 6;
+  const tabular = width - prefixWidth >= 10;
+  const taskWidth = tabular ? width - prefixWidth : width;
+  const row = (status: string, number: string, text: string) =>
+    `${status.padEnd(statusWidth)} | ${number.padStart(numberWidth)} | ${text}`;
+  const lines = tabular ? [row("Status", "#", "Task"), "-".repeat(width)] : [];
+  tasks.forEach((task, index) => {
+    if (index) lines.push("");
+    const title = wrapWords(terminalText(task.title), taskWidth);
+    if (tabular) {
+      lines.push(
+        ...title.map((part, line) =>
+          row(
+            line === 0 ? labels[task.status] : "",
+            line === 0 ? String(index + 1) : "",
+            part,
+          ),
+        ),
+      );
+    } else {
+      lines.push(
+        ...wrapWords(`${labels[task.status]} | ${index + 1}`, width),
+        ...title,
+      );
+    }
+    for (const detail of [
+      task.description,
+      task.reason ? `Reason: ${task.reason}` : undefined,
+    ]) {
+      if (!detail) continue;
+      const indent = Math.min(tabular ? 2 : 4, taskWidth - 1);
+      const wrapped = wrapWords(terminalText(detail), taskWidth - indent);
+      lines.push(
+        ...wrapped.map((part) =>
+          tabular
+            ? row("", "", `${" ".repeat(indent)}${part}`)
+            : `${" ".repeat(indent)}${part}`,
+        ),
+      );
+    }
+  });
+  return lines;
+}
+
+function wrapWords(text: string, width: number): string[] {
+  const lines: string[] = [];
+  while (text.length > width) {
+    const space = text.lastIndexOf(" ", width);
+    const end = space > 0 ? space : width;
+    lines.push(text.slice(0, end));
+    text = text.slice(end).trimStart();
+  }
+  lines.push(text);
+  return lines;
+}
+
 export function wrapLines(lines: string[], width: number): string[] {
   width = Math.max(1, width);
   return lines.flatMap((line) => {
@@ -175,13 +293,170 @@ export function wrapLines(lines: string[], width: number): string[] {
   });
 }
 
+export interface DetailPaneState {
+  focused: boolean;
+  offset: number;
+}
+
+function sessionCurrentTask(session?: Session): string {
+  if (!session || ["succeeded", "no_changes"].includes(session.status))
+    return "";
+  return session.tasks?.some((task) =>
+    ["pending", "in_progress", "blocked"].includes(task.status),
+  )
+    ? currentTask(session)
+    : "";
+}
+
+function sessionStatusLabel(row: DashboardRow): string {
+  const session = row.session;
+  if (!row.repository || !session) return stateLabel(row);
+  if (session.status === "no_changes") return "No changes";
+  if (session.status === "succeeded") return "Integrated";
+  return session.status === "active" ? "In progress" : stateLabel(row);
+}
+
+function sessionRowStatus(row: DashboardRow): string {
+  const status = sessionStatusLabel(row);
+  const session = row.session;
+  return row.repository &&
+    session?.tasks?.length &&
+    !["succeeded", "no_changes"].includes(session.status)
+    ? `${status} | ${sessionProgress(session)}`
+    : status;
+}
+
+function sessionRowHeight(row: DashboardRow, tabular: boolean): number {
+  return (tabular ? 1 : 2) + (sessionCurrentTask(row.session) ? 1 : 0);
+}
+
+function sessionProgress(session?: Session): string {
+  if (!session?.tasks?.length) return "-";
+  const completed = session.tasks.filter(
+    (task) => task.status === "completed",
+  ).length;
+  const skipped = session.tasks.filter(
+    (task) => task.status === "skipped",
+  ).length;
+  if (skipped === session.tasks.length) return `${skipped} skipped`;
+  return `${completed}/${session.tasks.length}${skipped ? `, ${skipped} skipped` : ""}`;
+}
+
+/** The title and status stay pinned; tasks follow the session details. */
+export function renderDetailPane(
+  row: DashboardRow,
+  width: number,
+  height: number,
+  requestedOffset = 0,
+) {
+  width = Math.max(1, width);
+  height = Math.max(4, height);
+  const s = row.session;
+  const heading = terminalText(s?.taskSummary ?? "No session");
+  const titleLines = wrapWords(heading, width);
+  const titleLimit = Math.min(3, Math.max(1, height - 6));
+  const title = titleLines.slice(0, titleLimit);
+  if (titleLines.length > titleLimit)
+    title[titleLimit - 1] =
+      title[titleLimit - 1]!.slice(0, Math.max(0, width - 3)) +
+      "...".slice(0, width);
+  const header = [
+    ...title,
+    terminalText(sessionStatusLabel(row)).slice(0, width),
+  ];
+  const body = wrapLines(
+    [
+      "",
+      "Next action",
+      nextStep(row),
+      "-".repeat(width),
+      "Recent activity",
+      ...dashboardActivity([row])
+        .slice(0, 3)
+        .map(
+          (e) =>
+            `${e.at.slice(0, 10)} ${e.at.slice(11, 19)}  ${e.text.split(" | ")[0]}`,
+        ),
+      ...(!dashboardActivity([row]).length ? ["No saved milestones yet."] : []),
+      "-".repeat(width),
+      ...detailFieldLines(row, width),
+      ...(s?.tasks?.length
+        ? [
+            "-".repeat(width),
+            "Tasks",
+            taskProgress(s),
+            ...taskTableLines(s, width),
+          ]
+        : []),
+    ],
+    width,
+  );
+  const footerHeight = Math.min(3, height - 3);
+  const pageSize = Math.max(1, height - header.length - footerHeight);
+  const maxOffset = Math.max(0, body.length - pageSize);
+  const offset = Math.max(0, Math.min(requestedOffset, maxOffset));
+  const shown = body.slice(offset, offset + pageSize);
+  while (shown.length < pageSize) shown.push("");
+  const end = Math.min(body.length, offset + pageSize);
+  const position = `Lines ${offset + 1}-${end} of ${body.length}`;
+  const remainingContent =
+    offset > 0
+      ? end < body.length
+        ? "More above and below"
+        : "End of details - more above"
+      : end < body.length
+        ? "More below"
+        : "All content shown";
+  const footer =
+    footerHeight === 3
+      ? ["-".repeat(width), position, remainingContent]
+      : footerHeight === 2
+        ? ["-".repeat(width), position]
+        : [position];
+  return {
+    offset,
+    maxOffset,
+    pageSize,
+    lines: [...header, ...shown, ...footer.map((line) => line.slice(0, width))],
+  };
+}
+
+export function scrollDetailPane(
+  offset: number,
+  key: string,
+  pageSize: number,
+  maxOffset: number,
+): number {
+  return Math.max(
+    0,
+    Math.min(
+      maxOffset,
+      key === "home"
+        ? 0
+        : key === "end"
+          ? maxOffset
+          : offset +
+            (key === "pageup"
+              ? -pageSize
+              : key === "pagedown"
+                ? pageSize
+                : key === "up"
+                  ? -1
+                  : key === "down"
+                    ? 1
+                    : 0),
+    ),
+  );
+}
+
 export function needsAttention(row: DashboardRow): boolean {
   const s = row.session;
   return (
     !!s &&
-    s.status !== "succeeded" &&
+    !["succeeded", "no_changes"].includes(s.status) &&
     (!row.repository ||
       !!s.validationFailure ||
+      !!s.tasks?.some((task) => task.status === "blocked") ||
       !!s.latestError ||
       ["needs_review", "validation_pending", "promotion_pending"].includes(
         s.status,
@@ -199,6 +474,7 @@ function stateLabel(row: DashboardRow): string {
   const s = row.session;
   if (!s) return "no sessions";
   if (!row.repository) return "unregistered";
+  if (s.status === "no_changes") return "no changes needed";
   if (s.status === "succeeded") return "completed";
   if (s.waitingForLock) return "waiting for lock";
   if (s.awaitingConflictResolution) return "merge conflict";
@@ -210,7 +486,7 @@ function nextStep(row: DashboardRow): string {
   const s = row.session;
   if (!s) return "Run begin in this repository";
   if (!row.repository) return "Restore repository registration";
-  if (s.status === "succeeded") {
+  if (["succeeded", "no_changes"].includes(s.status)) {
     if (s.pullRequestUrl) return "Review and merge PR; Enter for follow-ups";
     if (s.rolloutFollowUps?.length)
       return "Complete external follow-ups; Enter details";
@@ -259,42 +535,27 @@ export function dashboardActivity(
 }
 
 export interface DashboardNavigation {
-  focus: "sessions" | "attention";
   sessions: number;
-  attention: number;
 }
 
 export function dashboardSelection(
   rows: DashboardRow[],
   nav: DashboardNavigation,
 ): number {
-  return nav.focus === "sessions"
-    ? nav.sessions
-    : rows.indexOf(rows.filter(needsAttention)[nav.attention]!);
+  return nav.sessions;
 }
 
 export function navigateDashboard(
   rows: DashboardRow[],
   nav: DashboardNavigation,
-  key: "tab" | "up" | "down",
+  key: "up" | "down",
 ): DashboardNavigation {
-  const next = { ...nav };
-  if (key === "tab") {
-    next.focus =
-      nav.focus === "sessions" && rows.some(needsAttention)
-        ? "attention"
-        : "sessions";
-  } else {
-    const count =
-      nav.focus === "sessions"
-        ? rows.length
-        : rows.filter(needsAttention).length;
-    next[nav.focus] = Math.max(
+  return {
+    sessions: Math.max(
       0,
-      Math.min(count - 1, nav[nav.focus] + (key === "down" ? 1 : -1)),
-    );
-  }
-  return next;
+      Math.min(rows.length - 1, nav.sessions + (key === "down" ? 1 : -1)),
+    ),
+  };
 }
 
 export interface DashboardView {
@@ -393,6 +654,8 @@ function updatedAt(row: DashboardRow): number {
     0,
     ...[
       s.startedAt,
+      s.tasksUpdatedAt,
+      s.closedAt,
       s.readyAt,
       s.sourceValidatedAt,
       s.integratedAt,
@@ -415,16 +678,28 @@ export function filterDashboard(
       (view.filter === "needs attention" && needsAttention(row)) ||
       (view.filter === "active" &&
         !!s &&
-        ["active", "ready"].includes(s.status) &&
-        !needsAttention(row)) ||
+        !["succeeded", "no_changes"].includes(s.status)) ||
       (view.filter === "review" &&
         (s?.status === "needs_review" || !!s?.pullRequestUrl)) ||
-      (view.filter === "completed" && s?.status === "succeeded");
+      (view.filter === "completed" &&
+        !!s &&
+        ["succeeded", "no_changes"].includes(s.status));
     return (
       matches &&
       (!view.repository || path === view.repository) &&
       terminalText(
-        [path, s?.taskSummary, s?.id, s?.branch, stateLabel(row)].join(" "),
+        [
+          path,
+          s?.taskSummary,
+          s?.id,
+          s?.branch,
+          stateLabel(row),
+          ...(s?.tasks ?? []).flatMap((task) => [
+            task.title,
+            task.description,
+            task.reason,
+          ]),
+        ].join(" "),
       )
         .toLowerCase()
         .includes(view.query.toLowerCase())
@@ -450,12 +725,11 @@ export function renderDashboard(
   height: number,
   refreshedAt = new Date(),
   navigation: DashboardNavigation = {
-    focus: "sessions",
     sessions: selected,
-    attention: 0,
   },
   view: DashboardView = defaultDashboardView,
   now = new Date(),
+  pane: DetailPaneState = { focused: false, offset: 0 },
 ): string[] {
   const framed = width >= 114 && height >= 27;
   if (!framed)
@@ -468,6 +742,7 @@ export function renderDashboard(
       navigation,
       view,
       now,
+      pane,
     );
   width = Math.floor(width);
   height = Math.floor(height);
@@ -481,6 +756,7 @@ export function renderDashboard(
     navigation,
     view,
     now,
+    pane,
   );
   const border = "+" + "-".repeat(width - 2) + "+";
   const top = "/" + "-".repeat(width - 2) + "\\";
@@ -513,12 +789,11 @@ function renderDashboardContent(
   height: number,
   refreshedAt = new Date(),
   navigation: DashboardNavigation = {
-    focus: "sessions",
     sessions: selected,
-    attention: 0,
   },
   view: DashboardView = defaultDashboardView,
   now = new Date(),
+  pane: DetailPaneState = { focused: false, offset: 0 },
 ): string[] {
   width = Math.max(1, Math.floor(width));
   height = Math.max(1, Math.floor(height));
@@ -533,48 +808,37 @@ function renderDashboardContent(
   };
   const name = (r: DashboardRow) =>
     basename(r.repository?.path ?? r.session?.repositoryPath ?? "-");
-  const age = (r: DashboardRow) => {
-    const at = updatedAt(r);
-    if (!at) return "-";
-    const minutes = Math.max(0, Math.floor((now.getTime() - at) / 60000));
-    return minutes < 1
-      ? "now"
-      : minutes < 60
-        ? `${minutes}m`
-        : minutes < 1440
-          ? `${Math.floor(minutes / 60)}h`
-          : `${Math.floor(minutes / 1440)}d`;
-  };
-  const visible =
-    navigation.focus === "attention" ? rows.filter(needsAttention) : rows;
-  const cursor = navigation[navigation.focus];
+  const visible = rows;
+  const cursor = navigation.sessions;
   const selectedRow = rows[selected];
   const attention = rows.filter(needsAttention).length;
   const active = rows.filter(
-    (r) =>
-      r.session &&
-      ["active", "ready"].includes(r.session.status) &&
-      !needsAttention(r),
+    (r) => r.session && !["succeeded", "no_changes"].includes(r.session.status),
   ).length;
   const title = `sesh-integrator  ${visible.length} visible | ${attention} attention | ${active} active`;
   const refresh = `Last refresh ${exactTime(refreshedAt.getTime())}`;
   const wide = width >= 110 && height >= 20;
   const leftWidth = wide ? Math.floor(width * 0.68) : width;
   const rightWidth = wide ? width - leftWidth - 3 : width;
-  const repoWidth = Math.min(25, Math.max(10, Math.floor(leftWidth * 0.25)));
-  const statusWidth = 18;
-  const taskWidth = leftWidth - repoWidth - statusWidth - 12;
+  const tabular = leftWidth >= 70;
+  const repoWidth = Math.min(18, Math.max(10, Math.floor(leftWidth * 0.18)));
+  const statusWidth = Math.min(
+    Math.floor(leftWidth * 0.36),
+    Math.max(18, ...rows.map((row) => sessionRowStatus(row).length)),
+  );
+  const descriptionWidth = leftWidth - repoWidth - statusWidth - 4;
   const table = (
     repo: string,
+    description: string,
     status: string,
-    task: string,
-    updated: string,
     marker = " ",
   ) =>
-    `${marker} ${fit(repo, repoWidth)} ${fit(status, statusWidth)} ${fit(task, taskWidth)} ${fit(updated, 7)}`;
+    `${marker} ${fit(repo, repoWidth)} ${fit(description, descriptionWidth)} ${fit(status, statusWidth)}`;
+  const columnHeading = tabular
+    ? table("Repository", "Session", "Status")
+    : "Repository / Session / Status";
   const position = `${visible.length ? cursor + 1 : 0}/${visible.length}`;
-  const filterLabel =
-    navigation.focus === "attention" ? "needs attention" : view.filter;
+  const filterLabel = view.filter;
   const filters =
     width >= 150
       ? ["all", "needs attention", "active", "review", "completed"]
@@ -584,81 +848,70 @@ function renderDashboardContent(
   const controls =
     width >= 100
       ? `filter: ${filters}   repo: ${view.repository ? fit(basename(view.repository), 18).trimEnd() : "all repos"} (p)   sort: ${view.sort} (s)   / ${view.query || "search tasks"}`
-      : `f ${navigation.focus === "attention" ? "needs attention" : view.filter}  p ${view.repository ? basename(view.repository) : "all repos"}  s ${view.sort}  / ${view.query || "search"}`;
+      : `f ${view.filter}  p ${view.repository ? basename(view.repository) : "all repos"}  s ${view.sort}  / ${view.query || "search"}`;
   const lines = [
     width >= title.length + refresh.length + 3
       ? fit(title, width - refresh.length) + refresh
       : refresh,
     controls,
     wide
-      ? fit(`Sessions  ${position}`, leftWidth) + " | " + "Selected item"
+      ? fit(
+          `Sessions  ${position}${pane.focused ? "" : " [focused]"}`,
+          leftWidth,
+        ) +
+        " | " +
+        `Selected item${pane.focused ? " [focused]" : ""}`
       : `Sessions ${position}  Enter for details`,
-    wide
-      ? fit(table("repo", "status", "task", "updated"), leftWidth) + " | "
-      : taskWidth >= 10
-        ? table("repo", "status", "task", "updated")
-        : "repo / status / task",
+    wide ? fit(columnHeading, leftWidth) + " | " : columnHeading,
   ];
   const footer =
     width >= 100
-      ? "Up/Down select   Enter details   / search   Left/Right status   p repo   s sort   r refresh   q quit"
-      : "Up/Down select  Left/Right status  p repo  s sort  Enter details  q quit";
-  const actions = "v validate   i integrate   R resume   Tab attention";
+      ? `Tab ${pane.focused ? "sessions" : "details"}   Up/Down/PgUp/PgDn ${pane.focused ? "scroll" : "select"}   Enter expand   / search   p repo   s sort   r refresh   q quit`
+      : "Tab/Enter details  Up/Down select  f filter  p repo  s sort  q quit";
+  const actions = "v validate   i integrate   R resume";
   const count = Math.max(1, height - lines.length - (wide ? 2 : 3));
-  const start = Math.max(0, cursor - count + 1);
-  const s = selectedRow?.session;
+  let start = Math.max(0, cursor);
+  let used = rows[cursor] ? sessionRowHeight(rows[cursor]!, tabular) : 0;
+  while (
+    start > 0 &&
+    used + sessionRowHeight(rows[start - 1]!, tabular) <= count
+  ) {
+    used += sessionRowHeight(rows[--start]!, tabular);
+  }
   const details = selectedRow
-    ? [
-        ...wrapLines([s?.taskSummary ?? "No session"], rightWidth).slice(0, 2),
-        "",
-        `Repository  ${name(selectedRow)}`,
-        `Status      ${stateLabel(selectedRow)}`,
-        `Branch      ${s?.branch ?? "-"}`,
-        `Session     ${s?.id ?? "-"}`,
-        `Updated     ${age(selectedRow)} (saved event)`,
-        "-".repeat(rightWidth),
-        "Next action",
-        ...wrapLines([nextStep(selectedRow)], rightWidth),
-        "-".repeat(rightWidth),
-        "Recent activity",
-        ...(s?.validationFailure
-          ? wrapLines(
-              [`Validation failed: ${s.validationFailure.message}`],
-              rightWidth,
-            )
-          : []),
-        ...(s?.latestError ? wrapLines([s.latestError], rightWidth) : []),
-        ...dashboardActivity([selectedRow])
-          .slice(0, 3)
-          .map(
-            (e) =>
-              `${e.at.slice(0, 10)} ${e.at.slice(11, 19)}  ${e.text.split(" | ")[0]}`,
-          ),
-        ...(!s?.validationFailure &&
-        !s?.latestError &&
-        !dashboardActivity([selectedRow]).length
-          ? ["No saved milestones yet."]
-          : []),
-        "",
-        "Enter for full details and follow-ups",
-      ]
+    ? renderDetailPane(selectedRow, rightWidth, count, pane.offset).lines
     : ["Select a session to inspect its next action."];
-  for (let i = 0; i < count; i++) {
-    const row = visible[start + i];
-    const marker = start + i === cursor ? ">" : " ";
-    const left = row
-      ? taskWidth >= 10
-        ? table(
+  const listLines: string[] = [];
+  for (let index = start; index < visible.length; index++) {
+    const row = visible[index]!;
+    const marker = index === cursor ? ">" : " ";
+    const task = sessionCurrentTask(row.session);
+    const rowLines = tabular
+      ? [
+          table(
             name(row),
-            stateLabel(row),
-            row.session?.taskSummary ?? "Run begin",
-            age(row),
+            row.session?.taskSummary ?? "No session",
+            sessionRowStatus(row),
             marker,
-          )
-        : `${marker} ${name(row)} | ${stateLabel(row)} | ${row.session?.taskSummary ?? "Run begin"}`
-      : i === 0
-        ? "No matches. Clear filters or run register / begin."
-        : "";
+          ),
+        ]
+      : [
+          `${marker} ${name(row)} | ${row.session?.taskSummary ?? "No session"}`,
+        ];
+    if (task)
+      rowLines.push(
+        tabular ? table("", `Task: ${task}`, "") : `  Task: ${task}`,
+      );
+    if (!tabular) rowLines.push(`  ${sessionRowStatus(row)}`);
+    if (listLines.length && listLines.length + rowLines.length > count) break;
+    listLines.push(...rowLines);
+  }
+  for (let i = 0; i < count; i++) {
+    const left =
+      listLines[i] ??
+      (i === 0 && !rows.length
+        ? "No matches. f changes filter; / searches."
+        : "");
     lines.push(
       wide
         ? fit(left, leftWidth) + " | " + fit(details[i] ?? "", rightWidth)
@@ -710,8 +963,29 @@ export function colorDashboardLine(
     safe.length >= 110 && safe.slice(split, split + 3) === " | " ? split : -1;
   const left = divider >= 0 ? safe.slice(0, divider) : safe;
   const right = divider >= 0 ? safe.slice(divider + 3) : "";
-  const decorate = (text: string) =>
-    /^-{3,}\s*$/.test(text)
+  const decorate = (text: string) => {
+    if (/^Status +\| +# +\| Task/.test(text))
+      return `\x1b[1;${accent}m${text}\x1b[22;${base}m`;
+    if (/^ +\| +\| {3}|^ {4}\S/.test(text)) return paint(text, muted);
+    const taskStatus = text.match(
+      /^(Pending|In progress|Completed|Blocked|Skipped)(?= +\|)/,
+    )?.[1];
+    if (taskStatus) {
+      const color =
+        taskStatus === "Blocked"
+          ? "91"
+          : taskStatus === "Completed"
+            ? "92"
+            : taskStatus === "In progress"
+              ? "93"
+              : muted;
+      return paint(taskStatus, color) + text.slice(taskStatus.length);
+    }
+
+    const label = text.match(detailLabelPattern)?.[1];
+    if (label)
+      return `\x1b[1;${accent}m${label}\x1b[22;${base}m${text.slice(label.length)}`;
+    return /^-{3,}\s*$/.test(text)
       ? paint(unicode ? text.replace(/-/g, "─") : text, muted)
       : text.replace(
           /\b(validation failed|merge conflict|needs review|needs attention|promotion pending|validation pending|active|ready|completed)\b/g,
@@ -727,6 +1001,7 @@ export function colorDashboardLine(
                     : "94",
             ),
         );
+  };
   const style =
     /^(sesh-integrator|Sessions|Next action|Selected item|Recent activity)/.test(
       safe.trim(),
@@ -735,9 +1010,11 @@ export function colorDashboardLine(
       : /^(filter:|f |repo |Up\/Down|v validate)/.test(safe.trim())
         ? muted
         : base;
-  let content = left.startsWith("> ")
-    ? paint(left, selected)
-    : paint(decorate(left), style);
+  let content = /^\s+Task: /.test(left)
+    ? paint(left, muted)
+    : left.startsWith("> ")
+      ? paint(left, selected)
+      : paint(decorate(left), style);
   if (divider >= 0)
     content +=
       paint(unicode ? " │ " : " | ", muted) +
@@ -763,15 +1040,32 @@ export async function dashboardCommand(): Promise<void> {
   let picker: DashboardPicker | undefined;
   let previousQuery = "";
   let refreshedAt = new Date();
-  let clockTimer: ReturnType<typeof setInterval> | undefined;
+  let stopWatching: (() => void) | undefined;
+  let refreshPending = false;
+  let refreshQueued = false;
   let selected = 0;
   let navigation: DashboardNavigation = {
-    focus: "sessions",
     sessions: 0,
-    attention: 0,
   };
   let mode: "list" | "details" | "form" | "confirm" | "output" = "list";
   let scroll = 0;
+  let detailFocused = false;
+  const detailOffsets = new Map<string, number>();
+  const detailKey = () =>
+    rows[selected]?.session?.id ?? rows[selected]?.repository?.path ?? "";
+  const detailPage = () => {
+    const width = Math.max(1, (stdout.columns || 80) - 1);
+    const height = Math.max(1, (stdout.rows || 24) - (message ? 1 : 0));
+    const framed = mode === "list" && width >= 114 && height >= 27;
+    const innerWidth = width - (framed ? 4 : 0);
+    const split = mode === "list" && innerWidth >= 110 && height >= 20;
+    return renderDetailPane(
+      rows[selected]!,
+      split ? innerWidth - Math.floor(innerWidth * 0.68) - 3 : width,
+      split ? height - (framed ? 7 : 0) - 6 : height - 2,
+      detailOffsets.get(detailKey()) ?? 0,
+    );
+  };
   let message = "";
   let field: "summary" | "rollout" | "followUp" = "summary";
   let buffer = "";
@@ -804,9 +1098,18 @@ export async function dashboardCommand(): Promise<void> {
     const height = Math.max(1, stdout.rows || 24);
     let lines: string[];
     let overlay: ReturnType<typeof dashboardPickerLayout> | undefined;
+    if (
+      mode === "list" &&
+      detailFocused &&
+      (width < 110 || height < 20) &&
+      rows[selected]
+    )
+      mode = "details";
     if (width < 35 || height < 10) {
       lines = ["Terminal too small.", "Resize to at least 36 x 10.", "q quit"];
     } else if (mode === "list") {
+      const offset = rows[selected] ? detailPage().offset : 0;
+      if (rows[selected]) detailOffsets.set(detailKey(), offset);
       lines = renderDashboard(
         rows,
         selected,
@@ -815,6 +1118,11 @@ export async function dashboardCommand(): Promise<void> {
         refreshedAt,
         navigation,
         view,
+        new Date(),
+        {
+          focused: detailFocused,
+          offset,
+        },
       );
       if (searching) {
         const framed = lines[0]?.startsWith("/");
@@ -827,26 +1135,22 @@ export async function dashboardCommand(): Promise<void> {
         lines[framed ? 2 : 1] = framed ? `| ${search} |` : search;
       }
       if (picker) overlay = dashboardPickerLayout(lines, picker, width);
+    } else if (mode === "details") {
+      if (!rows[selected]) return;
+      const page = detailPage();
+      detailOffsets.set(detailKey(), page.offset);
+      lines = [
+        ...page.lines,
+        "Up/Down/PgUp/PgDn scroll | Home/End",
+        "Tab/Esc back  v/i/R actions  q quit",
+      ];
     } else {
       const row = rows[selected];
       if (!row) return;
       let content: string[];
       let footer: string[];
-      if (mode === "details") {
-        content = [
-          ...detailLines(row),
-          "",
-          ...(["validate", "integrate", "resume"] as const).map(
-            (a) =>
-              `${a === "resume" ? "R" : a[0]} ${a}: ${actionReason(row, a) ?? "available"}`,
-          ),
-        ];
-        footer = [
-          "v validate | i integrate | R resume",
-          "Esc back | r refresh | q quit",
-        ];
-      } else if (mode === "confirm") {
-        content = [`Confirm ${pending}`, ...detailLines(row)];
+      if (mode === "confirm") {
+        content = [`Confirm ${pending}`, ...detailLines(row, false)];
         if (pending === "integrate")
           content.push(
             "",
@@ -932,7 +1236,6 @@ export async function dashboardCommand(): Promise<void> {
   };
   const refresh = async () => {
     const oldSession = rows[navigation.sessions];
-    const oldAttention = rows.filter(needsAttention)[navigation.attention];
     const id = rows[selected]?.session?.id;
     const path = rows[selected]?.repository?.path;
     allRows = await loadDashboard();
@@ -958,23 +1261,13 @@ export async function dashboardCommand(): Promise<void> {
         : Math.max(0, Math.min(fallback, list.length - 1));
     };
     navigation.sessions = preserve(rows, oldSession, navigation.sessions);
-    const attention = rows.filter(needsAttention);
-    navigation.attention = preserve(
-      attention,
-      oldAttention,
-      navigation.attention,
-    );
-    if (!attention.length) {
-      if (navigation.focus === "attention") navigation.sessions = selected;
-      navigation.focus = "sessions";
-    }
     selected = dashboardSelection(rows, navigation);
     if (!rows.length) mode = "list";
   };
   const close = () => {
     if (closed) return;
     closed = true;
-    clearInterval(clockTimer);
+    stopWatching?.();
     leave();
     stdin.setRawMode(wasRaw);
     stdin.off("keypress", onKey);
@@ -1049,7 +1342,7 @@ export async function dashboardCommand(): Promise<void> {
   };
   const applyView = () => {
     rows = filterDashboard(allRows, view);
-    navigation = { focus: "sessions", sessions: 0, attention: 0 };
+    navigation = { sessions: 0 };
     selected = 0;
   };
   const handleKey = async (text: string, key: Key) => {
@@ -1206,6 +1499,7 @@ export async function dashboardCommand(): Promise<void> {
     if (key.name === "escape") {
       mode = mode === "confirm" ? "details" : "list";
       scroll = 0;
+      detailFocused = false;
       return;
     }
     if (mode === "confirm") {
@@ -1222,20 +1516,67 @@ export async function dashboardCommand(): Promise<void> {
       await refresh();
       return;
     }
-    if (mode === "list" && key.name === "tab") {
-      navigation = navigateDashboard(rows, navigation, "tab");
-      selected = dashboardSelection(rows, navigation);
+    if (key.name === "tab") {
+      if (mode === "details") {
+        mode = "list";
+        detailFocused = false;
+      } else if (rows[selected]) {
+        if ((stdout.columns || 80) - 1 >= 110 && (stdout.rows || 24) >= 20)
+          detailFocused = !detailFocused;
+        else mode = "details";
+      }
       return;
     }
-    if (key.name === "down" || key.name === "up") {
-      const delta = key.name === "down" ? 1 : -1;
-      if (mode === "list") {
-        navigation = navigateDashboard(rows, navigation, key.name);
+    if (
+      ["down", "up", "pageup", "pagedown", "home", "end"].includes(
+        key.name ?? "",
+      )
+    ) {
+      if (rows[selected] && (mode === "details" || detailFocused)) {
+        const page = detailPage();
+        detailOffsets.set(
+          detailKey(),
+          scrollDetailPane(
+            page.offset,
+            key.name!,
+            page.pageSize,
+            page.maxOffset,
+          ),
+        );
+      } else {
+        const width = (stdout.columns || 80) - 1;
+        const height = (stdout.rows || 24) - (message ? 1 : 0);
+        const framed = width >= 114 && height >= 27;
+        const innerWidth = width - (framed ? 4 : 0);
+        const split = innerWidth >= 110 && height >= 20;
+        const listWidth = split ? Math.floor(innerWidth * 0.68) : innerWidth;
+        const available = Math.max(
+          1,
+          height - (framed ? 7 : 0) - (split ? 6 : 7),
+        );
+        const direction = key.name === "pageup" ? -1 : 1;
+        let pageSize = 0;
+        let used = 0;
+        for (
+          let index = navigation.sessions;
+          index >= 0 && index < rows.length;
+          index += direction
+        ) {
+          used += sessionRowHeight(rows[index]!, listWidth >= 70);
+          if (used > available) break;
+          pageSize++;
+        }
+        pageSize = Math.max(1, pageSize);
+        navigation.sessions = scrollDetailPane(
+          navigation.sessions,
+          key.name!,
+          pageSize,
+          Math.max(0, rows.length - 1),
+        );
         selected = dashboardSelection(rows, navigation);
-      } else scroll = Math.max(0, scroll + delta);
+      }
     } else if (key.name === "return" && rows[selected]) {
       mode = "details";
-      scroll = 0;
     } else if (
       rows[selected] &&
       (["v", "i", "s"].includes(key.name ?? "") ||
@@ -1271,6 +1612,32 @@ export async function dashboardCommand(): Promise<void> {
       } else mode = "confirm";
     }
   };
+  const requestRefresh = () => {
+    if (closed) return;
+    refreshPending = true;
+    if (refreshQueued) return;
+    refreshQueued = true;
+    // Share the input queue so asynchronous reads cannot race navigation edits.
+    keyQueue = keyQueue.then(async () => {
+      refreshQueued = false;
+      if (
+        closed ||
+        busy ||
+        searching ||
+        picker ||
+        (mode !== "list" && mode !== "details")
+      )
+        return;
+      refreshPending = false;
+      try {
+        await refresh();
+        if (message.startsWith("Refresh failed:")) message = "";
+      } catch (error: unknown) {
+        message = `Refresh failed: ${error instanceof Error ? error.message : String(error)}`;
+      }
+      draw();
+    });
+  };
   const onKey = (text: string, key: Key) => {
     if (busy) return;
     const epoch = inputEpoch;
@@ -1292,6 +1659,7 @@ export async function dashboardCommand(): Promise<void> {
       } finally {
         busy = false;
         draw();
+        if (refreshPending) requestRefresh();
       }
     });
   };
@@ -1304,9 +1672,9 @@ export async function dashboardCommand(): Promise<void> {
     stdin.setRawMode(true);
     stdin.resume();
     draw();
-    // Redraw cached ages only; saved data is still refreshed on demand.
-    clockTimer = setInterval(draw, 60_000);
-    clockTimer.unref();
+    stopWatching = watchDashboard(requestRefresh);
+    // Reconcile changes between the initial read and attaching the watchers.
+    requestRefresh();
     await done;
   } finally {
     close();

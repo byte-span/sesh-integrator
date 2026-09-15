@@ -61,7 +61,9 @@ SESSION 1                         SESSION 2
 
 ## 3. Key Design Choice
 
-There is **no daemon and no watcher**.
+There is **no integration daemon or background watcher**.
+The interactive dashboard watches saved session/configuration files only while
+open, with a 30-second fallback refresh; it never triggers integration automatically.
 
 Each finished session starts its own one-shot integration process.
 
@@ -73,7 +75,7 @@ integration worktrees. A validated isolated result advances the staging ref
 with an expected-old check, so preserved review state does not monopolize the
 repository.
 
-This means the system has no idle background process and no polling state to maintain.
+This means integration has no idle background process or polling state to maintain.
 
 ## 4. Locations
 
@@ -861,3 +863,50 @@ The MVP is ready when disposable repo tests prove:
     across concurrent sessions.
 28. Transient validation failures use bounded retry, preserve exhausted state,
     and resume against the unchanged integration snapshot.
+
+## Session task tracking
+
+A session may have an ordered `tasks` array and `tasksUpdatedAt`. Each task has a
+stable positive numeric ID, title, optional description, status, optional reason,
+and `createdAt`/`updatedAt` timestamps. Missing tasks means an empty checklist;
+legacy sessions require no migration. New tasks default to `pending`. Other
+states are `in_progress`, `completed`, `blocked`, and `skipped`. At most one task
+may be in progress. Blocked/skipped states require a non-empty reason. Agents
+explicitly maintain the checklist through `tasks list/add/update/move`; no
+background observer infers activity. Reordering never changes IDs and removal
+is represented by skipping with a reason, preserving completed/skipped entries.
+
+Task changes atomically update the session JSON under a short per-session record
+lock. Lifecycle writes share the lock and retain the latest checklist rather
+than overwriting it with a stale snapshot. The lock waits at most five seconds
+and never reclaims unknown owners. Task state does not change integration status,
+Git contents, validation evidence, promotion gates, or rollout requirements.
+
+The dashboard shows current task and completed/total count in session rows. Its
+selected pane keeps the title and status pinned, shows the next action first,
+and places the full checklist after session details. It provides wrapping,
+independent keyboard scrolling, and a separate footer labeling the visible line
+range and remaining content above or below.
+Tab changes pane focus; arrows, Page Up/Down, and Home/End navigate the focused
+area. Narrow terminals open full details with Tab/Enter. Refresh and selection
+changes preserve per-session detail offsets, clamped to the available content.
+
+### No-change completion
+
+`finish --no-changes --summary "..." [--session <id>] [--satisfied-by <id>]`
+closes an active session as `no_changes` only when its source branch and commit
+still match begin, its observable working-tree baseline is unchanged, no merge
+or integration/recovery state exists, and every recorded task is completed or
+skipped. Persist `closedAt`, `completionSummary`, and optional
+`satisfiedBySessionId`. The referenced session must be successfully promoted in
+the same repository and its exact source commit must be an ancestor of the
+current source. Preserve its PR/rollout obligations without copying commit
+promotion claims into the new session. Serialize final verification and storage
+with task edits and reject stale lifecycle writes that would reopen it.
+
+The dashboard treats `no_changes` as finished for filters and action gating.
+Skipped progress is explicit; all-skipped tasks alone are not session completion.
+No Git or source-file changes occur. Dependencies continue to require a
+successfully integrated session. Guidance requires explicit no-change completion
+before the agent's final response; finishing a terminal conversation is not a
+session-state event.

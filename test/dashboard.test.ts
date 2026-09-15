@@ -22,13 +22,18 @@ import {
   actionArguments,
   actionReason,
   detailLines,
+  detailFieldLines,
+  taskTableLines,
   loadDashboard,
   renderDashboard,
+  renderDetailPane,
+  scrollDetailPane,
   renderDashboardPicker,
   terminalText,
   wrapLines,
   type DashboardRow,
 } from "../src/dashboard.js";
+import { editTasks } from "../src/tasks.js";
 import { defaultConfig } from "../src/runtime.js";
 
 const roots: string[] = [];
@@ -278,11 +283,11 @@ it("prioritizes blockers without losing sessions and shows recorded milestones",
     new Date("2026-09-12T12:00:00Z"),
   ).join("\n");
   for (const label of [
-    "2 active",
+    "3 active",
     "1 attention",
-    "filter: [all]",
+    "[all]",
     "repo",
-    "updated",
+    "Session",
     "Next action",
     "Recent activity",
     "Selected item",
@@ -333,7 +338,7 @@ it("only emits its own terminal color sequences", () => {
   expect(colored).not.toContain("52;c;");
 });
 
-it("keeps panel cursors independent and details tied to the focused panel", () => {
+it("keeps details tied to the selected session", () => {
   const rows = Array.from({ length: 8 }, (_, i) => {
     const r = row();
     r.session = {
@@ -344,14 +349,8 @@ it("keeps panel cursors independent and details tied to the focused panel", () =
     };
     return r;
   });
-  let nav: DashboardNavigation = {
-    focus: "sessions",
-    sessions: 7,
-    attention: 0,
-  };
-  nav = navigateDashboard(rows, nav, "tab");
+  let nav: DashboardNavigation = { sessions: 0 };
   nav = navigateDashboard(rows, nav, "down");
-  expect(nav).toEqual({ focus: "attention", sessions: 7, attention: 1 });
   expect(dashboardSelection(rows, nav)).toBe(1);
   const draw = (state: DashboardNavigation) =>
     renderDashboard(
@@ -368,26 +367,13 @@ it("keeps panel cursors independent and details tied to the focused panel", () =
   expect(before.join("\n")).toContain("unique-task-1");
   expect(after.join("\n")).toContain("unique-task-2");
   expect(after.filter((l) => /^(?:\| )?> /.test(l))).toHaveLength(1);
-  expect(after.join("\n")).toContain("filter: [needs attention]");
-  nav = navigateDashboard(rows, nav, "tab");
-  expect(dashboardSelection(rows, nav)).toBe(7);
-  expect(draw(nav).join("\n")).toContain("unique-task-7");
-  expect(
-    renderDashboard(rows, 2, 79, 24, new Date(), {
-      ...nav,
-      focus: "attention",
-    }).join("\n"),
-  ).toContain("Sessions 3/6");
+  expect(after.join("\n")).toContain("[all]");
 });
-it("skips an empty attention panel and clamps navigation at panel boundaries", () => {
-  const nav: DashboardNavigation = {
-    focus: "sessions",
-    sessions: 0,
-    attention: 0,
-  };
-  expect(navigateDashboard([row()], nav, "tab")).toEqual(nav);
+it("clamps navigation at list boundaries", () => {
+  const nav: DashboardNavigation = { sessions: 0 };
   expect(navigateDashboard([], nav, "down")).toEqual(nav);
   expect(navigateDashboard([row()], nav, "up")).toEqual(nav);
+  expect(navigateDashboard([row()], nav, "down")).toEqual(nav);
 });
 
 it("filters across task, branch and repository and sorts by saved event time", () => {
@@ -409,9 +395,11 @@ it("filters across task, branch and repository and sorts by saved event time", (
   };
   const rows = [active, blocked, done];
   const ids = (view: Partial<typeof defaultDashboardView>) =>
-    filterDashboard(rows, { ...defaultDashboardView, ...view }).map(
-      (r) => r.session!.id,
-    );
+    filterDashboard(rows, {
+      ...defaultDashboardView,
+      filter: "all",
+      ...view,
+    }).map((r) => r.session!.id);
   expect(ids({})).toEqual(["done", "session_example", "blocked"]);
   expect(ids({ sort: "priority" })).toEqual([
     "blocked",
@@ -423,7 +411,7 @@ it("filters across task, branch and repository and sorts by saved event time", (
     "session_example",
     "blocked",
   ]);
-  expect(ids({ filter: "active" })).toEqual(["session_example"]);
+  expect(ids({ filter: "active" })).toEqual(["session_example", "blocked"]);
   expect(ids({ filter: "needs attention" })).toEqual(["blocked"]);
   expect(ids({ filter: "review" })).toEqual(["done"]);
   expect(ids({ filter: "completed" })).toEqual(["done"]);
@@ -472,7 +460,9 @@ it("separates the header, table, detail sections and footer without overflow", (
   expect(lines[8]).toMatch(/^\| -+ \| /);
   for (const title of ["Next action", "Recent activity"]) {
     const index = lines.findIndex((line) => line.includes(title));
-    expect(lines[index - 1]).toMatch(/\| -+ \|$/);
+    expect(lines[index - 1]).toMatch(
+      title === "Next action" ? /\| +\|$/ : /\| -+ \|$/,
+    );
   }
   expect(lines.at(-4)).toMatch(/^\+-+\+$/);
   expect(colorDashboardLine(lines[0]!, true, true)).toContain("┌");
@@ -502,5 +492,410 @@ it("keeps scrolling pickers inside compact and framed dashboards", () => {
     expect(lines.every((line) => line.length <= width!)).toBe(true);
     expect(lines.join("\n")).toContain("> repo-49");
     expect(lines.join("\n")).toContain("Esc cancel");
+  }
+});
+
+it("shows the current task and progress, searches checklist text, and flags task blockers", () => {
+  const r = row();
+  r.session!.tasks = editTasks([], {
+    action: "add",
+    titles: ["Inspect", "Build CLI", "Validate"],
+  });
+  r.session!.tasks = editTasks(r.session!.tasks, {
+    action: "update",
+    id: 1,
+    status: "completed",
+  });
+  r.session!.tasks = editTasks(r.session!.tasks, {
+    action: "update",
+    id: 2,
+    status: "in_progress",
+    description: "Handle persistent task metadata",
+  });
+  const output = renderDashboard([r], 0, 180, 40).join("\n");
+  expect(output).toContain("Build CLI");
+  expect(output).toContain("1/3");
+  expect(output).not.toContain("1/3 completed");
+  const checklist = renderDetailPane(
+    r,
+    60,
+    25,
+    Number.MAX_SAFE_INTEGER,
+  ).lines.join("\n");
+  expect(checklist).toContain("1/3 completed");
+  expect(checklist).toMatch(/Completed +\| 1 \| Inspect/);
+  expect(checklist).toContain("In progress | 2 | Build CLI");
+  expect(
+    filterDashboard([r], {
+      ...defaultDashboardView,
+      query: "persistent task metadata",
+    }),
+  ).toEqual([r]);
+  r.session!.tasks = editTasks(r.session!.tasks, {
+    action: "update",
+    id: 2,
+    status: "blocked",
+    reason: "Need a fixture",
+  });
+  expect(
+    filterDashboard([r], {
+      ...defaultDashboardView,
+      filter: "needs attention",
+    }),
+  ).toEqual([r]);
+});
+
+it("wraps every task and follow-up within an independently scrollable pane with pinned title and status", () => {
+  const r = row();
+  r.session!.tasks = editTasks([], {
+    action: "add",
+    titles: Array.from(
+      { length: 9 },
+      (_, i) => `Task ${i + 1}: ` + "long content ".repeat(12),
+    ),
+  });
+  r.session!.tasks = editTasks(r.session!.tasks, {
+    action: "update",
+    id: 1,
+    status: "completed",
+  });
+  r.session!.tasks = editTasks(r.session!.tasks, {
+    action: "update",
+    id: 2,
+    status: "in_progress",
+  });
+  r.session!.tasks = editTasks(r.session!.tasks, {
+    action: "update",
+    id: 9,
+    status: "skipped",
+    reason: "Replaced by end-to-end coverage",
+  });
+  r.session!.rolloutFollowUps = [
+    "Configure the fixture on a trusted machine. ".repeat(10),
+  ];
+  for (const [width, height] of [
+    [32, 14],
+    [79, 22],
+    [35, 7],
+  ]) {
+    let pane = renderDetailPane(r, width!, height!);
+    const pinned = pane.lines.slice(0, 2);
+    let content = "";
+    for (let offset = 0; offset <= pane.maxOffset; offset++) {
+      pane = renderDetailPane(r, width!, height!, offset);
+      expect(pane.lines.length).toBe(height);
+      expect(pane.lines.every((line) => line.length <= width!)).toBe(true);
+      expect(pane.lines.slice(0, pinned.length)).toEqual(pinned);
+      content += pane.lines.join("");
+    }
+    expect(content).toContain("Task 9:");
+    expect(content).toContain("trusted machine");
+    expect(pane.lines.at(-1)).not.toContain("More below");
+    expect(pane.lines.at(-1)).toBe("End of details - more above");
+    expect(renderDetailPane(r, width!, height!, 99999).offset).toBe(
+      pane.maxOffset,
+    );
+    expect(scrollDetailPane(0, "pageup", pane.pageSize, pane.maxOffset)).toBe(
+      0,
+    );
+    expect(scrollDetailPane(0, "pagedown", pane.pageSize, pane.maxOffset)).toBe(
+      pane.pageSize,
+    );
+    expect(scrollDetailPane(0, "end", pane.pageSize, pane.maxOffset)).toBe(
+      pane.maxOffset,
+    );
+    expect(
+      scrollDetailPane(pane.maxOffset, "home", pane.pageSize, pane.maxOffset),
+    ).toBe(0);
+  }
+});
+
+it("defaults to all sessions and separates session purpose, current task and progress", () => {
+  const active = row();
+  active.session!.taskSummary = "Add login flow";
+  active.session!.tasks = editTasks([], {
+    action: "add",
+    titles: ["Design form", "Test reset"],
+  });
+  active.session!.tasks = editTasks(active.session!.tasks, {
+    action: "update",
+    id: 1,
+    status: "completed",
+  });
+  active.session!.tasks = editTasks(active.session!.tasks, {
+    action: "update",
+    id: 2,
+    status: "in_progress",
+  });
+  const completed = row();
+  completed.session = {
+    ...active.session!,
+    id: "finished",
+    status: "succeeded",
+  };
+  const blocked = row();
+  blocked.session = {
+    ...active.session!,
+    id: "blocked",
+    status: "promotion_pending",
+  };
+  expect(defaultDashboardView.filter).toBe("all");
+  expect(
+    filterDashboard([active, completed, blocked], defaultDashboardView).map(
+      (r) => r.session!.id,
+    ),
+  ).toEqual(["session_example", "finished", "blocked"]);
+  expect(
+    filterDashboard([active, completed], {
+      ...defaultDashboardView,
+      filter: "completed",
+    }),
+  ).toEqual([completed]);
+  const output = renderDashboard([active, completed], 0, 180, 36).join("\n");
+  for (const heading of ["Repository", "Session", "Status"])
+    expect(output).toContain(heading);
+  expect(output).toContain("Add login flow");
+  expect(output).toContain("Test reset");
+  expect(output).toContain("1/2");
+  expect(output).toContain("Integrated");
+  expect(output).not.toContain("task / done");
+  const compact = renderDashboard([active], 0, 79, 24).join("\n");
+  expect(compact).toContain("Add login flow");
+  expect(compact).toContain("Task: Test reset");
+  expect(compact).toContain("In progress | 1/2");
+  for (const width of [50, 79, 180]) {
+    for (const status of ["succeeded", "no_changes"] as const) {
+      completed.session!.status = status;
+      const lines = renderDashboard([completed], 0, width, 36);
+      const list = lines.map((line) =>
+        width >= 110 ? line.split(" | ")[0] : line,
+      );
+      expect(list.join("\n")).toContain(
+        status === "succeeded" ? "Integrated" : "No changes",
+      );
+      expect(list.join("\n")).not.toContain("Task: Test reset");
+      expect(list.join("\n")).not.toContain("1/2");
+    }
+  }
+});
+
+it("shows skipped progress explicitly and moves verified no-change sessions out of Active", () => {
+  const r = row();
+  r.session!.tasks = editTasks([], {
+    action: "add",
+    titles: ["Implement", "Integrate"],
+  });
+  for (const id of [1, 2])
+    r.session!.tasks = editTasks(r.session!.tasks, {
+      action: "update",
+      id,
+      status: "skipped",
+      reason: "Already fixed",
+    });
+  let screen = renderDashboard([r], 0, 180, 36).join("\n");
+  expect(screen).toContain("2 skipped");
+  const tableRow = screen.split("\n").find((line) => line.startsWith("| >"))!;
+  expect(tableRow).toContain("2 skipped");
+  expect(tableRow).not.toContain("0/2");
+  r.session!.status = "no_changes";
+  r.session!.closedAt = "2026-09-15T05:00:00Z";
+  expect(filterDashboard([r], defaultDashboardView)).toEqual([r]);
+  expect(
+    filterDashboard([r], { ...defaultDashboardView, filter: "active" }),
+  ).toEqual([]);
+  expect(
+    filterDashboard([r], { ...defaultDashboardView, filter: "completed" }),
+  ).toEqual([r]);
+  expect(actionReason(r, "integrate")).toContain("finished without changes");
+  screen = renderDashboard([r], 0, 180, 36).join("\n");
+  expect(screen).toContain("No changes");
+  expect(screen).not.toContain("2 skipped");
+  const checklist = renderDetailPane(
+    r,
+    60,
+    25,
+    Number.MAX_SAFE_INTEGER,
+  ).lines.join("\n");
+  expect(checklist).toContain("2 skipped");
+});
+
+it("puts the checklist last and keeps a readable title and status above the next action", () => {
+  const r = row();
+  r.session!.taskSummary =
+    "Align README sign-in instructions with hosted authentication";
+  r.session!.status = "no_changes";
+  r.session!.tasks = editTasks([], {
+    action: "add",
+    titles: ["Review documentation"],
+  });
+  r.session!.tasks = editTasks(r.session!.tasks, {
+    action: "update",
+    id: 1,
+    status: "skipped",
+    reason: "Already implemented",
+  });
+  const pane = renderDetailPane(r, 40, 100);
+  const text = pane.lines.join("\n");
+  expect(pane.lines.slice(0, 3)).toEqual([
+    "Align README sign-in instructions with",
+    "hosted authentication",
+    "No changes",
+  ]);
+  expect(text.indexOf("Next action")).toBeLessThan(
+    text.indexOf("Recent activity"),
+  );
+  expect(text.indexOf("Source branch:")).toBeLessThan(text.indexOf("Tasks\n"));
+  expect(text.indexOf("Tasks\n")).toBeLessThan(
+    text.indexOf("Skipped | 1 | Review documentation"),
+  );
+  expect(text).not.toContain("Current:");
+});
+
+it("separates and labels scroll position and remaining content", () => {
+  const r = row();
+  const top = renderDetailPane(r, 40, 14);
+  expect(top.lines.at(-3)).toBe("-".repeat(40));
+  expect(top.lines.at(-2)).toMatch(/^Lines 1-\d+ of \d+$/);
+  expect(top.lines.at(-1)).toBe("More below");
+  const middle = renderDetailPane(r, 40, 14, 2);
+  expect(middle.lines.at(-1)).toBe("More above and below");
+  const bottom = renderDetailPane(r, 40, 14, Number.MAX_SAFE_INTEGER);
+  expect(bottom.lines.at(-1)).toBe("End of details - more above");
+  expect(renderDetailPane(r, 100, 100).lines.at(-1)).toBe("All content shown");
+  for (const height of [4, 5, 6, 7]) {
+    const small = renderDetailPane(r, 20, height);
+    expect(small.lines).toHaveLength(height);
+    expect(small.lines.every((line) => line.length <= 20)).toBe(true);
+  }
+});
+
+it("aligns detail values on wide panels and stacks distinct fields on narrow panels", () => {
+  const r = row();
+  r.session!.worktreePath = "/source/" + "long-path/".repeat(20);
+  for (const width of [20, 52, 72, 100]) {
+    const lines = detailFieldLines(r, width);
+    expect(lines.every((line) => line.length <= width)).toBe(true);
+    const repository = lines.findIndex((line) =>
+      line.startsWith("Repository:"),
+    );
+    const target = lines.findIndex((line) => line.startsWith("Target:"));
+    const worktree = lines.findIndex((line) =>
+      line.startsWith("Source worktree:"),
+    );
+    const end = lines.indexOf("", worktree + 1);
+    const parts = lines.slice(worktree, end);
+    if (width >= 72) {
+      const valueStart = lines[repository]!.indexOf("/repo");
+      expect(lines[target]!.indexOf("main")).toBe(valueStart);
+      expect(
+        parts.slice(1).every((line) => line.startsWith(" ".repeat(valueStart))),
+      ).toBe(true);
+      expect(
+        parts
+          .map((line, index) =>
+            index ? line.trimStart() : line.slice(valueStart),
+          )
+          .join(""),
+      ).toBe(r.session!.worktreePath);
+    } else {
+      expect(lines[repository]).toBe("Repository:");
+      expect(lines[repository + 1]).toBe("  /repo");
+      expect(lines[target - 1]).toBe("");
+      expect(
+        parts
+          .slice(1)
+          .map((line) => line.trimStart())
+          .join(""),
+      ).toBe(r.session!.worktreePath);
+    }
+  }
+});
+
+it("bolds detail labels while restoring normal weight before their values", () => {
+  for (const rich of [false, true]) {
+    for (const line of ["Repository:  /repo", "Validation tier:"]) {
+      const painted = colorDashboardLine(line, rich);
+      expect(painted).toContain("\x1b[1;");
+      expect(painted).toMatch(/:\x1b\[22;/);
+      expect(terminalText(painted)).toBe(line);
+    }
+    const label = "Repository:  /repo";
+    const split = "".padEnd(108) + " | " + label.padEnd(49);
+    const painted = colorDashboardLine(split, rich);
+    expect(painted).toContain("\x1b[1;");
+    expect(terminalText(painted)).toBe(split);
+  }
+});
+
+it("keeps task status and order readable while wrapping titles and supporting text", () => {
+  const r = row();
+  const statuses = [
+    "pending",
+    "in_progress",
+    "completed",
+    "blocked",
+    "skipped",
+  ] as const;
+  r.session!.tasks = editTasks([], {
+    action: "add",
+    titles: Array.from(
+      { length: 12 },
+      (_, i) => `Task ${i + 1} with a longer title`,
+    ),
+  }).map((task, index) => ({
+    ...task,
+    status: statuses[index % statuses.length]!,
+    description: "Helpful extra context",
+    reason: "Waiting for a fixture",
+  }));
+  for (const width of [20, 32, 52, 100]) {
+    const lines = taskTableLines(r.session!, width);
+    expect(lines.every((line) => line.length <= width)).toBe(true);
+    const text = lines.join("\n");
+    for (const status of [
+      "Pending",
+      "In progress",
+      "Completed",
+      "Blocked",
+      "Skipped",
+    ])
+      expect(text).toContain(status);
+    if (width >= 32) {
+      expect(lines[0]).toMatch(/^Status +\| +# \| Task$/);
+      expect(text).toMatch(/Pending +\| +1 \| Task 1/);
+      expect(text).toMatch(/In progress +\| 12 \| Task 12/);
+    }
+    const values = lines
+      .map((line) =>
+        width >= 32 ? line.split("|").at(-1)!.trim() : line.trim(),
+      )
+      .join(" ");
+    expect(values).toContain("Helpful extra context");
+    expect(values).toContain("Reason: Waiting for a fixture");
+    expect(text).not.toContain("[x]");
+  }
+  expect(taskTableLines({ ...r.session!, tasks: [] }, 40)).toEqual([]);
+});
+
+it("mutes task supporting text without muting wrapped titles", () => {
+  const r = row();
+  r.session!.tasks = editTasks([], {
+    action: "add",
+    titles: ["A long task title that wraps"],
+  });
+  r.session!.tasks[0]!.description = "Helpful extra context";
+  for (const width of [20, 32]) {
+    const lines = taskTableLines(r.session!, width);
+    const description = lines.find((line) => line.includes("Helpful"))!;
+    const continuation = lines.find((line) => line.includes("that wraps"))!;
+    expect(colorDashboardLine(description, true)).toContain("38;2;158;183;195");
+    expect(colorDashboardLine(continuation, true)).not.toContain(
+      "38;2;158;183;195",
+    );
+    if (width >= 32) {
+      const header = colorDashboardLine(lines[0]!, true);
+      expect(header).toContain("\x1b[1;");
+      expect(header).toContain("\x1b[22;");
+    }
   }
 });

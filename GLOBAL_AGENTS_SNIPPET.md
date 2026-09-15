@@ -111,6 +111,41 @@ Before editing:
 5. Never begin on `sesh-integrator/integration` (or the repository's configured
    integration branch). Pass `--depends-on` only for explicit dependencies.
 
+During work, maintain an ordered checklist for the session. After `begin` or
+recovery, inspect `seshx tasks list`; create a new plan with
+`seshx tasks add --title "<step>" [--title "<step>"]...` only when needed.
+Tasks default to pending. Use `seshx tasks update <task-id> --status
+in_progress` when starting work and `--status completed` when finished. Only
+one task may be in progress. Blocked and skipped require `--reason "..."`.
+Add newly discovered tasks, clarify titles/descriptions with `tasks update`, and
+reorder with `tasks move <task-id> --position <n>`. IDs remain stable. Split work
+by adding replacement tasks and skipping the original with a reason; keep
+completed and skipped entries visible. Update promptly, including after
+integration, so the dashboard reflects the actual plan. Use `--session <id>`
+when needed; never directly edit session JSON or record secrets. Checklist
+completion does not replace validation, integration, or external rollout checks.
+
+### Finish when no changes are needed
+
+If inspection shows the requested work is already implemented and this session
+has no new changes, finish its checklist truthfully (skip unnecessary work with
+reasons), then run:
+
+```bash
+seshx finish --no-changes --summary "<why no changes are needed>" [--session <id>] [--satisfied-by <successful-session-id>]
+```
+
+This is required before the final response; skipping tasks alone does not close
+the session. The CLI verifies the unchanged source branch/commit and observable
+working-tree baseline, rejects integration/recovery state and unfinished tasks,
+and records `no_changes` without creating or promoting a commit. Never create an
+empty commit or integrate just to close a no-change session. If an earlier
+successful session already delivered the work, pass its ID with `--satisfied-by`;
+the CLI verifies its source commit is present and retains its outstanding PR
+review and rollout obligations. Report the current no-change session and the
+referenced integration separately. Inspect `seshx status --session <id>` before
+reporting completion. A terminal response does not update stored session status.
+
 At completion:
 
 1. Inspect the task diff and Git status. Stage only intended task paths and

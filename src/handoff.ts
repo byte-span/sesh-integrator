@@ -37,6 +37,7 @@ import {
   applyGlobalTargetPolicy,
   ensureRuntime,
   findLatestSessionForWorktree,
+  finishNoChangesSession,
   makeSessionId,
   prepareCodexResolverHome,
   readConfig,
@@ -443,16 +444,18 @@ async function findSessionsLaunchedFrom(
   );
 }
 
-async function resolveSourceSession(
+export async function resolveSourceSession(
   statuses: Session["status"][],
   sessionId?: string,
+  requireEnabled = true,
 ): Promise<{
   source: Awaited<ReturnType<typeof inspectGit>>;
   repository: RepositoryConfig;
   session: Session;
 }> {
   const config = await readConfig();
-  assertRepositoryEnabled(config, await repositoryCommonDir(process.cwd()));
+  if (requireEnabled)
+    assertRepositoryEnabled(config, await repositoryCommonDir(process.cwd()));
   const current = await inspectGit(process.cwd());
   const repository = findRepository(config, current.gitCommonDir);
   if (sessionId) {
@@ -753,6 +756,100 @@ export async function integrateCommand(
     throw error;
   } finally {
     if (lock) await releaseRepoLock(lock);
+  }
+}
+
+export async function finishCommand(
+  summary: string,
+  sessionId?: string,
+  satisfiedBy?: string,
+): Promise<Session> {
+  if (!summary.trim()) throw new Error("finish requires a non-empty --summary");
+  const { repository, session } = await resolveSourceSession(
+    ["active", "no_changes"],
+    sessionId,
+  );
+  if (session.status === "no_changes") {
+    writeCompletionSummary(session);
+    return session;
+  }
+  const lock = await acquireRepoLock(
+    session.repositoryId,
+    session.id,
+    0,
+    join(runtimePaths().worktrees, session.repositoryId),
+    true,
+    "finish a session",
+  );
+  try {
+    assertRepositoryEnabled(await readConfig(), repository.gitCommonDir);
+    const finished = await finishNoChangesSession(
+      session.id,
+      async (latest) => {
+        const source = await inspectGit(latest.worktreePath);
+        if (
+          source.branch !== latest.branch ||
+          source.head !== latest.startCommit
+        )
+          throw new Error(
+            "Source branch or commit changed since begin; cannot finish without changes.",
+          );
+        if (await hasMergeInProgress(source.worktreePath))
+          throw new Error(
+            "Source has an unfinished merge; cannot finish without changes.",
+          );
+        await assertSourceHandoffState(
+          latest,
+          source.worktreePath,
+          [],
+          "no-change completion",
+        );
+        if (satisfiedBy) {
+          const previous = await readSession(satisfiedBy);
+          if (
+            !previous ||
+            previous.id === latest.id ||
+            previous.repositoryId !== latest.repositoryId ||
+            previous.status !== "succeeded" ||
+            !previous.readyCommit ||
+            !previous.promotedCommit
+          )
+            throw new Error(
+              "--satisfied-by must name a successfully promoted session in this repository.",
+            );
+          try {
+            await git(
+              [
+                "merge-base",
+                "--is-ancestor",
+                previous.readyCommit,
+                source.head,
+              ],
+              source.worktreePath,
+            );
+          } catch {
+            throw new Error(
+              "The referenced session's source commit is not present in this checkout.",
+            );
+          }
+          latest.satisfiedBySessionId = previous.id;
+          // Preserve outstanding rollout/review obligations without claiming this
+          // no-change session created or promoted any commit itself.
+          if (previous.pullRequestUrl)
+            latest.pullRequestUrl = previous.pullRequestUrl;
+          if (previous.rolloutDisposition)
+            latest.rolloutDisposition = previous.rolloutDisposition;
+          if (previous.rolloutFollowUps)
+            latest.rolloutFollowUps = [...previous.rolloutFollowUps];
+        } else latest.rolloutDisposition = "none";
+        latest.completionSummary = summary.trim();
+        delete latest.latestError;
+      },
+    );
+    writeCompletionSummary(finished);
+    return finished;
+  } finally {
+    await releaseRepoLock(lock);
   }
 }
 

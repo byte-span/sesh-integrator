@@ -1,6 +1,6 @@
 # sesh-integrator (`seshx`)
 
-`sesh-integrator` is a personal, one-shot Git integration CLI for Codex sessions working in parallel worktrees. It has no daemon, watcher, polling service, LaunchAgent, or background queue.
+`sesh-integrator` is a personal, one-shot Git integration CLI for Codex sessions working in parallel worktrees. It has no integration daemon, polling service, LaunchAgent, or background queue.
 
 ```text
 seshx begin
@@ -157,6 +157,11 @@ seshx resume [--session <session-id>]
 seshx incident <ticket-id>
 seshx status [--session <session-id>]
 seshx dashboard
+seshx finish --no-changes --summary "..." [--session <session-id>] [--satisfied-by <session-id>]
+seshx tasks list [--session <session-id>]
+seshx tasks add --title "..." [--title "..."]... [--description "..."] [--session <session-id>]
+seshx tasks update <task-id> [--title "..."] [--description "..."] [--status pending|in_progress|completed|blocked|skipped] [--reason "..."] [--session <session-id>]
+seshx tasks move <task-id> --position <n> [--session <session-id>]
 seshx reconcile [repo-path] [--apply]
 seshx audit-legacy
 seshx cleanup-guidance [--apply]
@@ -166,13 +171,96 @@ seshx benchmark [--runs <n>] [--json] [--check]
 
 There are no `run`, `daemon`, `watch`, or service-management commands.
 
+### Session task checklists
+
+After `begin`, the agent creates an ordered checklist tailored to that session:
+
+```bash
+seshx tasks add --title "Inspect existing behavior" --title "Implement changes" --title "Verify and integrate"
+seshx tasks update 1 --status in_progress
+seshx tasks update 1 --status completed
+seshx tasks update 2 --status in_progress
+seshx tasks list
+```
+
+Tasks default to **pending**. Other statuses are **in_progress**, **completed**,
+**blocked**, and **skipped**. Only one task may be in progress per session; finish
+or change its status before starting another. Blocked and skipped tasks require
+`--reason "..."`. Changing to another status clears the old reason. Task progress
+is independent of Git integration status and never substitutes for validation.
+Agents explicitly update tasks; the tool does not infer coding activity.
+
+Use `tasks add` for discoveries, `tasks update <id>` to clarify titles or
+change descriptions/statuses, and `tasks move <id> --position <n>` to reorder.
+IDs remain stable when positions change. Split a task by adding its replacement
+steps and skipping the original with a reason. Completed and skipped entries
+remain visible; there is no delete/reset operation. Reopen a task by setting it
+pending or in progress. Pass an empty description to clear it. A description
+on a multi-title add applies to all the new tasks. Never record secret values.
+
+Commands infer the current source session or a single matching session from the
+launch checkout. Multiple matches require `--session <session-id>`. Mutations
+must run in the session's registered, enabled repository. Updates remain available
+after integration so the agent can finish recording its checklist. Explicit
+`tasks list --session <id>` works outside the repository and while disabled.
+`status --session <id>` also includes the complete checklist.
+
+Checklists are stored in optional `tasks` and `tasksUpdatedAt` fields in
+`<runtime>/sessions/<session-id>.json`. Each task records a stable numeric ID,
+title, optional description, status, optional reason, and creation/update times.
+Existing sessions need no migration and display “No tasks yet” until populated.
+Atomic writes and a short per-session record lock serialize checklist edits with
+lifecycle saves, preserving task edits made during long-running validation.
+Interrupted record locks fail after a bounded wait and report their path for
+inspection; they are never silently reclaimed.
+
+The current-task label shows the in-progress task's name, otherwise Not started,
+Between tasks, Blocked, All tasks skipped, or Tasks finished. Closed no-change
+sessions show No changes needed. Completed/total counts include skipped tasks
+in the total and report skipped counts separately in details. A checklist is
+complete when every task is completed or skipped; this does not mean integration
+or external rollout has completed.
+
+### Finishing without changes
+
+When the requested work is already present, complete or skip every checklist
+task, then run `seshx finish --no-changes --summary "Already implemented"`.
+Use `--session <id>` to select a session explicitly and optionally
+`--satisfied-by <successful-session-id>` to reference the earlier integration.
+The CLI verifies that reference belongs to this repository, was successfully
+promoted, and its source commit is present in this session's base. It preserves
+any recorded PR review and rollout obligations from that integration.
+
+The command requires an unchanged source branch/commit and observable working-tree
+baseline, with no integration/recovery state or unfinished checklist tasks. It
+records the terminal session status `no_changes`, a finish time, and the reason.
+It does not validate, commit, integrate, push, or alter working files. Existing
+baseline changes stay untouched. Repeating finish for the same closed session
+reports the existing result; further task edits require a new session.
+
+No-change sessions appear under Completed and All, labeled No changes needed,
+and disappear from Active. An all-skipped checklist displays `2 skipped`, for
+example, rather than `0/2`. Before the session is closed its current-task label
+says All tasks skipped; completing/skipping tasks alone does not close a session.
+Mixed progress includes its skipped count. Dependencies still require an actual
+successful integration; reference the successful session rather than a no-change
+inspection session. Old sessions are never silently closed based on task status.
+
 ### `dashboard`
 
 Run `seshx dashboard` in an interactive terminal to browse all
 registered repositories and their sessions. The dashboard shows a compact session
-table with repository, status, task, and time since the latest saved event.
-A selected-item pane contains deterministic next-action guidance and recent saved
-milestones. Sessions default to most recent saved event first. Optional priority sorting
+table with separate Repository, Session description, Current task, Progress, and
+Session status columns. The session description always shows the overall purpose;
+Current task shows the current checklist step, and Progress shows completed/total.
+Completed sessions show Complete under Current task. Sessions without checklists
+show No tasks yet and a dash for progress. Narrow tables use three labeled lines
+per session to keep the description, current task, progress, and status readable. The selected-item pane shows the ordered checklist, task
+descriptions and blocked/skipped reasons, next-action guidance, saved milestones,
+and the full session record. Active is the default filter and includes all
+unfinished sessions, including blocked sessions. Completed and All are available
+through the status filter. Task updates contribute to sorting and search;
+blocked tasks appear in the needs-attention filter. Sessions default to most recent saved event first. Optional priority sorting
 puts blockers first, then the latest saved event.
 Activity and update times reflect recorded evidence, not a live process monitor.
 Wide terminals (at least 111 columns and 20 rows) show the split layout;
@@ -182,20 +270,35 @@ detail-section dividers, and a separated footer give each section a clear bounda
 Truecolor terminals get a dark navy palette; other terminals use basic ANSI
 colors. UTF-8 terminals use a subtle Unicode divider, with ASCII as the fallback.
 `NO_COLOR` disables styling. Browsing never writes configuration or session state,
-and there is no automatic polling.
+and automatic updates run only while the dashboard is open. It watches session
+and configuration directories, batches file events for 150 ms, and refreshes
+every 30 seconds as a fallback. Watchers and timers stop when it closes.
 
 Use Up/Down to select, `/` to search task/repository/branch/session text, Left/Right (or `f`) to
 cycle status filters, `p` to open the repository picker, and `s` to open the
 sort picker (priority, updated, or repository). In either picker, Up/Down moves
 the highlight, Enter applies the selection, and Escape cancels. Search applies as you type; Enter finishes and
-Escape restores the previous query. Tab switches between the filtered session
-list and its attention subset, remembering each selection.
-The Updated ages advance every minute from cached event timestamps without
-reading session files or Git. Last refresh shows the exact UTC date/time when
+Escape restores the previous query.
+Session ordering follows saved update times; browsing does not read Git.
+Automatic updates preserve selection, filters, and detail scroll position.
+Updates wait while searching, using a picker, editing a form, confirming an
+action, or viewing command output, then resume when browsing resumes. Last refresh shows the exact UTC date/time when
 data was loaded and changes only when data is refreshed. Details include the
 exact UTC session start time.
-Use Enter for details, `r` to refresh, and `q` to quit. In details, Up/Down scrolls
-the complete record, including long follow-ups. From either view, `v` validates,
+Use Tab to switch focus between the session list and selected-item pane.
+Up/Down and Page Up/Down move through the focused area; Home/End jump to its
+boundaries. The pane keeps its session title and status pinned, with the next
+action first and the task checklist after session details. Detail labels are
+bold, with aligned values in wide panels and stacked values in narrow panels.
+Tasks use Status, #, and Task columns; titles wrap, with muted descriptions and
+reasons underneath. Very narrow panels stack each task beneath its status and
+number.
+A separate footer
+labels the visible line range and whether more content is above or below.
+Scroll positions are retained per session across selection changes and live
+refreshes, and clamped when content shrinks.
+Use Enter to expand details, `r` to refresh immediately, and `q` to quit.
+In compact terminals, Tab also opens full details; Tab/Escape returns to the list. From either view, `v` validates,
 `i` integrates, and `R` resumes a preserved integration (`s` remains a resume
 alias in details). Unavailable actions show a reason. Escape returns or cancels
 a form. The dashboard requires at least 36 columns and 10 rows; resize the

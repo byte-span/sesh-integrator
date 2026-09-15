@@ -87,6 +87,53 @@ Before modifying files:
 - Do not invoke the legacy `codex-integrator`.
 - Do not merge into the integration branch manually.
 
+### Maintain the session checklist
+
+After beginning or recovering a session, inspect `seshx tasks list` and maintain
+its existing plan. For a new checklist, add ordered, task-specific milestones:
+
+```bash
+seshx tasks add --title "Inspect existing behavior" --title "Implement changes" --title "Verify and integrate"
+seshx tasks update 1 --status in_progress
+```
+
+Do this before implementation so the dashboard can show progress. Titles should
+be short and concrete; use `--description` for detail. Tasks default to pending.
+Mark a task completed when its work is finished, then mark the next task
+in_progress. Only one task can be in_progress. Use blocked or skipped with an
+explicit `--reason` when needed. Never mark unfinished work completed.
+
+As the plan changes, add discoveries, clarify a task with `tasks update <id>
+--title "..."`, and reorder with `tasks move <id> --position <n>`. IDs remain
+stable after reordering; use the IDs printed by the CLI. To split work, add the
+replacement tasks and skip the original with a reason. Keep completed and
+skipped entries as history. Update the checklist promptly at each transition,
+including after successful integration; do not wait until the final response.
+Use `--session <session-id>` when selection from the launch checkout is ambiguous.
+Do not write the session JSON directly or record any secret values. Checklist
+status is agent-reported and never replaces required validation or promotion.
+
+### Finish when no changes are needed
+
+If inspection shows the requested work is already implemented and this session
+has no new changes, finish its checklist truthfully (skip unnecessary work with
+reasons), then run:
+
+```bash
+seshx finish --no-changes --summary "<why no changes are needed>" [--session <id>] [--satisfied-by <successful-session-id>]
+```
+
+This is required before the final response; skipping tasks alone does not close
+the session. The CLI verifies the unchanged source branch/commit and observable
+working-tree baseline, rejects integration/recovery state and unfinished tasks,
+and records `no_changes` without creating or promoting a commit. Never create an
+empty commit or integrate just to close a no-change session. If an earlier
+successful session already delivered the work, pass its ID with `--satisfied-by`;
+the CLI verifies its source commit is present and retains its outstanding PR
+review and rollout obligations. Report the current no-change session and the
+referenced integration separately. Inspect `seshx status --session <id>` before
+reporting completion. A terminal response does not update stored session status.
+
 ## Completion
 
 Before saying the task is complete:

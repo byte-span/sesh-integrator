@@ -7,9 +7,11 @@ import {
   renderDashboard,
 } from "../src/dashboard.js";
 import { readConfig, readSessions } from "../src/runtime.js";
+import { editTasks } from "../src/tasks.js";
 import type { Session } from "../src/types.js";
 
-vi.mock("../src/runtime.js", () => ({
+vi.mock("../src/runtime.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/runtime.js")>()),
   readConfig: vi.fn(),
   readSessions: vi.fn(),
 }));
@@ -26,9 +28,10 @@ it("shows an explicit UTC timestamp and handles missing/bad dates", () => {
   expect(exactTime("bad date")).toBe("unknown");
 });
 
-it("redraws age without loading data, updates freshness only on refresh, and clears its timer on exit", async () => {
+it("refreshes automatically, defers updates during input, and clears timers on exit", async () => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date("2026-09-12T10:01:00Z"));
+  vi.stubEnv("SESH_INTEGRATOR_HOME", "/nonexistent-dashboard-test-runtime");
   vi.stubEnv("TERM", "xterm");
   vi.stubEnv("NO_COLOR", "1");
   const input = Object.assign(new PassThrough(), {
@@ -77,39 +80,44 @@ it("redraws age without loading data, updates freshness only on refresh, and cle
   const running = dashboardCommand();
   try {
     await vi.advanceTimersByTimeAsync(0);
-    expect(screen).toContain("1m");
+    expect(screen).toContain("Clock");
     expect(screen).toContain("Last refresh 2026-09-12 10:01:00 UTC");
     screen = "";
     await vi.advanceTimersByTimeAsync(60_000);
-    expect(screen).toContain("2m");
-    expect(screen).toContain("Last refresh 2026-09-12 10:01:00 UTC");
-    expect(readSessions).toHaveBeenCalledTimes(1);
-    expect(readConfig).toHaveBeenCalledTimes(1);
+    expect(screen).toContain("Clock");
+    expect(screen).toContain("Last refresh 2026-09-12 10:02:00 UTC");
+    expect(readSessions).toHaveBeenCalledTimes(4);
+    expect(readConfig).toHaveBeenCalledTimes(4);
     screen = "";
     input.emit("keypress", "r", { name: "r" });
     await vi.advanceTimersByTimeAsync(0);
-    expect(readSessions).toHaveBeenCalledTimes(2);
+    expect(readSessions).toHaveBeenCalledTimes(5);
     expect(screen).toContain("Last refresh 2026-09-12 10:02:00 UTC");
     const press = async (name: string) => {
       screen = "";
       input.emit("keypress", "", { name });
       await vi.advanceTimersByTimeAsync(0);
     };
-    await press("left");
-    expect(screen).toContain("[completed]");
-    await press("left");
-    expect(screen).toContain("[review]");
-    await press("right");
-    expect(screen).toContain("[completed]");
-    await press("right");
     expect(screen).toContain("[all]");
+    await press("right");
+    expect(screen).toContain("[needs attention]");
+    await press("right");
+    expect(screen).toContain("[active]");
+    await press("left");
+    expect(screen).toContain("[needs attention]");
+    await press("left");
+    expect(screen).toContain("[all]");
+    await press("right");
+    expect(screen).toContain("[needs attention]");
+    await press("right");
+    expect(screen).toContain("[active]");
     await press("p");
     expect(screen).toContain("> All repositories");
     await press("down");
     expect(screen).toContain("> repo");
     expect(screen).toContain("repo: all repos");
     await press("left");
-    expect(screen).toContain("[all]");
+    expect(screen).toContain("[active]");
     await press("escape");
     expect(screen).toContain("repo: all repos");
     expect(screen).not.toContain("Esc cancel");
@@ -163,25 +171,87 @@ it("redraws age without loading data, updates freshness only on refresh, and cle
     vi.setSystemTime(new Date("2026-09-12T14:00:00Z"));
     screen = "";
     await vi.advanceTimersByTimeAsync(60_000);
-    expect(screen).toContain("4h");
-    expect(readSessions).toHaveBeenCalledTimes(2);
-    expect(screen).toContain("Last refresh 2026-09-12 10:02:00 UTC");
+    expect(screen).toContain("Clock");
+    expect(readSessions).toHaveBeenCalledTimes(7);
+    expect(screen).toContain("Last refresh 2026-09-12 14:01:00 UTC");
     input.emit("keypress", "/", { name: "/" });
     input.emit("keypress", "C", { name: "c" });
     await vi.advanceTimersByTimeAsync(0);
     screen = "";
     await vi.advanceTimersByTimeAsync(60_000);
-    expect(screen).toContain("Search: C_");
-    expect(readSessions).toHaveBeenCalledTimes(2);
+    // Deferred refresh leaves the active search untouched.
+    expect(screen).toBe("");
+    expect(readSessions).toHaveBeenCalledTimes(7);
     input.emit("keypress", "", { name: "escape" });
     await vi.advanceTimersByTimeAsync(0);
     input.emit("keypress", "\r", { name: "return" });
     await vi.advanceTimersByTimeAsync(0);
     screen = "";
     await vi.advanceTimersByTimeAsync(60_000);
-    expect(screen).toContain("Started: 2026-09-12 09:00:00 UTC");
+    expect(screen).toMatch(/Started:\s+2026-09-12 09:00:00 UTC/);
     expect(screen).toContain("Esc back");
-    expect(readSessions).toHaveBeenCalledTimes(2);
+    expect(readSessions).toHaveBeenCalledTimes(10);
+    // A newer session must not steal selection or reset detail scrolling.
+    output.rows = 10;
+    input.emit("keypress", "", { name: "down" });
+    await vi.advanceTimersByTimeAsync(0);
+    screen = "";
+    vi.mocked(readSessions).mockResolvedValue([
+      session,
+      { ...session, id: "new-session", taskSummary: "New arrival" },
+    ]);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(screen).toContain("Clock\r\n");
+    expect(screen).not.toContain("New arrival");
+    expect(screen).toMatch(/Lines 2-\d+ of \d+/);
+    expect(screen).toContain("More above and below");
+    vi.mocked(readSessions).mockRejectedValueOnce(
+      new Error("temporary read failure"),
+    );
+    screen = "";
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(screen).toContain("Refresh failed: temporary read failure");
+    screen = "";
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(screen).toContain("Clock\r\n");
+    expect(screen).not.toContain("Refresh failed:");
+    // Tab focuses the split pane; scrolling does not move the session list.
+    output.rows = 30;
+    const checklistSession = {
+      ...session,
+      tasks: editTasks([], {
+        action: "add",
+        titles: Array.from({ length: 20 }, (_, i) => `Checklist item ${i + 1}`),
+      }),
+    };
+    vi.mocked(readSessions).mockResolvedValue([checklistSession]);
+    await press("r");
+    await press("escape");
+    await press("tab");
+    expect(screen).toContain("Selected item [focused]");
+    await press("pagedown");
+    expect(screen).toMatch(/More above|more above/);
+    expect(screen).toContain("1/1");
+    const position = screen.match(/(Lines \d+-\d+ of \d+)/)?.[1];
+    expect(position).toBeTruthy();
+    screen = "";
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(screen).toContain(position!);
+    expect(screen).toContain("Selected item [focused]");
+    await press("end");
+    expect(screen).toContain("End of details - more above");
+    await press("home");
+    expect(screen).toContain("More below");
+    await press("tab");
+    expect(screen).toContain("Sessions  1/1 [focused]");
+    // Compact terminals use the full detail screen with the same controls.
+    output.columns = 80;
+    await press("tab");
+    expect(screen).toContain("Tab/Esc back");
+    await press("pagedown");
+    expect(screen).toMatch(/More above|more above/);
+    await press("tab");
+    expect(screen).toContain("Enter for details");
   } finally {
     input.emit("keypress", "q", { name: "q" });
     await vi.advanceTimersByTimeAsync(0);

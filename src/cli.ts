@@ -7,6 +7,7 @@ import { doctorCommand } from "./doctor.js";
 import {
   beginCommand,
   commitCommand,
+  finishCommand,
   initCommand,
   integrateCommand,
   registerCommand,
@@ -21,6 +22,7 @@ import type { RolloutDisposition } from "./types.js";
 import { incidentCommand } from "./incident.js";
 import { cleanupGuidanceCommand } from "./cleanup-guidance.js";
 import { dashboardCommand } from "./dashboard.js";
+import { tasksCommand } from "./tasks.js";
 
 export async function main(argv = process.argv.slice(2)): Promise<void> {
   const [command, ...args] = argv;
@@ -34,6 +36,40 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   if (instrument) startPerformance(command!);
   try {
     switch (command) {
+      case "finish": {
+        if (
+          !args.includes("--no-changes") ||
+          args.filter((a) => a === "--no-changes").length !== 1
+        )
+          throw new Error(
+            'Usage: seshx finish --no-changes --summary "..." [--session <id>] [--satisfied-by <id>]',
+          );
+        const remaining = args.filter((a) => a !== "--no-changes");
+        const values = new Map<string, string>();
+        for (let i = 0; i < remaining.length; i += 2) {
+          const key = remaining[i]!;
+          const value = remaining[i + 1];
+          if (
+            !["--summary", "--session", "--satisfied-by"].includes(key) ||
+            !value ||
+            value.startsWith("--") ||
+            values.has(key)
+          )
+            throw new Error(`Unknown or incomplete finish option: ${key}`);
+          if (key !== "--summary" && !/^[a-zA-Z0-9_-]+$/.test(value))
+            throw new Error("Invalid session ID");
+          values.set(key, value);
+        }
+        await finishCommand(
+          values.get("--summary") ?? "",
+          values.get("--session"),
+          values.get("--satisfied-by"),
+        );
+        break;
+      }
+      case "tasks":
+        await tasksCommand(args);
+        break;
       case "dashboard":
         rejectArguments(args);
         await dashboardCommand();
@@ -354,6 +390,11 @@ Usage:
   seshx resume [--session <session-id>]
   seshx status [--session <session-id>]
   seshx dashboard
+  seshx finish --no-changes --summary "..." [--session <session-id>] [--satisfied-by <session-id>]
+  seshx tasks list [--session <session-id>]
+  seshx tasks add --title "..." [--title "..."]... [--description "..."] [--session <session-id>]
+  seshx tasks update <task-id> [--title "..."] [--description "..."] [--status pending|in_progress|completed|blocked|skipped] [--reason "..."] [--session <session-id>]
+  seshx tasks move <task-id> --position <n> [--session <session-id>]
   seshx incident <ticket-id>
   seshx reconcile [repo-path] [--apply]
   seshx audit-legacy

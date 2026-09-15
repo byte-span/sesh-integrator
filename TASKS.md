@@ -87,6 +87,16 @@ Complete personal MVP implementation checklist.
 - [x] Default to current-session conflict resolution with a verified `resume` command
 - [x] Retain nested Codex resolution as an explicit compatibility mode
 
+## Session checklists and dashboard
+
+- [x] Verify and record no-change session completion, retain referenced integration follow-ups, and display skipped progress explicitly
+
+- [x] Persist ordered tasks with stable IDs, default pending status, and timestamps
+- [x] Add task list/add/update/move commands with one active task and required blocked/skipped reasons
+- [x] Preserve completed/skipped entries and checklist updates during lifecycle saves
+- [x] Show current tasks and progress with independently scrollable, wrapped details
+- [x] Maintain task plans through bundled agent guidance and cover CLI/storage/terminal behavior
+
 ## Lock reliability and status
 
 - [x] Record immutable failure incidents with ticketed diagnoses, proposed fixes, and recurrence fingerprints
