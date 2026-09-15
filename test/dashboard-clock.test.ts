@@ -98,6 +98,11 @@ it("refreshes automatically, defers updates during input, and clears timers on e
       input.emit("keypress", "", { name });
       await vi.advanceTimersByTimeAsync(0);
     };
+    expect(screen).toContain("[all]");
+    await press("right");
+    expect(screen).toContain("[needs attention]");
+    await press("right");
+    expect(screen).toContain("[active]");
     await press("left");
     expect(screen).toContain("[needs attention]");
     await press("left");

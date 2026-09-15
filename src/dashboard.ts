@@ -565,7 +565,7 @@ export interface DashboardView {
   sort: "priority" | "updated" | "repository";
 }
 export const defaultDashboardView: DashboardView = {
-  filter: "active",
+  filter: "all",
   repository: "",
   query: "",
   sort: "updated",

@@ -285,7 +285,7 @@ it("prioritizes blockers without losing sessions and shows recorded milestones",
   for (const label of [
     "3 active",
     "1 attention",
-    "[active]",
+    "[all]",
     "repo",
     "Session",
     "Next action",
@@ -367,7 +367,7 @@ it("keeps details tied to the selected session", () => {
   expect(before.join("\n")).toContain("unique-task-1");
   expect(after.join("\n")).toContain("unique-task-2");
   expect(after.filter((l) => /^(?:\| )?> /.test(l))).toHaveLength(1);
-  expect(after.join("\n")).toContain("[active]");
+  expect(after.join("\n")).toContain("[all]");
 });
 it("clamps navigation at list boundaries", () => {
   const nav: DashboardNavigation = { sessions: 0 };
@@ -610,7 +610,7 @@ it("wraps every task and follow-up within an independently scrollable pane with 
   }
 });
 
-it("defaults to unfinished sessions and separates session purpose, current task and progress", () => {
+it("defaults to all sessions and separates session purpose, current task and progress", () => {
   const active = row();
   active.session!.taskSummary = "Add login flow";
   active.session!.tasks = editTasks([], {
@@ -639,12 +639,12 @@ it("defaults to unfinished sessions and separates session purpose, current task 
     id: "blocked",
     status: "promotion_pending",
   };
-  expect(defaultDashboardView.filter).toBe("active");
+  expect(defaultDashboardView.filter).toBe("all");
   expect(
     filterDashboard([active, completed, blocked], defaultDashboardView).map(
       (r) => r.session!.id,
     ),
-  ).toEqual(["session_example", "blocked"]);
+  ).toEqual(["session_example", "finished", "blocked"]);
   expect(
     filterDashboard([active, completed], {
       ...defaultDashboardView,
@@ -699,7 +699,10 @@ it("shows skipped progress explicitly and moves verified no-change sessions out 
   expect(tableRow).not.toContain("0/2");
   r.session!.status = "no_changes";
   r.session!.closedAt = "2026-09-15T05:00:00Z";
-  expect(filterDashboard([r], defaultDashboardView)).toEqual([]);
+  expect(filterDashboard([r], defaultDashboardView)).toEqual([r]);
+  expect(
+    filterDashboard([r], { ...defaultDashboardView, filter: "active" }),
+  ).toEqual([]);
   expect(
     filterDashboard([r], { ...defaultDashboardView, filter: "completed" }),
   ).toEqual([r]);
