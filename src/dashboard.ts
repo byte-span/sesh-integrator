@@ -259,42 +259,27 @@ export function dashboardActivity(
 }
 
 export interface DashboardNavigation {
-  focus: "sessions" | "attention";
   sessions: number;
-  attention: number;
 }
 
 export function dashboardSelection(
   rows: DashboardRow[],
   nav: DashboardNavigation,
 ): number {
-  return nav.focus === "sessions"
-    ? nav.sessions
-    : rows.indexOf(rows.filter(needsAttention)[nav.attention]!);
+  return nav.sessions;
 }
 
 export function navigateDashboard(
   rows: DashboardRow[],
   nav: DashboardNavigation,
-  key: "tab" | "up" | "down",
+  key: "up" | "down",
 ): DashboardNavigation {
-  const next = { ...nav };
-  if (key === "tab") {
-    next.focus =
-      nav.focus === "sessions" && rows.some(needsAttention)
-        ? "attention"
-        : "sessions";
-  } else {
-    const count =
-      nav.focus === "sessions"
-        ? rows.length
-        : rows.filter(needsAttention).length;
-    next[nav.focus] = Math.max(
+  return {
+    sessions: Math.max(
       0,
-      Math.min(count - 1, nav[nav.focus] + (key === "down" ? 1 : -1)),
-    );
-  }
-  return next;
+      Math.min(rows.length - 1, nav.sessions + (key === "down" ? 1 : -1)),
+    ),
+  };
 }
 
 export interface DashboardView {
@@ -450,9 +435,7 @@ export function renderDashboard(
   height: number,
   refreshedAt = new Date(),
   navigation: DashboardNavigation = {
-    focus: "sessions",
     sessions: selected,
-    attention: 0,
   },
   view: DashboardView = defaultDashboardView,
   now = new Date(),
@@ -513,9 +496,7 @@ function renderDashboardContent(
   height: number,
   refreshedAt = new Date(),
   navigation: DashboardNavigation = {
-    focus: "sessions",
     sessions: selected,
-    attention: 0,
   },
   view: DashboardView = defaultDashboardView,
   now = new Date(),
@@ -545,9 +526,8 @@ function renderDashboardContent(
           ? `${Math.floor(minutes / 60)}h`
           : `${Math.floor(minutes / 1440)}d`;
   };
-  const visible =
-    navigation.focus === "attention" ? rows.filter(needsAttention) : rows;
-  const cursor = navigation[navigation.focus];
+  const visible = rows;
+  const cursor = navigation.sessions;
   const selectedRow = rows[selected];
   const attention = rows.filter(needsAttention).length;
   const active = rows.filter(
@@ -573,8 +553,7 @@ function renderDashboardContent(
   ) =>
     `${marker} ${fit(repo, repoWidth)} ${fit(status, statusWidth)} ${fit(task, taskWidth)} ${fit(updated, 7)}`;
   const position = `${visible.length ? cursor + 1 : 0}/${visible.length}`;
-  const filterLabel =
-    navigation.focus === "attention" ? "needs attention" : view.filter;
+  const filterLabel = view.filter;
   const filters =
     width >= 150
       ? ["all", "needs attention", "active", "review", "completed"]
@@ -584,7 +563,7 @@ function renderDashboardContent(
   const controls =
     width >= 100
       ? `filter: ${filters}   repo: ${view.repository ? fit(basename(view.repository), 18).trimEnd() : "all repos"} (p)   sort: ${view.sort} (s)   / ${view.query || "search tasks"}`
-      : `f ${navigation.focus === "attention" ? "needs attention" : view.filter}  p ${view.repository ? basename(view.repository) : "all repos"}  s ${view.sort}  / ${view.query || "search"}`;
+      : `f ${view.filter}  p ${view.repository ? basename(view.repository) : "all repos"}  s ${view.sort}  / ${view.query || "search"}`;
   const lines = [
     width >= title.length + refresh.length + 3
       ? fit(title, width - refresh.length) + refresh
@@ -603,7 +582,7 @@ function renderDashboardContent(
     width >= 100
       ? "Up/Down select   Enter details   / search   Left/Right status   p repo   s sort   r refresh   q quit"
       : "Up/Down select  Left/Right status  p repo  s sort  Enter details  q quit";
-  const actions = "v validate   i integrate   R resume   Tab attention";
+  const actions = "v validate   i integrate   R resume";
   const count = Math.max(1, height - lines.length - (wide ? 2 : 3));
   const start = Math.max(0, cursor - count + 1);
   const s = selectedRow?.session;
@@ -766,9 +745,7 @@ export async function dashboardCommand(): Promise<void> {
   let clockTimer: ReturnType<typeof setInterval> | undefined;
   let selected = 0;
   let navigation: DashboardNavigation = {
-    focus: "sessions",
     sessions: 0,
-    attention: 0,
   };
   let mode: "list" | "details" | "form" | "confirm" | "output" = "list";
   let scroll = 0;
@@ -932,7 +909,6 @@ export async function dashboardCommand(): Promise<void> {
   };
   const refresh = async () => {
     const oldSession = rows[navigation.sessions];
-    const oldAttention = rows.filter(needsAttention)[navigation.attention];
     const id = rows[selected]?.session?.id;
     const path = rows[selected]?.repository?.path;
     allRows = await loadDashboard();
@@ -958,16 +934,6 @@ export async function dashboardCommand(): Promise<void> {
         : Math.max(0, Math.min(fallback, list.length - 1));
     };
     navigation.sessions = preserve(rows, oldSession, navigation.sessions);
-    const attention = rows.filter(needsAttention);
-    navigation.attention = preserve(
-      attention,
-      oldAttention,
-      navigation.attention,
-    );
-    if (!attention.length) {
-      if (navigation.focus === "attention") navigation.sessions = selected;
-      navigation.focus = "sessions";
-    }
     selected = dashboardSelection(rows, navigation);
     if (!rows.length) mode = "list";
   };
@@ -1049,7 +1015,7 @@ export async function dashboardCommand(): Promise<void> {
   };
   const applyView = () => {
     rows = filterDashboard(allRows, view);
-    navigation = { focus: "sessions", sessions: 0, attention: 0 };
+    navigation = { sessions: 0 };
     selected = 0;
   };
   const handleKey = async (text: string, key: Key) => {
@@ -1220,11 +1186,6 @@ export async function dashboardCommand(): Promise<void> {
     }
     if (key.name === "r" && !key.shift) {
       await refresh();
-      return;
-    }
-    if (mode === "list" && key.name === "tab") {
-      navigation = navigateDashboard(rows, navigation, "tab");
-      selected = dashboardSelection(rows, navigation);
       return;
     }
     if (key.name === "down" || key.name === "up") {

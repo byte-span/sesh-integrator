@@ -333,7 +333,7 @@ it("only emits its own terminal color sequences", () => {
   expect(colored).not.toContain("52;c;");
 });
 
-it("keeps panel cursors independent and details tied to the focused panel", () => {
+it("keeps details tied to the selected session", () => {
   const rows = Array.from({ length: 8 }, (_, i) => {
     const r = row();
     r.session = {
@@ -344,14 +344,8 @@ it("keeps panel cursors independent and details tied to the focused panel", () =
     };
     return r;
   });
-  let nav: DashboardNavigation = {
-    focus: "sessions",
-    sessions: 7,
-    attention: 0,
-  };
-  nav = navigateDashboard(rows, nav, "tab");
+  let nav: DashboardNavigation = { sessions: 0 };
   nav = navigateDashboard(rows, nav, "down");
-  expect(nav).toEqual({ focus: "attention", sessions: 7, attention: 1 });
   expect(dashboardSelection(rows, nav)).toBe(1);
   const draw = (state: DashboardNavigation) =>
     renderDashboard(
@@ -368,26 +362,13 @@ it("keeps panel cursors independent and details tied to the focused panel", () =
   expect(before.join("\n")).toContain("unique-task-1");
   expect(after.join("\n")).toContain("unique-task-2");
   expect(after.filter((l) => /^(?:\| )?> /.test(l))).toHaveLength(1);
-  expect(after.join("\n")).toContain("filter: [needs attention]");
-  nav = navigateDashboard(rows, nav, "tab");
-  expect(dashboardSelection(rows, nav)).toBe(7);
-  expect(draw(nav).join("\n")).toContain("unique-task-7");
-  expect(
-    renderDashboard(rows, 2, 79, 24, new Date(), {
-      ...nav,
-      focus: "attention",
-    }).join("\n"),
-  ).toContain("Sessions 3/6");
+  expect(after.join("\n")).toContain("filter: [all]");
 });
-it("skips an empty attention panel and clamps navigation at panel boundaries", () => {
-  const nav: DashboardNavigation = {
-    focus: "sessions",
-    sessions: 0,
-    attention: 0,
-  };
-  expect(navigateDashboard([row()], nav, "tab")).toEqual(nav);
+it("clamps navigation at list boundaries", () => {
+  const nav: DashboardNavigation = { sessions: 0 };
   expect(navigateDashboard([], nav, "down")).toEqual(nav);
   expect(navigateDashboard([row()], nav, "up")).toEqual(nav);
+  expect(navigateDashboard([row()], nav, "down")).toEqual(nav);
 });
 
 it("filters across task, branch and repository and sorts by saved event time", () => {

@@ -188,8 +188,7 @@ Use Up/Down to select, `/` to search task/repository/branch/session text, Left/R
 cycle status filters, `p` to open the repository picker, and `s` to open the
 sort picker (priority, updated, or repository). In either picker, Up/Down moves
 the highlight, Enter applies the selection, and Escape cancels. Search applies as you type; Enter finishes and
-Escape restores the previous query. Tab switches between the filtered session
-list and its attention subset, remembering each selection.
+Escape restores the previous query.
 The Updated ages advance every minute from cached event timestamps without
 reading session files or Git. Last refresh shows the exact UTC date/time when
 data was loaded and changes only when data is refreshed. Details include the
