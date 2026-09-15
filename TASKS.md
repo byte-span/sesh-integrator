@@ -89,6 +89,8 @@ Complete personal MVP implementation checklist.
 
 ## Session checklists and dashboard
 
+- [x] Verify and record no-change session completion, retain referenced integration follow-ups, and display skipped progress explicitly
+
 - [x] Persist ordered tasks with stable IDs, default pending status, and timestamps
 - [x] Add task list/add/update/move commands with one active task and required blocked/skipped reasons
 - [x] Preserve completed/skipped entries and checklist updates during lifecycle saves

@@ -659,3 +659,33 @@ it("defaults to unfinished sessions and separates session purpose, current task 
   expect(compact).toContain("Current: Test reset");
   expect(compact).toContain("Progress: 1/2");
 });
+
+it("shows skipped progress explicitly and moves verified no-change sessions out of Active", () => {
+  const r = row();
+  r.session!.tasks = editTasks([], {
+    action: "add",
+    titles: ["Implement", "Integrate"],
+  });
+  for (const id of [1, 2])
+    r.session!.tasks = editTasks(r.session!.tasks, {
+      action: "update",
+      id,
+      status: "skipped",
+      reason: "Already fixed",
+    });
+  let screen = renderDashboard([r], 0, 180, 36).join("\n");
+  expect(screen).toContain("All tasks skipped");
+  const tableRow = screen.split("\n").find((line) => line.startsWith("| >"))!;
+  expect(tableRow).toContain("2 skipped");
+  expect(tableRow).not.toContain("0/2");
+  r.session!.status = "no_changes";
+  r.session!.closedAt = "2026-09-15T05:00:00Z";
+  expect(filterDashboard([r], defaultDashboardView)).toEqual([]);
+  expect(
+    filterDashboard([r], { ...defaultDashboardView, filter: "completed" }),
+  ).toEqual([r]);
+  expect(actionReason(r, "integrate")).toContain("finished without changes");
+  screen = renderDashboard([r], 0, 180, 36).join("\n");
+  expect(screen).toContain("No changes needed");
+  expect(screen).toContain("2 skipped");
+});

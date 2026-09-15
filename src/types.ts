@@ -85,6 +85,7 @@ export type SessionStatus =
   | "validation_pending"
   | "promotion_pending"
   | "succeeded"
+  | "no_changes"
   | "needs_review";
 
 export type RolloutDisposition = "none" | "applied" | "automated" | "manual";
@@ -105,6 +106,8 @@ export interface SessionTask {
 
 export interface Session {
   id: string;
+  closedAt?: string;
+  satisfiedBySessionId?: string;
   tasks?: SessionTask[];
   tasksUpdatedAt?: string;
   status: SessionStatus;

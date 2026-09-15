@@ -116,7 +116,8 @@ export async function statusCommand(sessionId?: string): Promise<void> {
         `  validation command: ${failure.command.join(" ")}\n`,
       );
     }
-    if (selected && session.readyCommit) writeCompletionSummary(session);
+    if (selected && (session.readyCommit || session.status === "no_changes"))
+      writeCompletionSummary(session);
     if (session.awaitingConflictResolution) {
       process.stdout.write(
         `  resumable conflict: yes (run seshx resume after resolving and staging)\n`,

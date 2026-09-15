@@ -298,6 +298,10 @@ export async function writeSession(session: Session): Promise<void> {
     // Lifecycle commands hold snapshots while running checks. Checklist edits
     // made meanwhile belong to the task command and must not be overwritten.
     const latest = await readSession(session.id);
+    if (latest?.status === "no_changes" && session.status !== "no_changes")
+      throw new Error(
+        "Session is already finished without changes; start a new session.",
+      );
     if (latest) {
       if (latest.tasks) session.tasks = latest.tasks;
       else delete session.tasks;
@@ -315,8 +319,46 @@ export async function updateSessionTasks(
   return withSessionRecordLock(sessionId, async () => {
     const session = await readSession(sessionId);
     if (!session) throw new Error(`Unknown session: ${sessionId}`);
+    if (session.status === "no_changes")
+      throw new Error(
+        "Session is already finished without changes; start a new session.",
+      );
     session.tasks = update(session.tasks ?? []);
     session.tasksUpdatedAt = new Date().toISOString();
+    await writeSessionRecord(session);
+    return session;
+  });
+}
+
+export async function finishNoChangesSession(
+  sessionId: string,
+  verify: (session: Session) => Promise<void>,
+): Promise<Session> {
+  return withSessionRecordLock(sessionId, async () => {
+    const session = await readSession(sessionId);
+    if (!session || session.status !== "active")
+      throw new Error("Only an active session can finish without changes.");
+    if (
+      session.readyCommit ||
+      session.recoveryBundle ||
+      session.integratedCommit ||
+      session.promotedCommit ||
+      session.waitingForLock
+    )
+      throw new Error(
+        "Session has integration or recovery state; complete its existing lifecycle.",
+      );
+    if (
+      session.tasks?.some(
+        (task) => !["completed", "skipped"].includes(task.status),
+      )
+    )
+      throw new Error(
+        "Finish or skip every task with a reason before finishing the session.",
+      );
+    await verify(session);
+    session.status = "no_changes";
+    session.closedAt = new Date().toISOString();
     await writeSessionRecord(session);
     return session;
   });

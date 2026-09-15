@@ -157,6 +157,7 @@ seshx resume [--session <session-id>]
 seshx incident <ticket-id>
 seshx status [--session <session-id>]
 seshx dashboard
+seshx finish --no-changes --summary "..." [--session <session-id>] [--satisfied-by <session-id>]
 seshx tasks list [--session <session-id>]
 seshx tasks add --title "..." [--title "..."]... [--description "..."] [--session <session-id>]
 seshx tasks update <task-id> [--title "..."] [--description "..."] [--status pending|in_progress|completed|blocked|skipped] [--reason "..."] [--session <session-id>]
@@ -214,10 +215,36 @@ Interrupted record locks fail after a bounded wait and report their path for
 inspection; they are never silently reclaimed.
 
 The current-task label shows the in-progress task's name, otherwise Not started,
-Between tasks, Blocked, or Complete. Completed/total counts include skipped tasks
+Between tasks, Blocked, All tasks skipped, or Tasks finished. Closed no-change
+sessions show No changes needed. Completed/total counts include skipped tasks
 in the total and report skipped counts separately in details. A checklist is
 complete when every task is completed or skipped; this does not mean integration
 or external rollout has completed.
+
+### Finishing without changes
+
+When the requested work is already present, complete or skip every checklist
+task, then run `seshx finish --no-changes --summary "Already implemented"`.
+Use `--session <id>` to select a session explicitly and optionally
+`--satisfied-by <successful-session-id>` to reference the earlier integration.
+The CLI verifies that reference belongs to this repository, was successfully
+promoted, and its source commit is present in this session's base. It preserves
+any recorded PR review and rollout obligations from that integration.
+
+The command requires an unchanged source branch/commit and observable working-tree
+baseline, with no integration/recovery state or unfinished checklist tasks. It
+records the terminal session status `no_changes`, a finish time, and the reason.
+It does not validate, commit, integrate, push, or alter working files. Existing
+baseline changes stay untouched. Repeating finish for the same closed session
+reports the existing result; further task edits require a new session.
+
+No-change sessions appear under Completed and All, labeled No changes needed,
+and disappear from Active. An all-skipped checklist displays `2 skipped`, for
+example, rather than `0/2`. Before the session is closed its current-task label
+says All tasks skipped; completing/skipping tasks alone does not close a session.
+Mixed progress includes its skipped count. Dependencies still require an actual
+successful integration; reference the successful session rather than a no-change
+inspection session. Old sessions are never silently closed based on task status.
 
 ### `dashboard`
 

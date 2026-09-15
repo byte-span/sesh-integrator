@@ -56,6 +56,7 @@ export function actionReason(
   if (!row.repository) return "Repository is no longer registered";
   if (s.waitingForLock)
     return "Session is already waiting for the repository lock";
+  if (s.status === "no_changes") return "Session finished without changes";
   if (s.status === "succeeded") return "Session already integrated";
   if (action === "validate")
     return s.status === "active"
@@ -144,6 +145,10 @@ export function detailLines(row: DashboardRow, includeTasks = true): string[] {
       ...taskLines(s),
       "",
     );
+  if (s.closedAt)
+    lines.push(`Finished without changes: ${exactTime(s.closedAt)}`);
+  if (s.satisfiedBySessionId)
+    lines.push(`Satisfied by session: ${s.satisfiedBySessionId}`);
   if (s.completionSummary) lines.push(`Completion: ${s.completionSummary}`);
   if (s.rolloutDisposition === "automated")
     lines.push("External automation delegated; completion not verified.");
@@ -197,7 +202,14 @@ function sessionCurrentTask(session?: Session): string {
 
 function sessionProgress(session?: Session): string {
   if (!session?.tasks?.length) return "-";
-  return `${session.tasks.filter((task) => task.status === "completed").length}/${session.tasks.length}`;
+  const completed = session.tasks.filter(
+    (task) => task.status === "completed",
+  ).length;
+  const skipped = session.tasks.filter(
+    (task) => task.status === "skipped",
+  ).length;
+  if (skipped === session.tasks.length) return `${skipped} skipped`;
+  return `${completed}/${session.tasks.length}${skipped ? `, ${skipped} skipped` : ""}`;
 }
 
 /** The heading and progress stay pinned; every body line remains reachable. */
@@ -296,7 +308,7 @@ export function needsAttention(row: DashboardRow): boolean {
   const s = row.session;
   return (
     !!s &&
-    s.status !== "succeeded" &&
+    !["succeeded", "no_changes"].includes(s.status) &&
     (!row.repository ||
       !!s.validationFailure ||
       !!s.tasks?.some((task) => task.status === "blocked") ||
@@ -317,6 +329,7 @@ function stateLabel(row: DashboardRow): string {
   const s = row.session;
   if (!s) return "no sessions";
   if (!row.repository) return "unregistered";
+  if (s.status === "no_changes") return "no changes needed";
   if (s.status === "succeeded") return "completed";
   if (s.waitingForLock) return "waiting for lock";
   if (s.awaitingConflictResolution) return "merge conflict";
@@ -328,7 +341,7 @@ function nextStep(row: DashboardRow): string {
   const s = row.session;
   if (!s) return "Run begin in this repository";
   if (!row.repository) return "Restore repository registration";
-  if (s.status === "succeeded") {
+  if (["succeeded", "no_changes"].includes(s.status)) {
     if (s.pullRequestUrl) return "Review and merge PR; Enter for follow-ups";
     if (s.rolloutFollowUps?.length)
       return "Complete external follow-ups; Enter details";
@@ -497,6 +510,7 @@ function updatedAt(row: DashboardRow): number {
     ...[
       s.startedAt,
       s.tasksUpdatedAt,
+      s.closedAt,
       s.readyAt,
       s.sourceValidatedAt,
       s.integratedAt,
@@ -517,10 +531,14 @@ export function filterDashboard(
     const matches =
       view.filter === "all" ||
       (view.filter === "needs attention" && needsAttention(row)) ||
-      (view.filter === "active" && !!s && s.status !== "succeeded") ||
+      (view.filter === "active" &&
+        !!s &&
+        !["succeeded", "no_changes"].includes(s.status)) ||
       (view.filter === "review" &&
         (s?.status === "needs_review" || !!s?.pullRequestUrl)) ||
-      (view.filter === "completed" && s?.status === "succeeded");
+      (view.filter === "completed" &&
+        !!s &&
+        ["succeeded", "no_changes"].includes(s.status));
     return (
       matches &&
       (!view.repository || path === view.repository) &&
@@ -650,18 +668,21 @@ function renderDashboardContent(
   const selectedRow = rows[selected];
   const attention = rows.filter(needsAttention).length;
   const active = rows.filter(
-    (r) => r.session && r.session.status !== "succeeded",
+    (r) => r.session && !["succeeded", "no_changes"].includes(r.session.status),
   ).length;
   const title = `sesh-integrator  ${visible.length} visible | ${attention} attention | ${active} active`;
   const refresh = `Last refresh ${exactTime(refreshedAt.getTime())}`;
   const wide = width >= 110 && height >= 20;
   const leftWidth = wide ? Math.floor(width * 0.68) : width;
   const rightWidth = wide ? width - leftWidth - 3 : width;
-  const tabular = leftWidth >= 80;
+  const progressWidth = Math.max(
+    8,
+    ...rows.map((row) => sessionProgress(row.session).length),
+  );
+  const tabular = leftWidth >= 72 + progressWidth;
   const rowHeight = tabular ? 1 : 3;
   const repoWidth = Math.min(18, Math.max(10, Math.floor(leftWidth * 0.14)));
   const statusWidth = 18;
-  const progressWidth = 8;
   const textWidth = leftWidth - repoWidth - statusWidth - progressWidth - 6;
   const descriptionWidth = Math.max(19, Math.ceil(textWidth * 0.55));
   const currentWidth = textWidth - descriptionWidth;
@@ -1361,7 +1382,11 @@ export async function dashboardCommand(): Promise<void> {
         const innerWidth = width - (framed ? 4 : 0);
         const split = innerWidth >= 110 && height >= 20;
         const listWidth = split ? Math.floor(innerWidth * 0.68) : innerWidth;
-        const rowHeight = listWidth >= 80 ? 1 : 3;
+        const progressWidth = Math.max(
+          8,
+          ...rows.map((row) => sessionProgress(row.session).length),
+        );
+        const rowHeight = listWidth >= 72 + progressWidth ? 1 : 3;
         const pageSize = Math.max(
           1,
           Math.floor((height - (framed ? 7 : 0) - (split ? 6 : 7)) / rowHeight),

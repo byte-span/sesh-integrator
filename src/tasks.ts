@@ -17,6 +17,7 @@ const sessionStatuses: Session["status"][] = [
   "promotion_pending",
   "needs_review",
   "succeeded",
+  "no_changes",
 ];
 const markers: Record<TaskStatus, string> = {
   pending: "[ ]",
@@ -35,12 +36,14 @@ export function taskProgress(session?: Session): string {
 }
 
 export function currentTask(session?: Session): string {
+  if (session?.status === "no_changes") return "No changes needed";
   const tasks = session?.tasks ?? [];
   if (!tasks.length) return "No tasks yet";
+  if (tasks.every((t) => t.status === "skipped")) return "All tasks skipped";
   const active = tasks.find((t) => t.status === "in_progress");
   if (active) return active.title;
   if (tasks.every((t) => ["completed", "skipped"].includes(t.status)))
-    return "Complete";
+    return "Tasks finished";
   if (tasks.some((t) => t.status === "blocked")) return "Blocked";
   return tasks.every((t) => t.status === "pending")
     ? "Not started"

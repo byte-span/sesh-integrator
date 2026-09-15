@@ -74,7 +74,7 @@ it("keeps stable IDs through changing plans, and distinguishes skipped from comp
     status: "skipped",
     reason: "Covered by integration checks",
   });
-  expect(currentTask({ ...sample(), tasks })).toBe("Complete");
+  expect(currentTask({ ...sample(), tasks })).toBe("Tasks finished");
   expect(taskProgress({ ...sample(), tasks })).toBe("2/3 completed, 1 skipped");
   tasks = editTasks(tasks, { action: "add", titles: ["New discovery"] });
   expect(tasks[3]!.id).toBe(4);
@@ -220,7 +220,7 @@ it("supports task CLI lifecycle in a disposable repo, resolves sessions safely, 
     "1/2 completed, 1 skipped",
   );
   expect(run(["tasks", "list", "--session", session.id], 0, root)).toContain(
-    "Current: Complete",
+    "Current: Tasks finished",
   );
   expect(git(["status", "--porcelain=v1"])).toBe(before);
   expect(git(["status", "--porcelain=v1"], session.worktreePath)).toBe("");

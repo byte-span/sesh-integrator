@@ -113,6 +113,27 @@ Use `--session <session-id>` when selection from the launch checkout is ambiguou
 Do not write the session JSON directly or record any secret values. Checklist
 status is agent-reported and never replaces required validation or promotion.
 
+### Finish when no changes are needed
+
+If inspection shows the requested work is already implemented and this session
+has no new changes, finish its checklist truthfully (skip unnecessary work with
+reasons), then run:
+
+```bash
+seshx finish --no-changes --summary "<why no changes are needed>" [--session <id>] [--satisfied-by <successful-session-id>]
+```
+
+This is required before the final response; skipping tasks alone does not close
+the session. The CLI verifies the unchanged source branch/commit and observable
+working-tree baseline, rejects integration/recovery state and unfinished tasks,
+and records `no_changes` without creating or promoting a commit. Never create an
+empty commit or integrate just to close a no-change session. If an earlier
+successful session already delivered the work, pass its ID with `--satisfied-by`;
+the CLI verifies its source commit is present and retains its outstanding PR
+review and rollout obligations. Report the current no-change session and the
+referenced integration separately. Inspect `seshx status --session <id>` before
+reporting completion. A terminal response does not update stored session status.
+
 ## Completion
 
 Before saying the task is complete:

@@ -888,3 +888,23 @@ independent keyboard scrolling, pinned heading/progress, and overflow indicators
 Tab changes pane focus; arrows, Page Up/Down, and Home/End navigate the focused
 area. Narrow terminals open full details with Tab/Enter. Refresh and selection
 changes preserve per-session detail offsets, clamped to the available content.
+
+### No-change completion
+
+`finish --no-changes --summary "..." [--session <id>] [--satisfied-by <id>]`
+closes an active session as `no_changes` only when its source branch and commit
+still match begin, its observable working-tree baseline is unchanged, no merge
+or integration/recovery state exists, and every recorded task is completed or
+skipped. Persist `closedAt`, `completionSummary`, and optional
+`satisfiedBySessionId`. The referenced session must be successfully promoted in
+the same repository and its exact source commit must be an ancestor of the
+current source. Preserve its PR/rollout obligations without copying commit
+promotion claims into the new session. Serialize final verification and storage
+with task edits and reject stale lifecycle writes that would reopen it.
+
+The dashboard treats `no_changes` as finished for filters and action gating.
+Skipped progress is explicit; all-skipped tasks alone are not session completion.
+No Git or source-file changes occur. Dependencies continue to require a
+successfully integrated session. Guidance requires explicit no-change completion
+before the agent's final response; finishing a terminal conversation is not a
+session-state event.
