@@ -36,6 +36,28 @@ or compatibility `CODEX_HANDOFF_HOME` is set, use that directory instead.
 Otherwise reuse `~/.codex-handoff/` first, then `~/.parallel-integrator/` if present;
 fresh installations use `~/.sesh-integrator/`. Do not move existing session or worktree data.
 
+## Adoption and installation continuity
+
+Repository-scoped registration/begin reports existing dirty work and managed
+sessions. Isolated tasks may start from dirty launch checkouts; never import,
+commit, stash, or discard old edits automatically. Global setup cannot discover
+intended repositories or enroll already-open conversations. Inspect status in
+each known repository and continue tasks by session ID.
+
+New sessions retain a content-hashed coordinator and resource copy under the
+runtime's `coordinators/` directory. `status --session <id>` identifies it and
+reports missing assets. Keep the pinned coordinator for unfinished tasks;
+compatible reinstall can recover if the original executable is missing.
+`seshx installation-check` rejects incompatible state before installation changes.
+Do not run older pre-contract executables on newer session records.
+
+Uninstall stops new enrollment for selected harnesses and defers guidance removal
+while their sessions are unfinished. Existing sessions can finish using retained
+executables; rerun uninstall afterward. Direct npm package removal can bypass
+uninstall, so preserve runtime data, recovery bundles and Git refs. Reinstall with
+the same runtime home and a compatible build. Never remove an ambiguous lock to
+make installation or recovery proceed.
+
 ## External services and production isolation
 
 - This is an agent-accessible development VM, not a Production administration
@@ -189,7 +211,12 @@ At completion:
    worktree without committing there, then run `seshx resume` from the
    original source checkout. Preserve compatible intent and continue
    autonomously unless the conflict is genuinely ambiguous or validation fails.
-6. For `promotion_pending`, preserve the validated staging commit, correct only
+6. For `promotion_pending`, preserve the validated staging commit. If its owner
+   committed previously dirty target work, run `seshx resume` to reconcile both
+   histories in the isolated recovery worktree and fully revalidate. Resolve and
+   stage conflicts there without committing, then resume. Each resume makes one
+   local reconciliation attempt; further target movement stays pending. Never
+   replace the saved expected SHA manually. Otherwise correct only
    the reported blocking condition without disturbing user state, and run
    `seshx resume`. Do not claim success until promotion and configured
    post-integration checks complete.

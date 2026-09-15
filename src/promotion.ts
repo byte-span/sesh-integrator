@@ -130,7 +130,7 @@ export async function promoteValidatedCommit(
   }
   if (current !== expectedTargetCommit) {
     throw new PromotionBlockedError(
-      `Target branch ${branch} moved unexpectedly; expected ${expectedTargetCommit}, found ${current}. The validated commit ${validatedCommit} remains on ${repository.integrationBranch}. Reconcile the target movement before retrying.`,
+      `Target branch ${branch} moved unexpectedly; expected ${expectedTargetCommit}, found ${current}. The validated commit ${validatedCommit} remains on ${repository.integrationBranch}. Run seshx resume to reconcile the committed local target in an isolated worktree and revalidate.`,
     );
   }
   const fastForward = await run(

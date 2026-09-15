@@ -1,3 +1,8 @@
+import {
+  retainCoordinator,
+  enrollmentStopped,
+  unfinished,
+} from "./coordinator.js";
 import { runAgent } from "./agent.js";
 import { parseHarness, type Harness } from "./harness.js";
 import {
@@ -80,6 +85,8 @@ import {
 } from "./promotion.js";
 import { promoteByPullRequest, pullRequestPromotion } from "./pull-request.js";
 import {
+  recordLocalTargetRecovery,
+  verifyRecoveryBundle,
   archiveRecoveryBundle,
   ensureRecoveryBundle,
   reconstructRecoveryWorktree,
@@ -141,6 +148,7 @@ async function registerRepository(
     process.stdout.write(
       "Repository remains disabled; registration does not enable it. Run seshx enable to re-enable it.\n",
     );
+  await reportAdoption(context.worktreePath, context.gitCommonDir);
   const existing = config.repositories.find(
     (repo) => repo.gitCommonDir === context.gitCommonDir,
   );
@@ -278,7 +286,23 @@ export async function beginCommand(
   createWorktree = false,
   harness: Harness = "codex",
 ): Promise<Session> {
+  return withConfigLock(() =>
+    beginUnlocked(summary, dependsOn, autoBranch, createWorktree, harness),
+  );
+}
+
+async function beginUnlocked(
+  summary: string,
+  dependsOn: string[],
+  autoBranch = true,
+  createWorktree = false,
+  harness: Harness = "codex",
+): Promise<Session> {
   parseHarness(harness);
+  if (await enrollmentStopped(harness))
+    throw new Error(
+      `New ${harness} enrollment is stopped by uninstall. Existing sessions can finish; run seshx setup --harness ${harness} --yes to enroll new work.`,
+    );
   if (!summary.trim()) throw new Error('begin requires --summary "..."');
   if (createWorktree && !autoBranch) {
     throw new Error(
@@ -289,6 +313,7 @@ export async function beginCommand(
   assertRepositoryEnabled(config, await repositoryCommonDir(process.cwd()));
   const launchContext = await inspectGit(process.cwd());
   const repository = findRepository(config, launchContext.gitCommonDir);
+  await reportAdoption(launchContext.worktreePath, launchContext.gitCommonDir);
   await ensureGlobalTargetBranch(repository);
   if (launchContext.branch === repository.integrationBranch) {
     throw new Error(
@@ -315,6 +340,7 @@ export async function beginCommand(
       throw new Error(`Unknown dependency session: ${dependency}`);
     }
   }
+  const coordinator = await retainCoordinator();
   const sessionId = makeSessionId();
   let context = launchContext;
   let managedSourceWorktree = false;
@@ -418,6 +444,7 @@ export async function beginCommand(
       startedAt: new Date().toISOString(),
       taskSummary: summary.trim(),
       harness,
+      coordinator,
       dependsOn: [...new Set(dependsOn)],
       gitBaseline: baseline,
     };
@@ -982,6 +1009,11 @@ export async function resumeCommand(sessionId?: string): Promise<Session> {
       );
     session = launched[0];
   }
+  if (session) {
+    const recoveryCoordinator = await retainCoordinator();
+    session.coordinator ??= recoveryCoordinator;
+    session.recoveryCoordinator = recoveryCoordinator;
+  }
   const source = session ? await inspectGit(session.worktreePath) : current;
   if (
     !session ||
@@ -1106,6 +1138,26 @@ export async function resumeCommand(sessionId?: string): Promise<Session> {
     const legacyIntegrationWorktree =
       session.integrationWorktreePath ??
       join(runtimePaths().worktrees, session.repositoryId);
+    await verifyRecoveryBundle(session);
+    const localTarget = await refCommit(
+      repository.path,
+      `refs/heads/${session.targetBranch}`,
+    );
+    if (
+      session.recoveryPhase === "local_target" ||
+      (session.recoveryPhase === "promotion" &&
+        session.integratedCommit &&
+        localTarget &&
+        localTarget !== session.targetCommitBeforeIntegration &&
+        localTarget !== session.integratedCommit)
+    ) {
+      await reconcileLocalTarget(repository, session);
+      process.stdout.write(
+        `Promoted ${session.id} to ${session.targetBranch} at ${session.promotedCommit}\n`,
+      );
+      writeCompletionSummary(session);
+      return session;
+    }
     integrationWorktree = await reconstructRecoveryWorktree(
       repository,
       session,
@@ -1474,24 +1526,34 @@ async function validateCommitAndFinish(
   session: Session,
   worktree: string,
 ): Promise<void> {
-  const validation = selectValidation(
-    repository,
-    session.changedPaths ??
-      (await changedPaths(worktree, session.startCommit, session.readyCommit)),
-    session.validationTier !== "full" &&
-      session.sourceValidatedCommit === session.readyCommit,
-  );
+  const validation =
+    session.recoveryPhase === "local_target"
+      ? { integrationCommands: repository.integrationValidationCommands }
+      : selectValidation(
+          repository,
+          session.changedPaths ??
+            (await changedPaths(
+              worktree,
+              session.startCommit,
+              session.readyCommit,
+            )),
+          session.validationTier !== "full" &&
+            session.sourceValidatedCommit === session.readyCommit,
+        );
   const setup = await measurePhase("integration_setup", async () =>
     runSetupWithCache(repository, worktree),
   );
   recordPerformanceMetric("integrationSetupCacheHit", setup.cacheHit);
   const tree = await git(["write-tree"], worktree);
-  const cachedFingerprints = await validationCacheFor(
-    repository,
-    session,
-    tree,
-    validation.integrationCommands,
-  );
+  const cachedFingerprints =
+    session.recoveryPhase === "local_target"
+      ? new Set<string>()
+      : await validationCacheFor(
+          repository,
+          session,
+          tree,
+          validation.integrationCommands,
+        );
   const successfulCommands: Command[] = [];
   let result;
   try {
@@ -1549,8 +1611,16 @@ async function validateCommitAndFinish(
     session,
     session.integratedCommit,
   );
+  if (session.recoveryPhase === "local_target" && session.localTargetRecovery) {
+    session.localTargetRecovery.resultCommit = session.integratedCommit;
+    await recordLocalTargetRecovery(repository, session);
+    await writeSession(session);
+  }
   if (session.integrationWorktreeDetached) {
-    const expected = session.conflictIntegrationHead;
+    const expected =
+      session.localTargetRecovery && session.recoveryPhase === "local_target"
+        ? session.localTargetRecovery.stagingBefore
+        : session.conflictIntegrationHead;
     if (!expected)
       throw new Error("Detached integration is missing its staging baseline");
     const update = await run(
@@ -1578,7 +1648,7 @@ async function validateCommitAndFinish(
     repository,
     session,
     worktree,
-    integrationBranchAdvanced,
+    integrationBranchAdvanced || session.recoveryPhase === "local_target",
   );
 }
 
@@ -2328,4 +2398,260 @@ function reportStateDecision(
       `Observable Git state blocked ${phase}:\n- ${decision.blockers.join("\n- ")}`,
     );
   }
+}
+
+async function reportAdoption(
+  worktree: string,
+  commonDir: string,
+): Promise<void> {
+  const status = await run("git", ["status", "--porcelain"], { cwd: worktree });
+  if (status.code !== 0)
+    throw new Error("Cannot inspect adoption Git state; no edits imported");
+  if (status.stdout.trim())
+    process.stdout.write(
+      "Adoption: existing dirty work is preserved and excluded from isolated tasks. Dirty target work blocks promotion; after its owner commits it, use seshx resume to reconcile and revalidate. No edits are committed, stashed, or imported.\n",
+    );
+  const sessions = (await readSessions(true)).filter(
+    (s) => s.repositoryId === repoId(commonDir) && unfinished(s),
+  );
+  if (sessions.length)
+    process.stdout.write(
+      `Existing managed sessions: ${sessions.map((s) => s.id + " (" + s.status + ")").join(", ")}\n`,
+    );
+  process.stdout.write(
+    "Already-open conversations cannot be discovered or enrolled from Git; continue each managed task by its session ID.\n",
+  );
+}
+
+async function reconcileLocalTarget(
+  repository: RepositoryConfig,
+  session: Session,
+): Promise<void> {
+  await verifyRecoveryBundle(session);
+  let state =
+    session.recoveryPhase === "local_target"
+      ? session.localTargetRecovery
+      : undefined;
+  if (!state) {
+    const target = await refCommit(
+      repository.path,
+      `refs/heads/${session.targetBranch}`,
+    );
+    const base = session.integratedCommit;
+    const expected = session.targetCommitBeforeIntegration;
+    const staging = await refCommit(
+      repository.path,
+      `refs/heads/${repository.integrationBranch}`,
+    );
+    if (!target || !base || !expected || !staging)
+      throw new Error("Missing exact local reconciliation inputs");
+    if (
+      (
+        await run("git", ["merge-base", "--is-ancestor", expected, target], {
+          cwd: repository.path,
+        })
+      ).code !== 0
+    )
+      throw new Error(
+        "Local target history was rewritten; preserve state and inspect ancestry before recovery",
+      );
+    // Include later staging results too, preserving the exact earlier result as a parent.
+    const worktree = join(
+      runtimePaths().recoveryWorktrees,
+      session.id,
+      `local-${Date.now()}-${(session.localTargetRecoveryHistory?.length ?? 0) + 1}`,
+    );
+    if (session.localTargetRecovery)
+      (session.localTargetRecoveryHistory ??= []).push({
+        ...session.localTargetRecovery,
+      });
+    state = {
+      baseCommit: base,
+      targetCommit: target,
+      stagingBefore: staging,
+      worktree,
+    };
+    session.localTargetRecovery = state;
+    session.recoveryPhase = "local_target";
+    session.status = "needs_review";
+    await recordLocalTargetRecovery(repository, session);
+    await writeSession(session);
+  }
+  const worktree = state.worktree;
+  session.integrationWorktreePath = worktree;
+  session.integrationWorktreeDetached = true;
+  session.conflictIntegrationHead = state.baseCommit;
+  await writeSession(session);
+  if (state.resultCommit) {
+    // Commit and validation evidence survived interruption before staging/promotion.
+    const staging = await refCommit(
+      repository.path,
+      `refs/heads/${repository.integrationBranch}`,
+    );
+    if (staging !== state.resultCommit)
+      await git(
+        [
+          "update-ref",
+          `refs/heads/${repository.integrationBranch}`,
+          state.resultCommit,
+          state.stagingBefore,
+        ],
+        repository.path,
+      );
+    session.integratedCommit = state.resultCommit;
+    session.integratedAt = new Date().toISOString();
+    session.awaitingConflictResolution = false;
+    delete session.validationFailure;
+    session.targetCommitBeforeIntegration = state.targetCommit;
+    await runPostIntegrationAndPromote(repository, session, worktree);
+    return;
+  }
+  if (!(await pathExists(worktree))) {
+    await mkdir(dirname(worktree), { recursive: true });
+    await git(
+      ["worktree", "add", "--detach", worktree, state.baseCommit],
+      repository.path,
+    );
+  }
+  if (
+    state.resolvedCommit &&
+    !(await hasMergeInProgress(worktree)) &&
+    (await git(["rev-parse", "HEAD"], worktree)) === state.baseCommit &&
+    (await isClean(worktree))
+  ) {
+    await run("git", ["merge", "--no-ff", "--no-commit", state.targetCommit], {
+      cwd: worktree,
+    });
+    await git(
+      ["read-tree", "--reset", "-u", `${state.resolvedCommit}^{tree}`],
+      worktree,
+    );
+  }
+  const context = await inspectGit(worktree);
+  let exactCommittedResolution = false;
+  if (state.resolvedCommit && context.head !== state.baseCommit) {
+    const parents = (
+      await git(["rev-list", "--parents", "-n", "1", context.head], worktree)
+    )
+      .split(" ")
+      .slice(1);
+    exactCommittedResolution =
+      parents.length === 2 &&
+      parents.includes(state.baseCommit) &&
+      parents.includes(state.targetCommit) &&
+      (await git(["rev-parse", `${context.head}^{tree}`], worktree)) ===
+        (await git(["rev-parse", `${state.resolvedCommit}^{tree}`], worktree));
+  }
+  if (
+    context.gitCommonDir !== repository.gitCommonDir ||
+    context.branch !== null ||
+    (context.head !== state.baseCommit && !exactCommittedResolution)
+  )
+    throw new Error(
+      `Local reconciliation HEAD changed; preserve and inspect ${worktree}`,
+    );
+  if (!state.resolvedCommit) {
+    const merging = await hasMergeInProgress(worktree);
+    if (!merging) {
+      if (!(await isClean(worktree)))
+        throw new Error(`Local reconciliation worktree is dirty: ${worktree}`);
+      // Octopus merges cannot expose useful conflict state. Reconcile staging first
+      // only when it already contains the preserved result, then merge the target.
+      if (state.stagingBefore !== state.baseCommit) {
+        if (
+          (
+            await run(
+              "git",
+              [
+                "merge-base",
+                "--is-ancestor",
+                state.baseCommit,
+                state.stagingBefore,
+              ],
+              { cwd: worktree },
+            )
+          ).code !== 0
+        )
+          throw new Error(
+            "New staging diverged from the preserved validated result; manual ancestry review required; all recovery inputs retained",
+          );
+        await git(["merge", "--ff-only", state.stagingBefore], worktree);
+        state.baseCommit = state.stagingBefore;
+        session.conflictIntegrationHead = state.baseCommit;
+        await recordLocalTargetRecovery(repository, session);
+        await writeSession(session);
+      }
+      const result = await run(
+        "git",
+        ["merge", "--no-ff", "--no-commit", state.targetCommit],
+        { cwd: worktree },
+      );
+      if (result.code !== 0 && !(await unmergedFiles(worktree)).length)
+        throw new Error(`Local target merge failed: ${result.stderr}`);
+    } else if (
+      (await git(["rev-parse", "MERGE_HEAD"], worktree)) !== state.targetCommit
+    ) {
+      throw new Error(
+        "Local reconciliation MERGE_HEAD changed; refusing recovery",
+      );
+    }
+    const conflicts = await unmergedFiles(worktree);
+    if (conflicts.length) {
+      session.awaitingConflictResolution = true;
+      const prompt = await buildConflictPrompt(
+        repository,
+        session,
+        state.baseCommit,
+        conflicts,
+        false,
+      );
+      session.conflictPromptPath = await writeLog(
+        `${session.id}-local-target-conflict.txt`,
+        `Local target reconciliation: preserve validated result ${state.baseCommit} and committed target ${state.targetCommit}.\n${prompt}`,
+      );
+      await snapshotRecoveryState(repository, session, worktree);
+      await writeSession(session);
+      throw new Error(
+        `Resolve and stage local target conflicts in ${worktree} using ${session.conflictPromptPath}, then run seshx resume. Do not commit.`,
+      );
+    }
+    await assertNoUnstagedChanges(session, worktree);
+    const markers = await run("git", ["diff", "--cached", "--check"], {
+      cwd: worktree,
+    });
+    if ((markers.stdout + markers.stderr).includes("leftover conflict marker"))
+      throw new Error("Local reconciliation still has conflict markers");
+    // Durable exact resolved tree with both parents, before validation or commit.
+    const tree = await git(["write-tree"], worktree);
+    state.resolvedCommit = await git(
+      [
+        "commit-tree",
+        tree,
+        "-p",
+        state.baseCommit,
+        "-p",
+        state.targetCommit,
+        "-m",
+        `Local reconciliation snapshot ${session.id}`,
+      ],
+      repository.path,
+    );
+    await recordLocalTargetRecovery(repository, session);
+    await writeSession(session);
+  } else {
+    if (
+      (await git(["write-tree"], worktree)) !==
+      (await git(
+        ["rev-parse", `${state.resolvedCommit}^{tree}`],
+        repository.path,
+      ))
+    )
+      throw new Error(
+        "Resolved local reconciliation tree changed after validation failure; preserved snapshot remains authoritative",
+      );
+    await assertNoUnstagedChanges(session, worktree);
+  }
+  session.targetCommitBeforeIntegration = state.targetCommit;
+  // One reconciliation per resume: additional target movement stays pending.
+  await validateCommitAndFinish(repository, session, worktree);
 }

@@ -1,3 +1,4 @@
+import { coordinatorDescription } from "./coordinator.js";
 import { isRepositoryDisabled, repositoryCommonDir } from "./enablement.js";
 import { writeCompletionSummary } from "./completion.js";
 import { currentTask, taskProgress, taskLines } from "./tasks.js";
@@ -56,6 +57,13 @@ export async function statusCommand(sessionId?: string): Promise<void> {
       ? `${session.status} (waiting for lock)`
       : session.status;
     process.stdout.write(`\n${session.id}  ${state}\n`);
+    process.stdout.write(
+      `  coordinator: ${await coordinatorDescription(session)}\n`,
+    );
+    if (session.recoveryCoordinator)
+      process.stdout.write(
+        `  recovery coordinator: ${session.recoveryCoordinator.buildId} ${session.recoveryCoordinator.cliPath}\n`,
+      );
     process.stdout.write(`  harness: ${session.harness ?? "codex"}\n`);
     process.stdout.write(`  repo: ${session.repositoryPath}\n`);
     process.stdout.write(`  worktree: ${session.worktreePath}\n`);

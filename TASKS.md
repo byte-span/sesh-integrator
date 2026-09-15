@@ -206,3 +206,13 @@ Complete personal MVP implementation checklist.
 - [x] Support stable coordinator snapshots outside development worktrees
 - [x] Enable self-repository registration checks and isolated sessions targeting dev
 - [x] Keep merge hooks and health checks from independently moving dev or installing candidate code
+
+## Adoption and installation transitions
+
+- [x] Diagnose repository-scoped existing work without importing edits or enrolling conversations
+- [x] Retain content-identified compatible recovery coordinators independently of package installation
+- [x] Stop enrollment and defer uninstall while selected harness sessions remain unfinished
+- [x] Preserve customized guidance, other harnesses, runtime homes, locks and recovery data across reinstall
+- [x] Reconcile committed local target advancement through same-session resume with full validation
+- [x] Preserve conflicts, failed validation, repeated movement and interrupted local recovery evidence
+- [x] Verify transition behavior with disposable repositories and isolated installation/runtime homes

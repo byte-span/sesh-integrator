@@ -1,3 +1,11 @@
+import {
+  preflightRuntimeCompatibility,
+  retainCoordinator,
+  setEnrollment,
+  unfinished,
+  coordinatorDescription,
+} from "./coordinator.js";
+import { readSessions, withConfigLock } from "./runtime.js";
 import { constants } from "node:fs";
 import {
   access,
@@ -81,6 +89,10 @@ export async function setupCommand(
   args: string[],
   uninstall = false,
 ): Promise<void> {
+  return withConfigLock(() => setupUnlocked(args, uninstall));
+}
+
+async function setupUnlocked(args: string[], uninstall = false): Promise<void> {
   const explicit: Harness[] = [];
   let detected = false;
   let yes = false;
@@ -137,6 +149,38 @@ export async function setupCommand(
           ? "No installed workflows found."
           : "No harnesses selected. Install a harness or pass --harness <name>.",
       );
+    await preflightRuntimeCompatibility();
+    const pending = (await readSessions(true)).filter(unfinished);
+    for (const session of pending)
+      console.log(
+        `Existing session ${session.id} (${session.status}${session.waitingForLock ? ", waiting" : ""}): ${await coordinatorDescription(session)}`,
+      );
+    if (uninstall) {
+      const affected = pending.filter((s) =>
+        selected.includes(s.harness ?? "codex"),
+      );
+      if (affected.length) {
+        if (
+          prompt &&
+          !/^y(es)?$/i.test(
+            (
+              await prompt.question(
+                "Stop new enrollment and defer removal until sessions finish? [y/N] ",
+              )
+            ).trim(),
+          )
+        ) {
+          console.log("Cancelled.");
+          return;
+        }
+        await setEnrollment(selected, true);
+        const fallback = await retainCoordinator();
+        console.log(
+          `Removal deferred for ${affected.length} unfinished session(s). New enrollment stopped for ${selected.join(", ")}; existing guidance, locks, sessions and recovery bundles retained. Finish sessions with their recorded coordinator (or compatible fallback: node ${fallback.cliPath}), then rerun uninstall --yes. npm package removal is separate and cannot be prevented.`,
+        );
+        return;
+      }
+    }
     const receiptPath = join(runtimePaths().root, "installation.json");
     const receipt: Record<string, string> = JSON.parse(
       (await optional(receiptPath)) ?? "{}",
@@ -152,6 +196,7 @@ export async function setupCommand(
       before: string | undefined;
       after: string | undefined;
       digest?: string;
+      previousDigest?: string;
     }[] = [];
     for (const harness of selected) {
       const info = harnessInfo[harness];
@@ -171,6 +216,7 @@ export async function setupCommand(
         const owned =
           before === undefined ||
           hash(before) === receipt[path] ||
+          hash(before) === receipt[path + ":previous"] ||
           before === bundled;
         if (!owned) {
           if (!uninstall)
@@ -185,6 +231,7 @@ export async function setupCommand(
           before,
           after: uninstall ? undefined : bundled,
           digest: hash(bundled),
+          ...(before !== undefined ? { previousDigest: hash(before) } : {}),
         });
       }
       const path = join(home, info.directory, info.instructions);
@@ -192,11 +239,15 @@ export async function setupCommand(
       const range = managedRange(before ?? "");
       const currentBlock = range ? before!.slice(...range) : undefined;
       if (
-        uninstall &&
         currentBlock &&
         currentBlock !== block &&
-        hash(currentBlock) !== receipt[path]
+        hash(currentBlock) !== receipt[path] &&
+        hash(currentBlock) !== receipt[path + ":previous"]
       ) {
+        if (!uninstall)
+          throw new Error(
+            `Preserving customized guidance: ${path}. Back it up and move it before running setup again.`,
+          );
         console.log(`Preserving customized guidance: ${path}`);
         continue;
       }
@@ -207,7 +258,13 @@ export async function setupCommand(
         : uninstall
           ? before
           : `${before ?? ""}${before && !before.endsWith("\n") ? "\n" : ""}${block}\n`;
-      changes.push({ path, before, after, digest: hash(block) });
+      changes.push({
+        path,
+        before,
+        after,
+        digest: hash(block),
+        ...(currentBlock ? { previousDigest: hash(currentBlock) } : {}),
+      });
     }
     console.log(
       `${uninstall ? "Remove" : "Install"} integrations: ${selected.join(", ")}`,
@@ -225,17 +282,25 @@ export async function setupCommand(
       console.log("Cancelled.");
       return;
     }
+    if (uninstall) await setEnrollment(selected, true);
     if (!uninstall) {
       if (Number(process.versions.node.split(".")[0]) < 20)
         throw new Error("Node.js 20 or newer is required.");
       execFileSync("git", ["--version"], { stdio: "pipe", timeout: 10000 });
       await ensureRuntime();
+      await retainCoordinator();
     }
     for (const change of changes) {
       if ((await optional(change.path)) !== change.before)
         throw new Error(
           `File changed during setup; preserving ${change.path}. Retry the command.`,
         );
+      if (!uninstall) {
+        if (change.previousDigest)
+          receipt[change.path + ":previous"] = change.previousDigest;
+        receipt[change.path] = change.digest!;
+        await atomicWrite(receiptPath, JSON.stringify(receipt, null, 2) + "\n");
+      }
       if (change.before !== change.after) {
         if (change.after === undefined) await rm(change.path, { force: true });
         else await atomicWrite(change.path, change.after);
@@ -246,6 +311,7 @@ export async function setupCommand(
         throw new Error(`Verification failed: ${change.path}`);
     }
     await atomicWrite(receiptPath, JSON.stringify(receipt, null, 2) + "\n");
+    if (!uninstall) await setEnrollment(selected, false);
     if (uninstall)
       console.log(
         "Integrations removed; customized files, configuration, and sessions preserved. To remove the npm CLI: npm uninstall -g sesh-integrator",
@@ -260,7 +326,7 @@ export async function setupCommand(
             `Warning: ${harness} is not on PATH. Install it before using this integration.`,
           );
       console.log(
-        "Next: in your project, run seshx register --auto-config, then seshx doctor --installed.",
+        "Global setup cannot discover intended repositories or enroll open conversations. Next: in your project, run seshx register --auto-config, then seshx doctor --installed.",
       );
     }
   } finally {

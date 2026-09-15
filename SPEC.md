@@ -924,3 +924,28 @@ lives in `harnesses.json`; bulk refresh and `doctor --installed` cover every
 installed workflow. Harness-specific differences must reflect documented CLI
 behavior, not exclusive features. Current-session support requires no provider
 credentials in seshx.
+
+## Installation continuity and local target recovery
+
+Repository-scoped adoption diagnoses observable dirty work and managed sessions;
+Git cannot discover or enroll older conversations. Global setup makes no such
+claim. Dirty launch checkout state remains excluded from isolated tasks.
+
+Contract 1 sessions retain coordinator content identity, version, state/recovery
+contracts and independent executable/resources under runtime `coordinators/`.
+Compatible builds may recover legacy or contract 1 records; unknown contracts
+block mutation. Setup/uninstall serialize with enrollment, preserve customized
+harness content, and reuse runtime data. Uninstall stops new enrollment but
+defers removal while selected harnesses have unfinished sessions. Direct package
+removal is outside the tool's control. Recovery assets are not automatically
+pruned; reinstall cannot recreate separately deleted runtime or Git data.
+
+Under the repository lock, resume reconciles a normally advanced local target
+with the preserved exact integration result in a detached worktree. It preserves
+original source/target snapshots, appends immutable local recovery evidence,
+uses current-agent conflict resolution, runs full uncached integration validation,
+and promotes with expected-old checks and safe target synchronization. One
+attempt per resume bounds repeated target movement. Failed validation, conflicts,
+and interrupted evidence publication retain recoverable state. Rewritten target
+or non-descendant staging history requires ancestry review. Historical reconcile
+remains a separate conservative fast-forward audit/apply command.

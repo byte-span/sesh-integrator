@@ -1873,6 +1873,197 @@ process.stdout.write(JSON.stringify({response:"resolved",text:"resolved",result:
     );
   });
 
+  it.each(["clean", "conflict", "validation"])(
+    "reconciles a committed dirty target through same-session resume (%s)",
+    async (mode) => {
+      const fixture = await createFixture();
+      await writeFile(join(fixture.repo, "old.txt"), "old uncommitted work\n");
+      const started = await runCliOk(fixture, fixture.repo, [
+        "begin",
+        "--create-worktree",
+        "--summary",
+        "adopt existing work",
+      ]);
+      expect(started.stdout).toContain("existing dirty work is preserved");
+      let session = (await sessions(fixture))[0]!;
+      const worktree = session.worktreePath;
+      expect(await readFile(join(fixture.repo, "old.txt"), "utf8")).toBe(
+        "old uncommitted work\n",
+      );
+      const ready = commitFile(
+        worktree,
+        mode === "conflict" ? "shared.txt" : "task.txt",
+        "task\n",
+        "task",
+      );
+      if (mode === "conflict")
+        await writeFile(join(fixture.repo, "shared.txt"), "old target\n");
+      expect(
+        (await runCli(fixture, worktree, ["integrate", "--summary", "done"]))
+          .code,
+      ).toBe(1);
+      session = (await sessions(fixture))[0]!;
+      expect(session.status).toBe("promotion_pending");
+      const originalResult = session.integratedCommit;
+      const preRecoverySession = structuredClone(session);
+      const originalManifest = JSON.parse(
+        await readFile(
+          join(session.recoveryBundle.path, "manifest.json"),
+          "utf8",
+        ),
+      );
+      git(fixture.repo, "add", ".");
+      git(fixture.repo, "commit", "-m", "settle old work");
+      const oldWork = git(fixture.repo, "rev-parse", "HEAD");
+      const marker = join(fixture.root, "validation-count");
+      const gate = join(fixture.root, "validation-gate");
+      const post = join(fixture.root, "post-count");
+      await updateConfig(fixture, (c) => {
+        c.repositories[0].integrationValidationCommands = [
+          [
+            process.execPath,
+            "-e",
+            `const fs=require('fs');fs.appendFileSync(${JSON.stringify(marker)},'validated\\n');if(${mode === "validation"}&&!fs.existsSync(${JSON.stringify(gate)}))process.exit(1)`,
+          ],
+        ];
+        c.repositories[0].postIntegrationCommands = [
+          [
+            process.execPath,
+            "-e",
+            `require('fs').appendFileSync(${JSON.stringify(post)},'post\\n')`,
+          ],
+        ];
+      });
+      const resumed = await runCli(fixture, worktree, ["resume"]);
+      if (mode !== "clean") {
+        expect(resumed.code, resumed.stderr).toBe(1);
+        session = (await sessions(fixture))[0]!;
+        expect(session.status).toBe(
+          mode === "conflict" ? "needs_review" : "validation_pending",
+        );
+        expect(git(fixture.repo, "rev-parse", "HEAD")).toBe(oldWork);
+        expect(session.recoveryBundle.state).toBe("open");
+        if (mode === "conflict") {
+          await writeFile(
+            join(session.integrationWorktreePath, "shared.txt"),
+            "old target\ntask\n",
+          );
+          git(session.integrationWorktreePath, "add", "shared.txt");
+        } else {
+          await writeFile(gate, "pass");
+          // Reconstruct the exact resolved tree even if the disposable worktree is gone.
+          git(
+            fixture.repo,
+            "worktree",
+            "remove",
+            "--force",
+            session.integrationWorktreePath,
+          );
+        }
+        await runCliOk(fixture, worktree, ["resume"]);
+      } else expect(resumed.code, resumed.stderr).toBe(0);
+      session = (await sessions(fixture))[0]!;
+      expect(session.status).toBe("succeeded");
+      expect(session.readyCommit).toBe(ready);
+      expect(session.localTargetRecovery.baseCommit).toBe(originalResult);
+      for (const commit of [originalResult, ready, oldWork])
+        git(
+          fixture.repo,
+          "merge-base",
+          "--is-ancestor",
+          commit,
+          session.promotedCommit,
+        );
+      expect(git(fixture.repo, "status", "--porcelain")).toBe("");
+      expect(await readFile(join(fixture.repo, "old.txt"), "utf8")).toBe(
+        "old uncommitted work\n",
+      );
+      expect(await readFile(marker, "utf8")).toContain("validated");
+      expect(await readFile(post, "utf8")).toContain("post");
+      const manifest = JSON.parse(
+        await readFile(
+          join(session.recoveryBundle.path, "manifest.json"),
+          "utf8",
+        ),
+      );
+      expect(manifest.targetCommit).toBe(originalManifest.targetCommit);
+      expect(
+        manifest.snapshots.slice(0, originalManifest.snapshots.length),
+      ).toEqual(originalManifest.snapshots);
+      expect(
+        manifest.snapshots.some((s: any) => s.kind === "local-target"),
+      ).toBe(true);
+      if (mode === "clean") {
+        // Final session publication can be interrupted after target promotion.
+        await writeFile(
+          join(fixture.runtime, "sessions", session.id + ".json"),
+          JSON.stringify(preRecoverySession),
+        );
+        await runCliOk(fixture, worktree, ["resume", "--session", session.id]);
+        expect((await sessions(fixture))[0]!.promotedCommit).toBe(
+          session.promotedCommit,
+        );
+      }
+    },
+  );
+
+  it("bounds repeated local target movement and recovers interrupted bundle publication", async () => {
+    const f = await createFixture();
+    const worktree = await addWorktree(f, "moving-reconciliation");
+    await runCliOk(f, worktree, [
+      "begin",
+      "--summary",
+      "moving reconciliation",
+    ]);
+    commitFile(worktree, "task.txt", "task\n", "task");
+    await writeFile(join(f.repo, "old.txt"), "old\n");
+    expect(
+      (await runCli(f, worktree, ["integrate", "--summary", "done"])).code,
+    ).toBe(1);
+    git(f.repo, "add", ".");
+    git(f.repo, "commit", "-m", "old");
+    const counter = join(f.root, "moves");
+    await updateConfig(f, (c) => {
+      c.repositories[0].integrationValidationCommands = [
+        [
+          process.execPath,
+          "-e",
+          `const fs=require('fs'),cp=require('child_process');const p=${JSON.stringify(counter)},repo=${JSON.stringify(f.repo)};const n=fs.existsSync(p)?Number(fs.readFileSync(p))+1:1;fs.writeFileSync(p,String(n));fs.writeFileSync(repo+'/move'+n+'.txt',String(n));cp.execFileSync('git',['add','.'],{cwd:repo});cp.execFileSync('git',['commit','-m','move'+n],{cwd:repo});`,
+        ],
+      ];
+    });
+    for (let i = 1; i <= 2; i++) {
+      const r = await runCli(f, worktree, ["resume"]);
+      expect(r.code, r.stderr).toBe(1);
+      expect(r.stderr).toContain("moved unexpectedly");
+      expect(await readFile(counter, "utf8")).toBe(String(i));
+      expect((await sessions(f))[0]!.status).toBe("promotion_pending");
+    }
+    await updateConfig(f, (c) => {
+      c.repositories[0].integrationValidationCommands = [
+        [process.execPath, "-e", "process.exit(1)"],
+      ];
+    });
+    const previous = (await sessions(f))[0]!;
+    expect((await runCli(f, worktree, ["resume"])).code).toBe(1);
+    const pending = (await sessions(f))[0]!;
+    expect(pending.status).toBe("validation_pending");
+    expect(pending.localTargetRecoveryHistory).toHaveLength(2);
+    // Simulate interruption between durable evidence and publishing session pointer.
+    const sessionPath = join(f.runtime, "sessions", pending.id + ".json");
+    await writeFile(sessionPath, JSON.stringify(previous));
+    await updateConfig(f, (c) => {
+      c.repositories[0].integrationValidationCommands = [
+        [process.execPath, "--version"],
+      ];
+    });
+    await runCliOk(f, worktree, ["resume"]);
+    const done = (await sessions(f))[0]!;
+    expect(done.status).toBe("succeeded");
+    expect(git(f.repo, "status", "--porcelain")).toBe("");
+    expect(await readFile(join(f.repo, "move2.txt"), "utf8")).toBe("2");
+  });
+
   it("detects concurrent target movement after validation and refuses promotion", async () => {
     const fixture = await createFixture();
     const originalMain = git(fixture.repo, "rev-parse", "main");
