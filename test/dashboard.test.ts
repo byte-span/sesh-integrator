@@ -285,7 +285,7 @@ it("prioritizes blockers without losing sessions and shows recorded milestones",
     "1 attention",
     "[active]",
     "repo",
-    "Session description",
+    "Session",
     "Next action",
     "Recent activity",
     "Selected item",
@@ -641,23 +641,31 @@ it("defaults to unfinished sessions and separates session purpose, current task 
     }),
   ).toEqual([completed]);
   const output = renderDashboard([active, completed], 0, 180, 36).join("\n");
-  for (const heading of [
-    "Repository",
-    "Session description",
-    "Current task",
-    "Progress",
-    "Session status",
-  ])
+  for (const heading of ["Repository", "Session", "Status"])
     expect(output).toContain(heading);
   expect(output).toContain("Add login flow");
   expect(output).toContain("Test reset");
   expect(output).toContain("1/2");
-  expect(output).toContain("Complete");
+  expect(output).toContain("Integrated");
   expect(output).not.toContain("task / done");
   const compact = renderDashboard([active], 0, 79, 24).join("\n");
   expect(compact).toContain("Add login flow");
-  expect(compact).toContain("Current: Test reset");
-  expect(compact).toContain("Progress: 1/2");
+  expect(compact).toContain("Task: Test reset");
+  expect(compact).toContain("In progress | 1/2");
+  for (const width of [50, 79, 180]) {
+    for (const status of ["succeeded", "no_changes"] as const) {
+      completed.session!.status = status;
+      const lines = renderDashboard([completed], 0, width, 36);
+      const list = lines.map((line) =>
+        width >= 110 ? line.split(" | ")[0] : line,
+      );
+      expect(list.join("\n")).toContain(
+        status === "succeeded" ? "Integrated" : "No changes",
+      );
+      expect(list.join("\n")).not.toContain("Task: Test reset");
+      expect(list.join("\n")).not.toContain("1/2");
+    }
+  }
 });
 
 it("shows skipped progress explicitly and moves verified no-change sessions out of Active", () => {
@@ -674,7 +682,7 @@ it("shows skipped progress explicitly and moves verified no-change sessions out 
       reason: "Already fixed",
     });
   let screen = renderDashboard([r], 0, 180, 36).join("\n");
-  expect(screen).toContain("All tasks skipped");
+  expect(screen).toContain("2 skipped");
   const tableRow = screen.split("\n").find((line) => line.startsWith("| >"))!;
   expect(tableRow).toContain("2 skipped");
   expect(tableRow).not.toContain("0/2");

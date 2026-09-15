@@ -197,7 +197,28 @@ export interface DetailPaneState {
 }
 
 function sessionCurrentTask(session?: Session): string {
-  return session?.status === "succeeded" ? "Complete" : currentTask(session);
+  if (!session || ["succeeded", "no_changes"].includes(session.status))
+    return "";
+  return session.tasks?.some((task) =>
+    ["pending", "in_progress", "blocked"].includes(task.status),
+  )
+    ? currentTask(session)
+    : "";
+}
+
+function sessionRowStatus(row: DashboardRow): string {
+  const session = row.session;
+  if (!row.repository || !session) return stateLabel(row);
+  if (session.status === "no_changes") return "No changes";
+  if (session.status === "succeeded") return "Integrated";
+  const status = session.status === "active" ? "In progress" : stateLabel(row);
+  return session.tasks?.length
+    ? `${status} | ${sessionProgress(session)}`
+    : status;
+}
+
+function sessionRowHeight(row: DashboardRow, tabular: boolean): number {
+  return (tabular ? 1 : 2) + (sessionCurrentTask(row.session) ? 1 : 0);
 }
 
 function sessionProgress(session?: Session): string {
@@ -675,35 +696,23 @@ function renderDashboardContent(
   const wide = width >= 110 && height >= 20;
   const leftWidth = wide ? Math.floor(width * 0.68) : width;
   const rightWidth = wide ? width - leftWidth - 3 : width;
-  const progressWidth = Math.max(
-    8,
-    ...rows.map((row) => sessionProgress(row.session).length),
+  const tabular = leftWidth >= 70;
+  const repoWidth = Math.min(18, Math.max(10, Math.floor(leftWidth * 0.18)));
+  const statusWidth = Math.min(
+    Math.floor(leftWidth * 0.36),
+    Math.max(18, ...rows.map((row) => sessionRowStatus(row).length)),
   );
-  const tabular = leftWidth >= 72 + progressWidth;
-  const rowHeight = tabular ? 1 : 3;
-  const repoWidth = Math.min(18, Math.max(10, Math.floor(leftWidth * 0.14)));
-  const statusWidth = 18;
-  const textWidth = leftWidth - repoWidth - statusWidth - progressWidth - 6;
-  const descriptionWidth = Math.max(19, Math.ceil(textWidth * 0.55));
-  const currentWidth = textWidth - descriptionWidth;
+  const descriptionWidth = leftWidth - repoWidth - statusWidth - 4;
   const table = (
     repo: string,
     description: string,
-    current: string,
-    progress: string,
     status: string,
     marker = " ",
   ) =>
-    `${marker} ${fit(repo, repoWidth)} ${fit(description, descriptionWidth)} ${fit(current, currentWidth)} ${fit(progress, progressWidth)} ${fit(status, statusWidth)}`;
+    `${marker} ${fit(repo, repoWidth)} ${fit(description, descriptionWidth)} ${fit(status, statusWidth)}`;
   const columnHeading = tabular
-    ? table(
-        "Repository",
-        "Session description",
-        "Current task",
-        "Progress",
-        "Session status",
-      )
-    : "Repository / Session description";
+    ? table("Repository", "Session", "Status")
+    : "Repository / Session / Status";
   const position = `${visible.length ? cursor + 1 : 0}/${visible.length}`;
   const filterLabel = view.filter;
   const filters =
@@ -737,37 +746,48 @@ function renderDashboardContent(
       : "Tab/Enter details  Up/Down select  f filter  p repo  s sort  q quit";
   const actions = "v validate   i integrate   R resume";
   const count = Math.max(1, height - lines.length - (wide ? 2 : 3));
-  const visibleSessions = Math.max(1, Math.floor(count / rowHeight));
-  const start = Math.max(0, cursor - visibleSessions + 1);
+  let start = Math.max(0, cursor);
+  let used = rows[cursor] ? sessionRowHeight(rows[cursor]!, tabular) : 0;
+  while (
+    start > 0 &&
+    used + sessionRowHeight(rows[start - 1]!, tabular) <= count
+  ) {
+    used += sessionRowHeight(rows[--start]!, tabular);
+  }
   const details = selectedRow
     ? renderDetailPane(selectedRow, rightWidth, count, pane.offset).lines
     : ["Select a session to inspect its next action."];
-  for (let i = 0; i < count; i++) {
-    const rowIndex = start + Math.floor(i / rowHeight);
-    const row =
-      Math.floor(i / rowHeight) < visibleSessions
-        ? visible[rowIndex]
-        : undefined;
-    const lineInRow = i % rowHeight;
-    const marker = rowIndex === cursor ? ">" : " ";
-    const left = row
-      ? tabular
-        ? table(
+  const listLines: string[] = [];
+  for (let index = start; index < visible.length; index++) {
+    const row = visible[index]!;
+    const marker = index === cursor ? ">" : " ";
+    const task = sessionCurrentTask(row.session);
+    const rowLines = tabular
+      ? [
+          table(
             name(row),
             row.session?.taskSummary ?? "No session",
-            sessionCurrentTask(row.session),
-            sessionProgress(row.session),
-            stateLabel(row),
+            sessionRowStatus(row),
             marker,
-          )
-        : [
-            `${marker} ${name(row)} | ${row.session?.taskSummary ?? "No session"}`,
-            `  Current: ${sessionCurrentTask(row.session)}`,
-            `  Progress: ${sessionProgress(row.session)} | ${stateLabel(row)}`,
-          ][lineInRow]!
-      : i === 0
+          ),
+        ]
+      : [
+          `${marker} ${name(row)} | ${row.session?.taskSummary ?? "No session"}`,
+        ];
+    if (task)
+      rowLines.push(
+        tabular ? table("", `Task: ${task}`, "") : `  Task: ${task}`,
+      );
+    if (!tabular) rowLines.push(`  ${sessionRowStatus(row)}`);
+    if (listLines.length && listLines.length + rowLines.length > count) break;
+    listLines.push(...rowLines);
+  }
+  for (let i = 0; i < count; i++) {
+    const left =
+      listLines[i] ??
+      (i === 0 && !rows.length
         ? "No matches. f changes filter; / searches."
-        : "";
+        : "");
     lines.push(
       wide
         ? fit(left, leftWidth) + " | " + fit(details[i] ?? "", rightWidth)
@@ -844,9 +864,11 @@ export function colorDashboardLine(
       : /^(filter:|f |repo |Up\/Down|v validate)/.test(safe.trim())
         ? muted
         : base;
-  let content = left.startsWith("> ")
-    ? paint(left, selected)
-    : paint(decorate(left), style);
+  let content = /^\s+Task: /.test(left)
+    ? paint(left, muted)
+    : left.startsWith("> ")
+      ? paint(left, selected)
+      : paint(decorate(left), style);
   if (divider >= 0)
     content +=
       paint(unicode ? " │ " : " | ", muted) +
@@ -1382,15 +1404,23 @@ export async function dashboardCommand(): Promise<void> {
         const innerWidth = width - (framed ? 4 : 0);
         const split = innerWidth >= 110 && height >= 20;
         const listWidth = split ? Math.floor(innerWidth * 0.68) : innerWidth;
-        const progressWidth = Math.max(
-          8,
-          ...rows.map((row) => sessionProgress(row.session).length),
-        );
-        const rowHeight = listWidth >= 72 + progressWidth ? 1 : 3;
-        const pageSize = Math.max(
+        const available = Math.max(
           1,
-          Math.floor((height - (framed ? 7 : 0) - (split ? 6 : 7)) / rowHeight),
+          height - (framed ? 7 : 0) - (split ? 6 : 7),
         );
+        const direction = key.name === "pageup" ? -1 : 1;
+        let pageSize = 0;
+        let used = 0;
+        for (
+          let index = navigation.sessions;
+          index >= 0 && index < rows.length;
+          index += direction
+        ) {
+          used += sessionRowHeight(rows[index]!, listWidth >= 70);
+          if (used > available) break;
+          pageSize++;
+        }
+        pageSize = Math.max(1, pageSize);
         navigation.sessions = scrollDetailPane(
           navigation.sessions,
           key.name!,
