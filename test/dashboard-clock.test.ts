@@ -9,7 +9,8 @@ import {
 import { readConfig, readSessions } from "../src/runtime.js";
 import type { Session } from "../src/types.js";
 
-vi.mock("../src/runtime.js", () => ({
+vi.mock("../src/runtime.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/runtime.js")>()),
   readConfig: vi.fn(),
   readSessions: vi.fn(),
 }));
@@ -26,9 +27,10 @@ it("shows an explicit UTC timestamp and handles missing/bad dates", () => {
   expect(exactTime("bad date")).toBe("unknown");
 });
 
-it("redraws age without loading data, updates freshness only on refresh, and clears its timer on exit", async () => {
+it("refreshes automatically, defers updates during input, and clears timers on exit", async () => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date("2026-09-12T10:01:00Z"));
+  vi.stubEnv("SESH_INTEGRATOR_HOME", "/nonexistent-dashboard-test-runtime");
   vi.stubEnv("TERM", "xterm");
   vi.stubEnv("NO_COLOR", "1");
   const input = Object.assign(new PassThrough(), {
@@ -82,13 +84,13 @@ it("redraws age without loading data, updates freshness only on refresh, and cle
     screen = "";
     await vi.advanceTimersByTimeAsync(60_000);
     expect(screen).toContain("2m");
-    expect(screen).toContain("Last refresh 2026-09-12 10:01:00 UTC");
-    expect(readSessions).toHaveBeenCalledTimes(1);
-    expect(readConfig).toHaveBeenCalledTimes(1);
+    expect(screen).toContain("Last refresh 2026-09-12 10:02:00 UTC");
+    expect(readSessions).toHaveBeenCalledTimes(4);
+    expect(readConfig).toHaveBeenCalledTimes(4);
     screen = "";
     input.emit("keypress", "r", { name: "r" });
     await vi.advanceTimersByTimeAsync(0);
-    expect(readSessions).toHaveBeenCalledTimes(2);
+    expect(readSessions).toHaveBeenCalledTimes(5);
     expect(screen).toContain("Last refresh 2026-09-12 10:02:00 UTC");
     const press = async (name: string) => {
       screen = "";
@@ -164,15 +166,16 @@ it("redraws age without loading data, updates freshness only on refresh, and cle
     screen = "";
     await vi.advanceTimersByTimeAsync(60_000);
     expect(screen).toContain("4h");
-    expect(readSessions).toHaveBeenCalledTimes(2);
-    expect(screen).toContain("Last refresh 2026-09-12 10:02:00 UTC");
+    expect(readSessions).toHaveBeenCalledTimes(7);
+    expect(screen).toContain("Last refresh 2026-09-12 14:01:00 UTC");
     input.emit("keypress", "/", { name: "/" });
     input.emit("keypress", "C", { name: "c" });
     await vi.advanceTimersByTimeAsync(0);
     screen = "";
     await vi.advanceTimersByTimeAsync(60_000);
-    expect(screen).toContain("Search: C_");
-    expect(readSessions).toHaveBeenCalledTimes(2);
+    // Deferred refresh leaves the active search untouched.
+    expect(screen).toBe("");
+    expect(readSessions).toHaveBeenCalledTimes(7);
     input.emit("keypress", "", { name: "escape" });
     await vi.advanceTimersByTimeAsync(0);
     input.emit("keypress", "\r", { name: "return" });
@@ -181,7 +184,30 @@ it("redraws age without loading data, updates freshness only on refresh, and cle
     await vi.advanceTimersByTimeAsync(60_000);
     expect(screen).toContain("Started: 2026-09-12 09:00:00 UTC");
     expect(screen).toContain("Esc back");
-    expect(readSessions).toHaveBeenCalledTimes(2);
+    expect(readSessions).toHaveBeenCalledTimes(10);
+    // A newer session must not steal selection or reset detail scrolling.
+    output.rows = 10;
+    input.emit("keypress", "", { name: "down" });
+    await vi.advanceTimersByTimeAsync(0);
+    screen = "";
+    vi.mocked(readSessions).mockResolvedValue([
+      session,
+      { ...session, id: "new-session", taskSummary: "New arrival" },
+    ]);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(screen).toContain("clock-session");
+    expect(screen).not.toContain("New arrival");
+    expect(screen).toMatch(/2-\d+\/\d+ Up\/Down scroll/);
+    vi.mocked(readSessions).mockRejectedValueOnce(
+      new Error("temporary read failure"),
+    );
+    screen = "";
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(screen).toContain("Refresh failed: temporary read failure");
+    screen = "";
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(screen).toContain("clock-session");
+    expect(screen).not.toContain("Refresh failed:");
   } finally {
     input.emit("keypress", "q", { name: "q" });
     await vi.advanceTimersByTimeAsync(0);

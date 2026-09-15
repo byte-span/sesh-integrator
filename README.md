@@ -1,6 +1,6 @@
 # sesh-integrator (`seshx`)
 
-`sesh-integrator` is a personal, one-shot Git integration CLI for Codex sessions working in parallel worktrees. It has no daemon, watcher, polling service, LaunchAgent, or background queue.
+`sesh-integrator` is a personal, one-shot Git integration CLI for Codex sessions working in parallel worktrees. It has no integration daemon, polling service, LaunchAgent, or background queue.
 
 ```text
 seshx begin
@@ -182,18 +182,22 @@ detail-section dividers, and a separated footer give each section a clear bounda
 Truecolor terminals get a dark navy palette; other terminals use basic ANSI
 colors. UTF-8 terminals use a subtle Unicode divider, with ASCII as the fallback.
 `NO_COLOR` disables styling. Browsing never writes configuration or session state,
-and there is no automatic polling.
+and automatic updates run only while the dashboard is open. It watches session
+and configuration directories, batches file events for 150 ms, and refreshes
+every 30 seconds as a fallback. Watchers and timers stop when it closes.
 
 Use Up/Down to select, `/` to search task/repository/branch/session text, Left/Right (or `f`) to
 cycle status filters, `p` to open the repository picker, and `s` to open the
 sort picker (priority, updated, or repository). In either picker, Up/Down moves
 the highlight, Enter applies the selection, and Escape cancels. Search applies as you type; Enter finishes and
 Escape restores the previous query.
-The Updated ages advance every minute from cached event timestamps without
-reading session files or Git. Last refresh shows the exact UTC date/time when
+The Updated ages advance when saved data refreshes; browsing does not read Git.
+Automatic updates preserve selection, filters, and detail scroll position.
+Updates wait while searching, using a picker, editing a form, confirming an
+action, or viewing command output, then resume when browsing resumes. Last refresh shows the exact UTC date/time when
 data was loaded and changes only when data is refreshed. Details include the
 exact UTC session start time.
-Use Enter for details, `r` to refresh, and `q` to quit. In details, Up/Down scrolls
+Use Enter for details, `r` to refresh immediately, and `q` to quit. In details, Up/Down scrolls
 the complete record, including long follow-ups. From either view, `v` validates,
 `i` integrates, and `R` resumes a preserved integration (`s` remains a resume
 alias in details). Unavailable actions show a reason. Escape returns or cancels

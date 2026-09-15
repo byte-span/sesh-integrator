@@ -61,7 +61,9 @@ SESSION 1                         SESSION 2
 
 ## 3. Key Design Choice
 
-There is **no daemon and no watcher**.
+There is **no integration daemon or background watcher**.
+The interactive dashboard watches saved session/configuration files only while
+open, with a 30-second fallback refresh; it never triggers integration automatically.
 
 Each finished session starts its own one-shot integration process.
 
@@ -73,7 +75,7 @@ integration worktrees. A validated isolated result advances the staging ref
 with an expected-old check, so preserved review state does not monopolize the
 repository.
 
-This means the system has no idle background process and no polling state to maintain.
+This means integration has no idle background process or polling state to maintain.
 
 ## 4. Locations
 

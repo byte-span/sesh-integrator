@@ -3,6 +3,7 @@ import { basename } from "node:path";
 import { emitKeypressEvents, type Key } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { stripVTControlCharacters } from "node:util";
+import { watchDashboard } from "./dashboard-watch.js";
 import { targetBranch } from "./promotion.js";
 import { pullRequestPromotion } from "./pull-request.js";
 import { readConfig, readSessions } from "./runtime.js";
@@ -742,7 +743,9 @@ export async function dashboardCommand(): Promise<void> {
   let picker: DashboardPicker | undefined;
   let previousQuery = "";
   let refreshedAt = new Date();
-  let clockTimer: ReturnType<typeof setInterval> | undefined;
+  let stopWatching: (() => void) | undefined;
+  let refreshPending = false;
+  let refreshQueued = false;
   let selected = 0;
   let navigation: DashboardNavigation = {
     sessions: 0,
@@ -940,7 +943,7 @@ export async function dashboardCommand(): Promise<void> {
   const close = () => {
     if (closed) return;
     closed = true;
-    clearInterval(clockTimer);
+    stopWatching?.();
     leave();
     stdin.setRawMode(wasRaw);
     stdin.off("keypress", onKey);
@@ -1232,6 +1235,32 @@ export async function dashboardCommand(): Promise<void> {
       } else mode = "confirm";
     }
   };
+  const requestRefresh = () => {
+    if (closed) return;
+    refreshPending = true;
+    if (refreshQueued) return;
+    refreshQueued = true;
+    // Share the input queue so asynchronous reads cannot race navigation edits.
+    keyQueue = keyQueue.then(async () => {
+      refreshQueued = false;
+      if (
+        closed ||
+        busy ||
+        searching ||
+        picker ||
+        (mode !== "list" && mode !== "details")
+      )
+        return;
+      refreshPending = false;
+      try {
+        await refresh();
+        if (message.startsWith("Refresh failed:")) message = "";
+      } catch (error: unknown) {
+        message = `Refresh failed: ${error instanceof Error ? error.message : String(error)}`;
+      }
+      draw();
+    });
+  };
   const onKey = (text: string, key: Key) => {
     if (busy) return;
     const epoch = inputEpoch;
@@ -1253,6 +1282,7 @@ export async function dashboardCommand(): Promise<void> {
       } finally {
         busy = false;
         draw();
+        if (refreshPending) requestRefresh();
       }
     });
   };
@@ -1265,9 +1295,9 @@ export async function dashboardCommand(): Promise<void> {
     stdin.setRawMode(true);
     stdin.resume();
     draw();
-    // Redraw cached ages only; saved data is still refreshed on demand.
-    clockTimer = setInterval(draw, 60_000);
-    clockTimer.unref();
+    stopWatching = watchDashboard(requestRefresh);
+    // Reconcile changes between the initial read and attaching the watchers.
+    requestRefresh();
     await done;
   } finally {
     close();
