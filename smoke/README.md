@@ -45,10 +45,25 @@ sandbox home's `.codex` configuration through the existing adapter.
 
 ```sh
 SESH_SMOKE_HOME=/absolute/path/to/sandbox-home \
-SESH_SMOKE_HARNESSES=codex,claude,gemini,grok \
 SESH_SMOKE_BUDGET_CONFIRMED=1 \
-pnpm test:smoke:live
+pnpm test:smoke:live --all
 ```
+
+Select individual harnesses with flags:
+
+```sh
+pnpm test:smoke:live --harness codex
+pnpm test:smoke:live --harness codex,claude
+pnpm test:smoke:live --all
+pnpm test:smoke:live --help
+```
+
+The sandbox home and budget environment variables above still apply to each
+live run. `--help` needs neither and makes no calls. Explicit selection flags
+override `SESH_SMOKE_HARNESSES`; the environment variable remains supported
+when no selection flag is supplied. `--harness` and `--all` cannot be combined.
+Unknown names, duplicates, empty lists and unsupported arguments are rejected
+before building or invoking providers.
 
 Choose one or more comma-separated harness names. Missing/unknown harnesses,
 missing budget acknowledgement, and missing/ordinary home paths fail the run;
