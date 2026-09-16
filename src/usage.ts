@@ -228,7 +228,7 @@ export function formatUsageReport(
   };
   const current = records.filter((r) => r.runId === runId);
   const lines = [
-    "\nSmoke-test token usage (local history; not account quota or cost)",
+    "\nLive-test token usage (local history; not account quota or cost)",
     `This run: ${describe(current)}`,
   ];
   for (const hours of usageWindows) {
@@ -271,7 +271,7 @@ export function formatUsageReport(
       `WARNING: ${damaged} unreadable/invalid history file(s); rolling totals are incomplete.`,
     );
   lines.push(
-    "Only instrumented live smoke calls are counted. Missing usage is unknown, never free.",
+    "Only instrumented live smoke/eval calls are counted. Missing usage is unknown, never free.",
   );
   return lines.join("\n") + "\n";
 }

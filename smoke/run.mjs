@@ -56,6 +56,7 @@ export async function main(
     const { prepareUsageRun } = await import("../dist/usage.js");
     return prepareUsageRun(environment);
   },
+  suite = { config: "smoke/vitest.config.ts", env: {} },
 ) {
   const selected = selection(args, env);
   if (selected.help) {
@@ -68,6 +69,7 @@ export async function main(
       ...env,
       SESH_SMOKE_HARNESSES: selected.harnesses.join(","),
       SESH_SMOKE_LIVE_CONFIRMED: "1",
+      ...suite.env,
     },
     stdio: "inherit",
   };
@@ -83,12 +85,7 @@ export async function main(
   try {
     const result = execute(
       process.execPath,
-      [
-        require.resolve("vitest/vitest.mjs"),
-        "run",
-        "--config",
-        "smoke/vitest.config.ts",
-      ],
+      [require.resolve("vitest/vitest.mjs"), "run", "--config", suite.config],
       options,
     );
     if (result.error) throw new Error("Could not start the live smoke tests.");

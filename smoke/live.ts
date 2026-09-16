@@ -1,42 +1,16 @@
-import { readFile, realpath, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import { isAbsolute, join } from "node:path";
+import { readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { expect, it } from "vitest";
 import { createCodexLoginCommand } from "./codex-login.js";
-import { harnesses } from "../src/harness.js";
+import { liveOptions } from "./live-options.js";
 import {
   conflictingSmoke,
   registerSmoke,
   smokeFixture,
 } from "../test/smoke-fixture.js";
 
-// Only the explicit live command opts in; ordinary tests never inherit login.
-const selected = process.env.SESH_SMOKE_HARNESSES?.split(",") ?? [];
-const sandboxHome = process.env.SESH_SMOKE_HOME ?? "";
-if (
-  process.env.SESH_SMOKE_LIVE_CONFIRMED !== "1" ||
-  selected.length === 0 ||
-  new Set(selected).size !== selected.length ||
-  selected.some((h) => !harnesses.includes(h as (typeof harnesses)[number]))
-)
-  throw new Error(
-    "Use pnpm test:smoke:live --harness <name> to opt in to real AI calls.",
-  );
-if (
-  selected.some((h) => h !== "codex") &&
-  (process.env.SESH_SMOKE_BUDGET_CONFIRMED !== "1" ||
-    !isAbsolute(sandboxHome) ||
-    (await realpath(sandboxHome)) === (await realpath(homedir())))
-)
-  throw new Error(
-    "Non-Codex harnesses require a separate SESH_SMOKE_HOME and SESH_SMOKE_BUDGET_CONFIRMED=1. See smoke/README.md.",
-  );
-if (sandboxHome) {
-  if (!isAbsolute(sandboxHome))
-    throw new Error("SESH_SMOKE_HOME must be absolute.");
-  await realpath(sandboxHome);
-}
+const { selected, sandboxHome } = await liveOptions();
 
 it.each(selected)(
   "%s performs a real edit and resolves a conflict through its adapter",

@@ -1389,3 +1389,10 @@ Execution references: [Claude CLI](https://code.claude.com/docs/en/cli-reference
 [Gemini policy engine](https://geminicli.com/docs/reference/policy-engine/),
 [Grok headless flags and output](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/14-headless-mode.md),
 [Grok sandbox profiles](https://docs.x.ai/build/features/sandbox).
+
+### Opt-in live conflict evaluations
+
+Run `pnpm test:eval:live --harness codex --scenario 1` for a selected real-model
+evaluation, or omit `--scenario` to select all twelve. `--trials 3` repeats each
+case. These use disposable repositories, print usage, and never run as part of
+ordinary tests. See [evaluation cases, grading, and reports](eval/README.md).

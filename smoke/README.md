@@ -168,3 +168,7 @@ are needed. An unsupported format produces unknown usage rather than zero.
 - [Grok headless usage](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/14-headless-mode.md):
   normalized cache-inclusive input. Headless totals exclude compaction and
   side-model work and are therefore marked partial.
+
+For broader conflict-resolution quality checks, see the twelve opt-in
+[live evaluation scenarios](../eval/README.md). Their calls share this usage
+history and warning configuration.
