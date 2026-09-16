@@ -42,7 +42,7 @@ it.each([
   "rejects invalid selection %j before launching any process",
   async (...args) => {
     const execute = vi.fn();
-    await expect(await main(args, {}, execute)).rejects.toThrow();
+    await expect(main(args, {}, execute)).rejects.toThrow();
     expect(execute).not.toHaveBeenCalled();
   },
 );
