@@ -1149,6 +1149,14 @@ pnpm benchmark:check
 
 It proves begin metadata, exact clean merges, simultaneous serialization, refreshed integration state, contextual conflict resolution, non-precedence of start time, dependencies, validation failure, unresolved conflicts, untouched source worktrees, conservative stale-lock behavior, read-only legacy audit, and both successful and failing read-only doctor checks.
 
+### Release smoke tests
+
+`pnpm test:smoke` checks installation from the npm tarball, the full CLI lifecycle,
+and failure/timeout recovery for every harness adapter. These credential-free
+tests also run in normal CI. `pnpm test:smoke:live` separately checks real edits
+and conflict resolution using explicitly selected sandbox-authenticated harnesses.
+See [smoke test setup and budget requirements](smoke/README.md).
+
 ### Performance reporting and benchmarks
 
 Lifecycle commands print total time plus their slowest phases and persist one
