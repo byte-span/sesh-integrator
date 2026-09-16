@@ -154,9 +154,13 @@ Requires Node.js 20+ and Git. The npm package includes the built CLI; users do
 not need pnpm or a source checkout. Once the package is published to npm:
 
 ```bash
-npm install -g sesh-integrator
+npm install -g --foreground-scripts sesh-integrator
 seshx setup
 ```
+
+The install script prints a reminder to run `seshx setup`; `--foreground-scripts`
+makes it visible because npm otherwise hides lifecycle output. Setup remains a
+separate, interactive step. Disabling lifecycle scripts skips the reminder.
 
 `setup` detects `codex`, `claude`, `gemini`, and `grok` executables on `PATH`,
 preselects detected harnesses, and lets you choose integrations. It previews the

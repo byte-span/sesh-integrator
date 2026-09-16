@@ -14,6 +14,7 @@
     "dist",
     "skill",
     "scripts/install-cli.sh",
+    "scripts/postinstall.mjs",
     "scripts/install-skill.sh",
     "scripts/install-machine-safeguards.sh",
     "scripts/sync-managed-guidance.mjs",
@@ -37,6 +38,7 @@
     "SECURITY.md"
   ],
   "scripts": {
+    "postinstall": "node scripts/postinstall.mjs",
     "build": "tsc -p tsconfig.build.json",
     "pretest": "pnpm build",
     "typecheck": "tsc --noEmit",
