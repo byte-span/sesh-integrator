@@ -6,6 +6,7 @@ import {
   readFile,
   realpath,
   rm,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -114,11 +115,14 @@ it("keeps existing sessions and locks in the original runtime after the rename",
 });
 
 it("keeps a pinned coordinator working after source rebuilds and later installs", async () => {
-  const root = await mkdtemp(join(tmpdir(), "seshx-stable-"));
+  const root = await realpath(await mkdtemp(join(tmpdir(), "seshx-stable-")));
   try {
     const project = join(root, "project");
     const bin = join(root, "bin");
-    await mkdir(project);
+    // Exercise macOS-style logical/physical path differences on every platform.
+    const physicalProject = join(root, "physical-project");
+    await mkdir(physicalProject);
+    await symlink(physicalProject, project, "dir");
     for (const entry of [
       "dist",
       "scripts",
