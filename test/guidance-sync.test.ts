@@ -177,3 +177,38 @@ it("refreshes installed harnesses and refuses customized content without changin
     await rm(home, { recursive: true, force: true });
   }
 });
+
+it("installs the canonical skill without refreshing a customized legacy duplicate", async () => {
+  const home = await mkdtemp(join(tmpdir(), "sesh-single-skill-"));
+  try {
+    const legacy = join(
+      home,
+      ".agents",
+      "skills",
+      "parallel-integrator-workflow",
+    );
+    await mkdir(legacy, { recursive: true });
+    await writeFile(join(legacy, "SKILL.md"), "Personal legacy content\n");
+    execFileSync(
+      process.execPath,
+      [join(process.cwd(), "scripts/install-harnesses.mjs")],
+      { env: { ...process.env, HOME: home }, stdio: "pipe" },
+    );
+    expect(
+      await readFile(
+        join(home, ".agents", "skills", "sesh-integrator-workflow", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe(
+      await readFile(
+        join(process.cwd(), "skill/sesh-integrator-workflow/SKILL.md"),
+        "utf8",
+      ),
+    );
+    expect(await readFile(join(legacy, "SKILL.md"), "utf8")).toBe(
+      "Personal legacy content\n",
+    );
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});

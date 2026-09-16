@@ -56,12 +56,16 @@ to coordinate its own integration. Build and test candidate code in the task
 worktree. Do not replace a coordinator while its sessions are unfinished;
 retain old releases for recovery and coordinate schema changes before upgrading.
 
-Register with `--auto-config`, explicitly target `dev`, and keep promotion local
-unless pushing is requested. Resolve conflicts in the current agent session,
+Register with `--auto-config` and explicitly target `dev`. An explicitly configured
+`promotion.type: "pull-request"` authorizes the integrator to push `dev` without
+force and create or update its `dev` to `main` pull request. Otherwise keep
+promotion local unless pushing is requested. Direct agent-issued pushes,
+force-pushes, and PR merges still require an explicit user request.
+Resolve conflicts in the current agent session,
 validate, and resume using the pinned coordinator. Keep dirty launch-checkout
 state untouched; it can defer target promotion until its owner finishes.
 
-After an explicitly requested push, reuse the existing open `dev` to `main`
+After configured PR promotion or an explicitly requested push, reuse the existing open `dev` to `main`
 pull request or create one if absent. Never push task branches, close or merge
 pull requests, or delete or force-push remote branches without explicit user
 instructions.
@@ -147,8 +151,8 @@ sesh-integrator/integration
 Do not reuse the old daemon's integration branch by default.
 
 A repository may override it in config. The final `targetBranch` is separate,
-defaults to the registered `defaultBranch`, and may also be overridden per
-repository.
+resolves in this order: an explicit repository `targetBranch`, the global
+`defaultTargetBranch`, then the registered `defaultBranch`.
 
 ## Session Start
 
@@ -300,7 +304,8 @@ Never:
 - merge or validate inside a user target worktree
 - advance a target ref without verifying its expected previous commit
 - leave a checked-out target ref ahead of its index and working tree
-- push automatically unless the user clearly requests it
+- issue a direct Git push without an explicit user request; configured integrator
+  PR promotion is authorized as described above
 - force-push unless the user clearly requests it
 - deploy or perform destructive remote actions unless the user clearly requests
   the specific action

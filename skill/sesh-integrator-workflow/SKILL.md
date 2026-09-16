@@ -87,7 +87,7 @@ Before modifying files:
 5. Before beginning, compare the effective target reported by
    `seshx status` with repository instructions. When the default branch
    is stable but agent work must land on another branch such as `dev`, set the
-   global `defaultTargetBranch` accordingly in `~/.sesh-integrator/config.json`.
+   global `defaultTargetBranch` accordingly in `config.json` under the effective `Runtime:` directory shown by `seshx status`.
    It applies to existing and new registrations that omit `targetBranch`; keep
    per-repository `targetBranch` values only as explicit exceptions.
 6. If no appropriate session exists, run:
@@ -329,13 +329,17 @@ If `integrate` fails:
 
 Never:
 
-- push
-- force-push
+- issue direct Git pushes without an explicit user request
+- force-push without an explicit user request
 - reset user worktrees
 - delete branches/worktrees
 - invoke the legacy daemon workflow
 - treat earlier start time as automatic precedence
 
-The `push` boundary applies to agent-issued Git commands. An explicitly
+The `push` boundary applies to direct agent-issued Git commands. An explicitly
 configured `promotion.type: "pull-request"` authorizes `sesh-integrator` itself to
 perform its narrow non-force target push and create or update the configured PR.
+
+Use only the `sesh-integrator-workflow` skill. Compatible CLI command aliases
+do not require duplicate workflow skills. Archive obsolete skill copies outside
+harness discovery directories; preserve customized resources.

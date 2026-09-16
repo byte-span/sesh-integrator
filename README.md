@@ -109,7 +109,9 @@ node "$SESH_COORDINATOR" register --auto-config
 
 In the runtime's `config.json` (use the `Runtime:` path from status), set this
 repository's `targetBranch` to `dev`. Leave `promotion` unset for local-only
-integration; remote pushes require explicit authorization. Auto-configuration
+integration. Explicitly configured PR promotion authorizes the integrator to
+push the target without force and create/update its PR. Direct agent-issued
+pushes, force-pushes, and PR merges require an explicit user request. Auto-configuration
 provides dependency setup and validation commands. Then each agent runs:
 
 ```bash
@@ -779,7 +781,9 @@ and set an explicit target in `~/.sesh-integrator/config.json`:
 This makes successful handoffs promote locally to `dev`; it does not merge or
 push `main`. A separate trusted review workflow can then promote `dev` to
 `main`. Apply the same setting to repositories registered before adopting this
-branch policy: if `targetBranch` is omitted, it still resolves to `main`.
+branch policy: when `targetBranch` is omitted, the global `defaultTargetBranch`
+applies; only when both are absent does it resolve to `defaultBranch` (`main`
+in this example).
 
 An explicit per-repository target must already exist locally. For example,
 track an existing remote branch or create it from `main` before beginning a
@@ -1396,3 +1400,8 @@ Run `pnpm test:eval:live --harness codex --scenario 1` for a selected real-model
 evaluation, or omit `--scenario` to select all twelve. `--trials 3` repeats each
 case. These use disposable repositories, print usage, and never run as part of
 ordinary tests. See [evaluation cases, grading, and reports](eval/README.md).
+
+The only maintained workflow skill is `sesh-integrator-workflow`. CLI aliases
+such as `parallel-integrator` remain supported independently. Legacy skill
+copies are not refreshed; archive them outside harness skill directories to
+avoid duplicate discovery.
