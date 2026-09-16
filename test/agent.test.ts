@@ -135,3 +135,58 @@ it("validates shared configuration and the legacy resolver alias", () => {
     } as never),
   ).toThrow();
 });
+
+it("records failed provider usage and enables Codex JSON only for tracked calls", async () => {
+  const { readUsageRecords } = await import("../src/usage.js");
+  const root = await mkdtemp(join(tmpdir(), "sesh-agent-usage-"));
+  roots.push(root);
+  process.env.PARALLEL_INTEGRATOR_HOME = root;
+  const previousDirectory = process.env.SESH_SMOKE_USAGE_DIR;
+  const previousRun = process.env.SESH_SMOKE_USAGE_RUN_ID;
+  process.env.SESH_SMOKE_USAGE_DIR = join(root, "usage");
+  process.env.SESH_SMOKE_USAGE_RUN_ID = "test-run";
+  const fake = join(root, "fake-agent");
+  const request = join(root, "args.json");
+  await writeFile(
+    fake,
+    `#!/usr/bin/env node
+const fs = require('fs');
+fs.readFileSync(0, 'utf8');
+fs.writeFileSync(${JSON.stringify(request)}, JSON.stringify(process.argv.slice(2)));
+console.log(JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 10, cached_input_tokens: 5, output_tokens: 2 } }));
+process.exitCode = 9;
+`,
+    { mode: 0o755 },
+  );
+  const options = {
+    config: { ...defaultConfig(), harnessCommands: { codex: fake } },
+    harness: "codex" as const,
+    purpose: "resolve" as const,
+    cwd: root,
+    prompt: "private prompt",
+  };
+  try {
+    await expect(runAgent(options)).rejects.toThrow("exited 9");
+    expect(JSON.parse(await readFile(request, "utf8"))).toEqual(
+      expect.arrayContaining(["--json", "--sandbox", "workspace-write"]),
+    );
+    const history = await readUsageRecords(join(root, "usage"));
+    expect(history.records).toHaveLength(1);
+    expect(history.records[0]).toMatchObject({
+      outcome: "failed",
+      rows: [{ total: 12, coverage: "partial" }],
+    });
+    delete process.env.SESH_SMOKE_USAGE_RUN_ID;
+    await expect(runAgent(options)).rejects.toThrow("exited 9");
+    expect(JSON.parse(await readFile(request, "utf8"))).not.toContain("--json");
+    expect((await readUsageRecords(join(root, "usage"))).records).toHaveLength(
+      1,
+    );
+  } finally {
+    if (previousDirectory === undefined)
+      delete process.env.SESH_SMOKE_USAGE_DIR;
+    else process.env.SESH_SMOKE_USAGE_DIR = previousDirectory;
+    if (previousRun === undefined) delete process.env.SESH_SMOKE_USAGE_RUN_ID;
+    else process.env.SESH_SMOKE_USAGE_RUN_ID = previousRun;
+  }
+});

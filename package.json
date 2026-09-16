@@ -45,11 +45,12 @@
     "test": "vitest run --testTimeout=30000 --hookTimeout=30000",
     "benchmark": "pnpm build && node dist/cli.js benchmark",
     "benchmark:check": "pnpm build && node dist/cli.js benchmark --check",
-    "format": "prettier --write \"{src,test}/**/*.ts\" \"*.{json,md}\" \"skill/**/*.md\" \"smoke/**/*.{ts,md}\"",
-    "format:check": "prettier --check \"{src,test}/**/*.ts\" \"*.{json,md}\" \"skill/**/*.md\" \"smoke/**/*.{ts,md}\"",
+    "format": "prettier --write \"{src,test}/**/*.ts\" \"*.{json,md}\" \"skill/**/*.md\" \"{smoke,eval}/**/*.{ts,mjs,md}\"",
+    "format:check": "prettier --check \"{src,test}/**/*.ts\" \"*.{json,md}\" \"skill/**/*.md\" \"{smoke,eval}/**/*.{ts,mjs,md}\"",
     "prepack": "npm run build",
     "test:smoke": "pnpm build && vitest run test/package-smoke.test.ts test/harness-smoke.test.ts",
-    "test:smoke:live": "pnpm build && vitest run --config smoke/vitest.config.ts"
+    "test:smoke:live": "node smoke/run.mjs",
+    "test:eval:live": "node eval/run.mjs"
   },
   "engines": {
     "node": ">=20"

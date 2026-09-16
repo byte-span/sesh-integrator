@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { harnessCommand, harnessInfo, type Harness } from "./harness.js";
 import { ensureRuntime, prepareCodexResolverHome } from "./runtime.js";
 import { run } from "./process.js";
+import { beginUsageCall, finishUsageCall } from "./usage.js";
 import type { Config } from "./types.js";
 
 /** The lifecycle owns prompts, validation and recovery; adapters own CLI syntax. */
@@ -18,6 +19,9 @@ export async function runAgent(options: {
   const diagnosis = purpose === "diagnose";
   const paths = await ensureRuntime();
   const temporary = await mkdtemp(join(paths.root, "agent-call-"));
+  let usageCall: Awaited<ReturnType<typeof beginUsageCall>>;
+  let usageOutput = "";
+  let failed = true;
   try {
     const prompt =
       options.prompt +
@@ -132,20 +136,26 @@ export async function runAgent(options: {
         ];
         break;
     }
+    usageCall = await beginUsageCall(harness);
+    if (usageCall && harness === "codex") args.splice(1, 0, "--json");
     const result = await run(harnessCommand(config, harness), args, {
       cwd,
       env,
       ...(input === undefined ? {} : { input }),
       timeoutMs: diagnosis ? 120_000 : 300_000,
     });
+    usageOutput = result.stdout;
     if (result.code !== 0)
       throw new Error(
         `${harnessInfo[harness].name} ${purpose} exited ${result.code}; inspect the preserved session evidence`,
       );
-    if (harness === "codex")
-      return diagnosis
+    if (harness === "codex") {
+      const answer = diagnosis
         ? JSON.parse(await readFile(outputPath, "utf8"))
         : undefined;
+      failed = false;
+      return answer;
+    }
     const envelope = JSON.parse(result.stdout) as Record<string, unknown>;
     if (
       !envelope ||
@@ -157,9 +167,14 @@ export async function runAgent(options: {
       throw new Error(
         `${harnessInfo[harness].name} reported an unsuccessful response`,
       );
-    if (!diagnosis) return undefined;
-    if (harness === "claude" && envelope.structured_output !== undefined)
+    if (!diagnosis) {
+      failed = false;
+      return undefined;
+    }
+    if (harness === "claude" && envelope.structured_output !== undefined) {
+      failed = false;
       return envelope.structured_output;
+    }
     const answer =
       harness === "claude"
         ? envelope.result
@@ -168,8 +183,17 @@ export async function runAgent(options: {
           : envelope.response;
     if (typeof answer !== "string")
       throw new Error(`${harnessInfo[harness].name} returned no diagnosis`);
-    return JSON.parse(answer);
+    const parsed = JSON.parse(answer);
+    failed = false;
+    return parsed;
   } finally {
+    try {
+      await finishUsageCall(usageCall, usageOutput, failed);
+    } catch {
+      process.stderr.write(
+        "WARNING: Could not finalize token usage; the pending call remains unknown.\n",
+      );
+    }
     await rm(temporary, { recursive: true, force: true });
   }
 }
