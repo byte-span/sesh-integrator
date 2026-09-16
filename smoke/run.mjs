@@ -48,7 +48,15 @@ export function selection(args, env = process.env) {
   return { harnesses: selected };
 }
 
-export function main(args, env = process.env, execute = spawnSync) {
+export async function main(
+  args,
+  env = process.env,
+  execute = spawnSync,
+  prepare = async (environment) => {
+    const { prepareUsageRun } = await import("../dist/usage.js");
+    return prepareUsageRun(environment);
+  },
+) {
   const selected = selection(args, env);
   if (selected.help) {
     process.stdout.write(help);
@@ -70,18 +78,30 @@ export function main(args, env = process.env, execute = spawnSync) {
   );
   if (build.error) throw new Error("Could not start the smoke test build.");
   if (build.status !== 0) return build.status ?? 1;
-  const result = execute(
-    process.execPath,
-    [
-      require.resolve("vitest/vitest.mjs"),
-      "run",
-      "--config",
-      "smoke/vitest.config.ts",
-    ],
-    options,
-  );
-  if (result.error) throw new Error("Could not start the live smoke tests.");
-  return result.status ?? 1;
+  const usage = await prepare(env);
+  Object.assign(options.env, usage.env);
+  try {
+    const result = execute(
+      process.execPath,
+      [
+        require.resolve("vitest/vitest.mjs"),
+        "run",
+        "--config",
+        "smoke/vitest.config.ts",
+      ],
+      options,
+    );
+    if (result.error) throw new Error("Could not start the live smoke tests.");
+    return result.status ?? 1;
+  } finally {
+    try {
+      await usage.report();
+    } catch {
+      process.stderr.write(
+        "WARNING: Could not read token usage history; usage is unknown.\n",
+      );
+    }
+  }
 }
 
 if (
@@ -89,7 +109,7 @@ if (
   import.meta.url === pathToFileURL(process.argv[1]).href
 ) {
   try {
-    process.exitCode = main(process.argv.slice(2));
+    process.exitCode = await main(process.argv.slice(2));
   } catch (error) {
     process.stderr.write(`${error.message}\n`);
     process.exitCode = 1;

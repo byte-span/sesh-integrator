@@ -111,3 +111,60 @@ Record the tested CLI versions and outcomes in release review. Run all four
 before advertising all four as live-verified; a deterministic CI pass does not
 establish live provider compatibility. Failure and timeout recovery stay in the
 credential-free suite so their coverage does not depend on provider outages.
+
+## Token usage reports
+
+Every `pnpm test:smoke:live` run that reaches the live tests prints a usage report
+on success or failure. It includes this run's total, a harness/model breakdown,
+and rolling 1, 4, 12, and 24 hour totals across all harnesses. Windows count calls
+by completion time (start time for interrupted calls). Cached reads are included
+in input, never added to the total again. Provider totals are used when available.
+
+Limits are unset by default. Set your own token thresholds for warnings, for example:
+
+```bash
+SESH_SMOKE_USAGE_LIMITS='{"1":100000,"4":300000,"12":600000,"24":1000000}' \
+  pnpm test:smoke:live --harness codex
+```
+
+These are example limits, not defaults. A warning appears when the known total
+exceeds a limit; equality does not warn. Warnings do not stop calls or change the
+test result. Partial usage below a limit is shown as “cannot confirm below”.
+
+History lives in `$XDG_STATE_HOME/sesh-integrator/smoke-usage`, or
+`~/.local/state/sesh-integrator/smoke-usage` when XDG_STATE_HOME is unset.
+`SESH_SMOKE_USAGE_DIR` overrides this with an absolute directory. To persist
+limits, place the same JSON object in `limits.json` in that directory. The
+environment setting replaces the file's limits. Omitted windows remain unset;
+invalid settings fail before launching live tests.
+
+Only instrumented live smoke calls sharing this directory count. This is not
+account-wide usage, billing, subscription quota, or a dollar estimate. Missing
+counts and models are explicitly unreported; failed or interrupted calls can
+leave partial/unknown usage. If the launcher is forcibly killed, it cannot print
+its report; durable pending records make the missing usage visible next run.
+Unreadable history produces an incomplete-history warning. History is retained
+until you remove it; deleting it resets the available rolling history.
+
+Records contain timestamps, harness/model names, outcome, and normalized counts.
+They do not contain prompts, answers, authentication data, or raw provider output.
+Files are written atomically per call with private permissions, so concurrent
+runs do not overwrite one another.
+
+### Harness formats and future models
+
+The shared ledger and report accept arbitrary model names. New harness formats
+add an adapter in `src/usage-normalization.ts`; no reporting or history changes
+are needed. An unsupported format produces unknown usage rather than zero.
+
+- [Codex JSON events](https://learn.chatgpt.com/docs/non-interactive-mode):
+  terminal turn usage; cached input is a subset of input. JSON output is enabled
+  for tracked calls without changing sandbox or login settings.
+- [Claude usage](https://code.claude.com/docs/en/agent-sdk/cost-tracking):
+  prefer `modelUsage`, including subagents, over aggregate usage. Add cache reads
+  and writes to uncached input. Aggregate-only reports are marked partial.
+- [Gemini headless statistics](https://geminicli.com/docs/cli/headless/):
+  per-model prompt, candidate, thought, cached, and reported total counts.
+- [Grok headless usage](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/14-headless-mode.md):
+  normalized cache-inclusive input. Headless totals exclude compaction and
+  side-model work and are therefore marked partial.
