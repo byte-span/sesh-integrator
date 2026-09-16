@@ -14,8 +14,10 @@ const help = `Usage: pnpm test:smoke:live --harness codex[,claude,...] | --all
   --help             Show help without building or making AI calls.
 
 Explicit flags override SESH_SMOKE_HARNESSES; without flags it remains supported.
-SESH_SMOKE_HOME and SESH_SMOKE_BUDGET_CONFIRMED=1 are still required.
-Use sandbox authentication and provider spending caps. See smoke/README.md.
+Running this live command explicitly opts in to real AI calls.
+Codex uses your existing login; no separate home or budget flag is required.
+Other harnesses require SESH_SMOKE_HOME and SESH_SMOKE_BUDGET_CONFIRMED=1.
+See smoke/README.md.
 `;
 
 export function selection(args, env = process.env) {
@@ -46,7 +48,16 @@ export function selection(args, env = process.env) {
   return { harnesses: selected };
 }
 
-export function main(args, env = process.env, execute = spawnSync) {
+export async function main(
+  args,
+  env = process.env,
+  execute = spawnSync,
+  prepare = async (environment) => {
+    const { prepareUsageRun } = await import("../dist/usage.js");
+    return prepareUsageRun(environment);
+  },
+  suite = { config: "smoke/vitest.config.ts", env: {} },
+) {
   const selected = selection(args, env);
   if (selected.help) {
     process.stdout.write(help);
@@ -54,7 +65,12 @@ export function main(args, env = process.env, execute = spawnSync) {
   }
   const options = {
     cwd: root,
-    env: { ...env, SESH_SMOKE_HARNESSES: selected.harnesses.join(",") },
+    env: {
+      ...env,
+      SESH_SMOKE_HARNESSES: selected.harnesses.join(","),
+      SESH_SMOKE_LIVE_CONFIRMED: "1",
+      ...suite.env,
+    },
     stdio: "inherit",
   };
   const build = execute(
@@ -64,18 +80,25 @@ export function main(args, env = process.env, execute = spawnSync) {
   );
   if (build.error) throw new Error("Could not start the smoke test build.");
   if (build.status !== 0) return build.status ?? 1;
-  const result = execute(
-    process.execPath,
-    [
-      require.resolve("vitest/vitest.mjs"),
-      "run",
-      "--config",
-      "smoke/vitest.config.ts",
-    ],
-    options,
-  );
-  if (result.error) throw new Error("Could not start the live smoke tests.");
-  return result.status ?? 1;
+  const usage = await prepare(env);
+  Object.assign(options.env, usage.env);
+  try {
+    const result = execute(
+      process.execPath,
+      [require.resolve("vitest/vitest.mjs"), "run", "--config", suite.config],
+      options,
+    );
+    if (result.error) throw new Error("Could not start the live smoke tests.");
+    return result.status ?? 1;
+  } finally {
+    try {
+      await usage.report();
+    } catch {
+      process.stderr.write(
+        "WARNING: Could not read token usage history; usage is unknown.\n",
+      );
+    }
+  }
 }
 
 if (
@@ -83,7 +106,7 @@ if (
   import.meta.url === pathToFileURL(process.argv[1]).href
 ) {
   try {
-    process.exitCode = main(process.argv.slice(2));
+    process.exitCode = await main(process.argv.slice(2));
   } catch (error) {
     process.stderr.write(`${error.message}\n`);
     process.exitCode = 1;

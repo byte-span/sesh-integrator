@@ -129,7 +129,7 @@ Before editing:
    Before beginning, compare the effective target shown by
    `seshx status` with the repository's branch policy. If agents must
    work on a branch such as `dev` while `main` remains stable, set the global
-   `defaultTargetBranch` to `dev` in `~/.sesh-integrator/config.json`. This policy
+   `defaultTargetBranch` to `dev` in `config.json` under the effective `Runtime:` directory shown by `seshx status`. This policy
    applies automatically to existing and new registrations that omit a
    repository `targetBranch`; use that per-repository field only for explicit
    exceptions.
@@ -256,7 +256,9 @@ Source promotion success is separate from external setup or rollout completion.
 required.` only when no required actions remain, including review/merge and
 unresolved prerequisites. Requests for concision never override these details.
 
-Never push, force-push, deploy, or perform destructive remote actions unless the
-user clearly requests that specific external action. Never delete branches or
+Direct agent-issued pushes, force-pushes, deployments, PR merges, and destructive
+remote actions require an explicit user request. An explicitly configured
+`promotion.type: "pull-request"` authorizes the integrator itself to push the
+configured target without force and create or update its configured PR. Never delete branches or
 worktrees, reset a user checkout, discard changes, or trade away user state to
 make handoff succeed.

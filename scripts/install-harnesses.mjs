@@ -39,11 +39,7 @@ for (const name of selected) {
   if (!custom && args.length) execFileSync(process.execPath, [join(project, "scripts/sync-managed-guidance.mjs"), "--harness", name], {
     env: { ...process.env, PARALLEL_INTEGRATOR_DOCTOR_HOME: home }, stdio: "inherit",
   });
-  // Refresh historical aliases wherever they were installed, without creating
-  // aliases for new installations or removing customized supporting resources.
-  const legacy = join(home, info.skillDirectory, "skills", "parallel-integrator-workflow");
-  if (!custom && existsSync(legacy)) {
-    for (const file of ["SKILL.md", ...info.metadataFiles]) await install(join(source, file), join(legacy, file), (text) => text.replaceAll("sesh-integrator-workflow", "parallel-integrator-workflow"));
-  }
+  // CLI compatibility aliases do not require duplicate workflow skills.
+
 }
 if (!selected.length) console.log("No installed harness workflows to refresh.");
