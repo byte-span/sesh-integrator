@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { harnessInfo, selectHarnesses } from "./harness-metadata.mjs";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { homedir } from "node:os";
@@ -50,12 +51,17 @@ async function update(path, managed) {
   return true;
 }
 
+const args = process.argv.slice(2);
+const selected = selectHarnesses(args, doctorHome);
+
 const globalManaged = block(
   await readFile(join(project, "GLOBAL_AGENTS_SNIPPET.md"), "utf8"),
 );
 const changed = [];
-if (await update(join(doctorHome, ".codex", "AGENTS.md"), globalManaged))
-  changed.push("global guidance");
+for (const harness of selected) {
+  const info = harnessInfo[harness];
+  if (await update(join(doctorHome, info.directory, info.instructions), globalManaged)) changed.push("global guidance");
+}
 
 console.log(
   changed.length

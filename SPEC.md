@@ -670,7 +670,7 @@ then invokes `seshx resume` from the source worktree. `resume` reacquires
 the lock and verifies the source snapshot, integration branch and HEAD,
 `MERGE_HEAD`, and absence of unmerged paths before continuing.
 
-Optional `nested-codex` mode invokes a non-interactive Codex command in the
+Optional `nested-agent` mode invokes the session's non-interactive harness in the
 integration worktree instead.
 
 After resolution:
@@ -695,7 +695,7 @@ If unresolved or validation fails:
 Incident proposals may improve the workflow skill or global instructions, but
 a failed session never edits its own policy. `seshx incident <ticket>`
 is read-only and exposes the stored diagnosis for a later session. Release the
-repository lock before invoking an ephemeral, read-only Codex investigation.
+repository lock before invoking a read-only investigation with the session's harness.
 Validate its response against a narrow schema; deterministic code captures
 evidence, fingerprints recurrence, and enforces safety, but does not maintain a
 failure-classification rule tree. An unavailable or invalid investigation
@@ -910,3 +910,42 @@ No Git or source-file changes occur. Dependencies continue to require a
 successfully integrated session. Guidance requires explicit no-change completion
 before the agent's final response; finishing a terminal conversation is not a
 session-state event.
+
+## Coding harness support
+
+`begin --harness codex|claude|gemini|grok` records the originating harness. Omitted
+flags and legacy session records mean Codex. Installation and `doctor --harness`
+select the native user skill and global instruction paths documented in README.
+All harnesses share the Git lifecycle, nested resolution, and automated diagnosis.
+`nested-agent` selects the session's harness; `nested-codex` is a compatibility
+alias. Optional `harnessCommands` overrides executable paths. Shared response
+validation and failure preservation apply to every adapter. Installation metadata
+lives in `harnesses.json`; bulk refresh and `doctor --installed` cover every
+installed workflow. Harness-specific differences must reflect documented CLI
+behavior, not exclusive features. Current-session support requires no provider
+credentials in seshx.
+
+## Installation continuity and local target recovery
+
+Repository-scoped adoption diagnoses observable dirty work and managed sessions;
+Git cannot discover or enroll older conversations. Global setup makes no such
+claim. Dirty launch checkout state remains excluded from isolated tasks.
+
+Contract 1 sessions retain coordinator content identity, version, state/recovery
+contracts and independent executable/resources under runtime `coordinators/`.
+Compatible builds may recover legacy or contract 1 records; unknown contracts
+block mutation. Setup/uninstall serialize with enrollment, preserve customized
+harness content, and reuse runtime data. Uninstall stops new enrollment but
+defers removal while selected harnesses have unfinished sessions. Direct package
+removal is outside the tool's control. Recovery assets are not automatically
+pruned; reinstall cannot recreate separately deleted runtime or Git data.
+
+Under the repository lock, resume reconciles a normally advanced local target
+with the preserved exact integration result in a detached worktree. It preserves
+original source/target snapshots, appends immutable local recovery evidence,
+uses current-agent conflict resolution, runs full uncached integration validation,
+and promotes with expected-old checks and safe target synchronization. One
+attempt per resume bounds repeated target movement. Failed validation, conflicts,
+and interrupted evidence publication retain recoverable state. Rewritten target
+or non-descendant staging history requires ancestry review. Historical reconcile
+remains a separate conservative fast-forward audit/apply command.

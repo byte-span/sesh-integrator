@@ -1,6 +1,6 @@
 # sesh-integrator (`seshx`)
 
-`sesh-integrator` is a personal, one-shot Git integration CLI for Codex sessions working in parallel worktrees. It has no integration daemon, polling service, LaunchAgent, or background queue.
+`sesh-integrator` is a personal, one-shot Git integration CLI for Codex CLI, Claude Code, Gemini CLI, and Grok Build sessions working in parallel worktrees. It has no integration daemon, polling service, LaunchAgent, or background queue.
 
 ```text
 seshx begin
@@ -28,6 +28,13 @@ old: ~/.codex-integrator/    codex/integration
 Use **`seshx`** as the short command. `sesh-integrator`, `pintx`, `parallel-integrator`, and `codex-handoff`
 remain supported aliases for the same CLI.
 
+## License, contributing, and security
+
+Licensed under the [MIT License](LICENSE).
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development and pull-request guidance
+and [SECURITY.md](SECURITY.md) for private vulnerability reporting and trust boundaries.
+
 ## Requirements and installation
 
 ### Renaming an existing installation
@@ -51,7 +58,8 @@ stable so recovery, PR ownership checks, and guidance replacement keep working.
 These are storage identifiers, not the product name.
 
 After renaming your source folder, rebuild and rerun `scripts/install-cli.sh`
-to refresh CLI links, hooks, the skill, and the timer. The installer disables
+to refresh CLI links. Run `seshx setup` to refresh integrations and explicitly rerun
+`scripts/install-machine-safeguards.sh` to refresh hooks and the timer. The safeguard installer disables
 the previous health timer before enabling the new one. Existing repository
 instructions can continue using the compatibility command until synchronized.
 
@@ -65,6 +73,67 @@ git remote -v
 ```
 
 See [GitHub's repository rename instructions](https://docs.github.com/en/repositories/creating-and-managing-repositories/renaming-a-repository).
+
+### Developing sesh-integrator concurrently
+
+This repository supports the same isolated sessions, serialized integration, and
+agent-assisted conflict recovery as other projects. Use local `dev` as the
+target; keep `main` behind the shared `dev` to `main` PR with `scram-j` review.
+Local task branches are never published for separate PRs.
+
+Install a validated build as a separate coordinator snapshot before starting
+concurrent development. From a clean, validated checkout:
+
+```bash
+pnpm install --frozen-lockfile
+pnpm typecheck
+pnpm test
+pnpm build
+scripts/install-cli.sh --stable
+```
+
+`--stable` copies the built CLI and bundled resources to a new directory under
+`~/.local/share/sesh-integrator/releases/` and points the command aliases there.
+`SESH_INTEGRATOR_RELEASE_DIR` can override that directory; keep it outside all
+source worktrees. Previous releases remain available. Installation without
+`--stable` links to the development build and is unsuitable for self-integration.
+The installer checks existing runtime compatibility before atomically publishing each alias. It does not validate the build or refresh skills/hooks automatically. Interrupted alias publication can be retried; complete older releases remain available.
+
+Pin the real path once per session (record it with your task notes for recovery):
+
+```bash
+export SESH_COORDINATOR="$(node -e 'console.log(require("node:fs").realpathSync(process.argv[1]))' "$(command -v seshx)")"
+node "$SESH_COORDINATOR" status
+node "$SESH_COORDINATOR" register --auto-config
+```
+
+In the runtime's `config.json` (use the `Runtime:` path from status), set this
+repository's `targetBranch` to `dev`. Leave `promotion` unset for local-only
+integration; remote pushes require explicit authorization. Auto-configuration
+provides dependency setup and validation commands. Then each agent runs:
+
+```bash
+node "$SESH_COORDINATOR" begin --create-worktree --harness codex --summary "Task description"
+# cd to the printed source worktree and implement the task there.
+node "$SESH_COORDINATOR" commit --message "Describe the change"
+node "$SESH_COORDINATOR" validate
+node "$SESH_COORDINATOR" integrate --summary "Describe the result" --rollout none
+```
+
+Maintain the normal session checklist. For conflicts, the current agent resolves
+and stages the reported integration worktree, then runs
+`node "$SESH_COORDINATOR" resume` from its source worktree. The same coordinator
+must handle every lifecycle command; candidate `dist` builds are only for tests.
+Dirty files in the launch checkout are preserved and may defer promotion.
+
+Keep the pinned coordinator for unfinished self-development sessions. Compatible upgrades may be installed for new sessions; incompatible contracts are rejected before lifecycle mutation. Finish sessions with their retained coordinator before adopting incompatible runtime schemas. Install a new validated snapshot, explicitly refresh installed
+workflows with its `scripts/install-skill.sh --installed`, and use its path for
+new sessions. Retain old snapshots for recovery. Neither merge hooks nor health
+checks synchronize `dev` or install candidate builds automatically. The optional
+`self-hosting-sync-dev` script is a manual maintenance operation only; do not run
+it during active sessions. Existing hook/timer installations should point at the
+stable snapshot's scripts; run its
+`scripts/install-machine-safeguards.sh --repo /path/to/sesh-integrator` to refresh them.
 
 ### macOS upgrade export
 
@@ -81,22 +150,122 @@ The repository script is the export template; it requires an appended bundle pay
 
 ### Install
 
-- Node.js 20 or newer
-- Git
-- pnpm
-- the `codex` executable only when legacy nested conflict resolution is enabled
+Requires Node.js 20+ and Git. The npm package includes the built CLI; users do
+not need pnpm or a source checkout. Once the package is published to npm:
 
-From this repository:
+```bash
+npm install -g --foreground-scripts sesh-integrator
+seshx setup
+```
+
+The install script prints a reminder to run `seshx setup`; `--foreground-scripts`
+makes it visible because npm otherwise hides lifecycle output. Setup remains a
+separate, interactive step. Disabling lifecycle scripts skips the reminder.
+
+`setup` detects `codex`, `claude`, `gemini`, and `grok` executables on `PATH`,
+preselects detected harnesses, and lets you choose integrations. It previews the
+skill and global instruction paths before confirmation, initializes configuration,
+and verifies Git and installed files. Detection does not execute harnesses or
+check authentication. Personal instructions outside the managed block are preserved.
+Customized skill files are preserved; back them up and move them before reinstalling.
+Standard home directories are supported; custom harness homes require manual setup.
+
+For unattended installation, explicitly choose integrations:
+
+```bash
+seshx setup --detected --yes
+seshx setup --harness claude --harness gemini --yes
+```
+
+Then, in your project:
+
+```bash
+seshx register --auto-config
+seshx doctor --installed
+```
+
+To remove installed integrations, run `seshx uninstall` (or `--yes` unattended).
+Use `--harness <name>` to remove one integration. Only unchanged managed files and
+managed guidance are removed; customized content, configuration, sessions, and
+worktrees remain. Uninstall stops new enrollment for selected harnesses. If any of their sessions are unfinished (including waiting, conflicted, validation-pending, or promotion-pending), removal is deferred and their guidance and recovery assets stay installed. Finish those sessions and rerun uninstall. Empty skill directories may remain. Remove the npm CLI separately:
+
+```bash
+npm uninstall -g sesh-integrator
+```
+
+### Adopting existing work and changing installations
+
+Repository-scoped `register` and `begin` report observable dirty checkout state
+and unfinished managed sessions. `begin --create-worktree` continues to preserve
+and exclude dirty launch-checkout work. Its owner decides how to settle those
+edits; the tool never commits, stashes, imports, or discards them. Dirty target
+files may block eventual promotion. After their owner commits them, `resume`
+reconciles that target with the preserved integration and validates both.
+
+Global setup cannot know which repositories you intend to adopt. Neither setup
+nor Git inspection discovers or enrolls already-open agent conversations. Tell
+those conversations to inspect status and continue an appropriate session or
+start an isolated task; do not copy old edits into it automatically.
+
+New sessions record a SHA-256 identity of the executable and bundled resources,
+package version, state contract, recovery contract, and an independent CLI path
+under `<runtime>/coordinators/<build-id>/dist/cli.js`. Setup and begin retain these
+assets before enrollment; no automatic pruning removes them. Local builds with
+the same version can have different identities. `status --session <id>` reports
+the original coordinator, missing/modified assets, and the coordinator used for
+recovery. Use `node <recorded-cli-path> resume --session <id>` from the source
+worktree. Node.js 20+, Git, project dependencies and any configured external
+commands must still be available; they are not bundled.
+
+`seshx installation-check` performs a read-only compatibility check. Source
+installation runs it before changing aliases, and mutation commands check
+unfinished session and recovery contracts. Contract 1 readers accept legacy
+records without a contract and compatible contract 1 builds; unknown contracts
+are refused with the original executable path and required contract numbers.
+Legacy build identity cannot be reconstructed; first recovery retains the
+current compatible build. Pre-contract older CLIs cannot enforce new contracts:
+keep their pinned executables and do not use them on newer recovery records.
+
+Reinstall reuses the existing runtime home (including legacy home precedence),
+configuration, sessions, locks and recovery bundles. Keep the same home/env
+settings. Setup displays unfinished sessions and re-enables enrollment only for
+the selected, successfully installed harnesses. Customized skills and guidance
+are preserved, as are other harness integrations. Per-file installation receipts
+retain the previous digest across interrupted upgrades. A leftover configuration
+lock requires inspecting the owning operation before retrying; it is never
+blindly removed. Installation does not resume integrations or clear repository
+locks on your behalf.
+
+Direct `npm uninstall -g sesh-integrator` cannot be prevented. Independent runtime
+coordinator copies survive package removal; reinstall a compatible build if the
+original copy is also missing. A same-build reinstall can retain an independent
+replacement for damaged assets without overwriting them. If runtime data or Git
+objects were separately deleted, reinstall cannot recreate lost work. Back up
+runtime data and repositories together. Do not delete recovery refs or bundles.
+
+### Install from source
+
+Before npm publication, or for development, use a checkout with pnpm:
 
 ```bash
 corepack enable
 pnpm install
 pnpm build
 ./scripts/install-cli.sh
-seshx init
+seshx setup
 ```
 
-The CLI installer creates idempotent `seshx`, `sesh-integrator`, `pintx`, `parallel-integrator`, and `codex-handoff` symlinks in `~/.local/bin`, which must be on `PATH`. Set `SESH_INTEGRATOR_BIN_DIR` (or the previous `PARALLEL_INTEGRATOR_BIN_DIR`) to choose another user-writable bin directory. It also installs the machine safeguards: the bundled skill, global managed guidance, conservative self-hosting Git hooks, and a bounded six-hourly user systemd health check on Linux. macOS installs guidance and hooks without invoking systemd; existing scheduled jobs continue through the checkout compatibility symlink. The health check safely fetches `origin/main` and fast-forwards a clean local `dev` after a remote dev-to-main merge; dirty or divergent state is reported and preserved.
+The source installer creates CLI symlinks in `~/.local/bin`; ensure it is on
+`PATH`. Set `SESH_INTEGRATOR_BIN_DIR` to choose another user-writable directory.
+Neither installation method installs Git hooks or scheduled maintenance.
+
+### Optional maintainer safeguards
+
+For maintainers of this repository only, `./scripts/install-machine-safeguards.sh`
+explicitly installs self-hosting Git hooks and a six-hourly Linux systemd health
+check. The check can fetch `origin/main` and fast-forward a clean local `dev`.
+macOS installs hooks without systemd. These safeguards are separate from public
+setup and are not removed by `seshx uninstall`.
 
 `scripts/install-skill.sh` idempotently installs the supplied skill at `~/.agents/skills/sesh-integrator-workflow/`. It accepts an alternate destination for testing:
 
@@ -861,15 +1030,16 @@ integration commands reuse their exact-tree results; integration-only commands
 still run. Retries reuse successes only while every fingerprint remains exact.
 
 On conflict, `integrate` preserves the merge and saves a contextual prompt under
-`~/.sesh-integrator/logs/`. The workflow skill directs the current Codex session to
+`~/.sesh-integrator/logs/`. The workflow skill directs the current agent session to
 resolve and stage the preserved worktree, then runs `seshx resume` from
 the source worktree. `resume` reacquires the repository lock, verifies the exact
 source commit, integration HEAD, merge target, branch, and resolved index, then
 validates and commits. This default path makes no nested model request.
 
-Set `conflictResolutionMode` to `nested-codex` only to retain the previous
-`codex exec` resolver. That opt-in mode uses the isolated writable `CODEX_HOME`
-at `~/.sesh-integrator/codex-home/` and therefore requires network access.
+Set `conflictResolutionMode` to `nested-agent` to invoke the session's recorded
+harness for conflict resolution. `nested-codex` remains a compatibility alias
+for the same mode. Nested calls require the selected CLI's local authentication
+and network access; failure preserves the merge for current-session recovery.
 
 ### `resume`
 
@@ -886,10 +1056,28 @@ commits, unresolved files, or a moved integration branch. It also retries an
 unchanged clean merge after validation or commit creation failed, but only when
 the staged tree exactly matches Git's reconstructed merge tree.
 
-For `promotion_pending`, `resume` retries only the recorded validated staging
-commit against the recorded expected target SHA. It does not rebuild from a
-source branch that may have advanced. Post-integration failures are likewise
-resumable and rerun their configured checks from the promoted target worktree.
+For `promotion_pending`, an unchanged target retries the exact validated staging
+commit. If the local target advanced normally from the recorded baseline,
+`resume` merges that exact target commit with the preserved result in a detached
+session-owned recovery worktree under the repository lock. Later staging history
+is included when it contains the preserved result. Full integration validation
+runs without source-tier cache reuse, then promotion uses the newly observed
+expected-old SHA and safely synchronizes the checked-out target. The recorded
+ready source and original bundle snapshots remain unchanged.
+
+Local reconciliation performs at most one merge/validation/promotion attempt per
+`resume`. Further target movement leaves `promotion_pending`; rerun resume after
+reviewing evidence. Rewritten target history or staging history that no longer
+contains the result requires ancestry review, not an expected-SHA override.
+Conflicts use the saved current-agent prompt: resolve and stage the named worktree,
+do not commit, then resume. Failed validation preserves the exact resolved tree
+in `validation_pending`, even if that disposable worktree is later lost.
+Recovery inputs, resolved trees, validations and results are appended to the
+bundle with immutable Git refs. Hash-linked local recovery evidence can repair
+an interrupted session-pointer publication; unknown or corrupted evidence stops
+recovery. A leftover repository lock still requires safe owner/state inspection.
+Post-integration failures remain resumable and rerun their configured checks from
+the promoted target worktree.
 
 A validation failure leaves that session's integration worktree intact, records `validation_pending`, releases the one-shot lock, and exits nonzero so the agent can assess the evidence and resume safely. An unresolved conflict records `needs_review`. Later sessions use detached session-owned integration worktrees when the canonical worktree contains preserved review state, and atomically advance staging only after validation. A failed post-integration command also records `needs_review`, but preserves the already-promoted target commit; its command, exit code, stdout, and stderr remain in the session record for diagnosis. If post-integration commands are configured and the target is not checked out in exactly one clean accessible worktree, promotion remains pending. Post-integration commands are skipped when the ready commit was already present and the staging branch did not advance. The source worktree is never modified.
 
@@ -920,7 +1108,7 @@ seshx incident CH-YYYYMMDD-XXXXXX
 Instruction or code fixes proposed by an incident are implemented only in a
 new, user-approved session. Repeated failure fingerprints provide evidence for
 future workflow improvements. Diagnosis is produced by an ephemeral, read-only,
-schema-constrained Codex investigation after releasing the repository lock;
+schema-validated agent investigation after releasing the repository lock;
 code owns evidence and safety rather than an expanding failure-rule chain. If
 that investigation is unavailable or invalid, the ticket records a neutral
 fallback instead of guessing. The failed session never edits its own policy.
@@ -961,6 +1149,14 @@ pnpm benchmark:check
 
 It proves begin metadata, exact clean merges, simultaneous serialization, refreshed integration state, contextual conflict resolution, non-precedence of start time, dependencies, validation failure, unresolved conflicts, untouched source worktrees, conservative stale-lock behavior, read-only legacy audit, and both successful and failing read-only doctor checks.
 
+### Release smoke tests
+
+`pnpm test:smoke` checks installation from the npm tarball, the full CLI lifecycle,
+and failure/timeout recovery for every harness adapter. These credential-free
+tests also run in normal CI. `pnpm test:smoke:live` separately checks real edits
+and conflict resolution using explicitly selected sandbox-authenticated harnesses.
+See [smoke test setup and budget requirements](smoke/README.md).
+
 ### Performance reporting and benchmarks
 
 Lifecycle commands print total time plus their slowest phases and persist one
@@ -975,6 +1171,16 @@ and concurrent repositories and reports median, p95, and maximum tool/Git
 overhead separately from user-configured commands. `--check` enforces CI
 regression budgets. `PARALLEL_INTEGRATOR_BENCHMARK_BUDGET_SCALE` scales them for a
 consistently slower runner.
+
+Benchmark cleanup retries transient filesystem errors up to three attempts.
+Set `SESH_INTEGRATOR_BENCHMARK_DIAGNOSTICS_DIR` to a directory outside the
+benchmark fixture to capture each failed attempt: up to 200 remaining path
+names/types and Git/Node process IDs and executable names. File contents,
+process arguments, and environment values are excluded. CI uploads these
+snapshots alongside Git traces from three separate macOS benchmark runs as
+`benchmark-diagnostics-macos-latest-node-<version>` artifacts, retained for
+seven days. Snapshots are captured even when a later cleanup retry succeeds;
+repeated cleanup failure still fails the benchmark.
 
 ### Real macOS signing reliability
 
@@ -1069,6 +1275,115 @@ For rollback, stop invoking the new skill, restore the previous global guidance,
 - A preserved session whose staging baseline is overtaken by a later successful integration requires reconciliation before that older session can promote its validated result.
 - Dependency checks fail clearly rather than running a background waiter; retry after dependencies succeed.
 - The current-session resolution path is instruction-driven; genuinely ambiguous conflicts or failed validation still require user review.
-- Optional nested conflict resolution requires a compatible networked `codex exec`; `codexCommand` is a single executable path, not a shell command.
+- Optional nested conflict resolution requires a compatible authenticated harness CLI. `harnessCommands` values are executable paths, not shell commands.
 - Stale-lock recovery is intentionally narrow. Ambiguous, dirty, unfinished, missing-metadata, or other-host cases require manual inspection.
 - JSON state is designed for a personal local tool, not distributed or multi-host coordination.
+
+## Additional coding harnesses
+
+Install the shared workflow and global instructions for each harness you use:
+
+```bash
+seshx setup --harness claude
+seshx setup --harness gemini
+seshx setup --harness grok
+```
+
+Setup preserves personal text outside the managed instruction block and leaves
+repository instructions untouched. The legacy `scripts/install-skill.sh` keeps
+its no-argument Codex default and positional custom skill directory support.
+
+| Harness                       | Identifier | User skill directory | Global instructions   |
+| ----------------------------- | ---------- | -------------------- | --------------------- |
+| Codex CLI                     | `codex`    | `~/.agents/skills/`  | `~/.codex/AGENTS.md`  |
+| Claude Code                   | `claude`   | `~/.claude/skills/`  | `~/.claude/CLAUDE.md` |
+| Gemini CLI                    | `gemini`   | `~/.gemini/skills/`  | `~/.gemini/GEMINI.md` |
+| Grok Build (official xAI CLI) | `grok`     | `~/.grok/skills/`    | `~/.grok/AGENTS.md`   |
+
+Each skill directory contains `sesh-integrator-workflow/SKILL.md`. These commands
+use the standard user directories under HOME. Custom harness home directories
+require installing the skill and global instructions at the corresponding custom
+paths yourself; doctor checks the standard paths.
+
+```bash
+seshx doctor --harness claude
+seshx begin --harness claude --create-worktree --summary "Implement the change"
+```
+
+Substitute `gemini` or `grok` as appropriate. Session status records the harness;
+old sessions and omitted flags retain Codex behavior. All four use the same
+commit, validation, integration, checklist, and recovery commands. Conflicts are
+resolved by the active agent, followed by `seshx resume`. Claude and Gemini project
+instructions are included alongside `AGENTS.md` in saved conflict context.
+
+All harnesses support current-session recovery, optional nested resolution, and
+automated incident diagnosis. One runner owns time limits, prompt delivery, error
+handling, and response decoding; shared incident validation rejects malformed
+results and preserves a neutral fallback. Nested agents edit conflict contents; seshx verifies the integration HEAD and
+checks for leftover markers before staging the original conflicted paths. All
+Git checks remain in the shared lifecycle. Tests use fake CLIs and disposable repositories; live authenticated
+agent behavior is not covered by automated tests.
+
+### Shared harness configuration and maintenance
+
+`harnesses.json` is the single registry of harness names, installation paths, and
+native skill metadata. Both the CLI and installation scripts consume it.
+
+```json
+{
+  "conflictResolutionMode": "nested-agent",
+  "harnessCommands": {
+    "codex": "codex",
+    "claude": "claude",
+    "gemini": "gemini",
+    "grok": "grok"
+  }
+}
+```
+
+These optional fields belong in the existing global config. Executables default
+to the harness identifier. `codexCommand` remains a legacy fallback for Codex;
+`harnessCommands.codex` takes precedence. Current-session remains the default.
+
+`scripts/install-skill.sh --installed` refreshes all installed workflows and their
+global instructions. The machine safeguard installer uses it; post-merge hooks
+do not refresh workflows or global instructions.
+`seshx doctor --installed` checks those same installations and reports failure if
+any fails. Scheduled health checks and macOS upgrade checks use this mode.
+An installed workflow is identified by its native `sesh-integrator-workflow/SKILL.md`;
+unused harnesses are not installed by bulk refresh or machine safeguards. On a
+fresh installation, run `seshx setup` or choose a harness with `seshx setup --harness <name>`
+before running the health check. The no-argument Codex default
+and positional custom-directory installer remain compatible.
+
+### Documented adapter differences
+
+- Codex supports schema/output files and sandbox modes; its existing isolated
+  `CODEX_HOME` handling remains internal to that adapter.
+- Claude uses print-mode JSON and native structured output, restricted tools,
+  and plan/acceptEdits permissions. Bare mode disables automatic plugin/hook discovery.
+- Gemini returns JSON containing a response string. A per-call policy restricts
+  diagnosis to read tools and resolution to reading and editing.
+- Grok uses a prompt file, JSON containing `text`, native read-only/workspace
+  sandbox profiles, and tool/permission filters. Automatic updates are disabled
+  for these one-shot calls.
+
+CLI permission/sandbox guarantees differ and can be constrained by managed
+policy. No adapter requests a blanket permission bypass. Unsupported flags,
+missing authentication, rejected tools, and invalid diagnoses fail safely;
+update the CLI or continue recovery in the current session. Gemini/Grok diagnoses
+are validated locally against the same required fields as native structured outputs.
+
+The legacy audit still targets the historical `codex-integrator` daemon because
+that is the legacy system being detected; it is available from every harness.
+
+References: [Claude skills](https://code.claude.com/docs/en/skills),
+[Gemini skills](https://geminicli.com/docs/cli/using-agent-skills/),
+[Grok skills](https://docs.x.ai/build/features/skills-plugins-marketplaces),
+[Grok global rules](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/01-getting-started.md).
+
+Execution references: [Claude CLI](https://code.claude.com/docs/en/cli-reference),
+[Gemini headless output](https://geminicli.com/docs/cli/headless/),
+[Gemini policy engine](https://geminicli.com/docs/reference/policy-engine/),
+[Grok headless flags and output](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/14-headless-mode.md),
+[Grok sandbox profiles](https://docs.x.ai/build/features/sandbox).

@@ -379,6 +379,7 @@ export async function archiveRecoveryBundle(session: Session): Promise<void> {
   if (!session.recoveryBundle || session.recoveryBundle.state === "archived")
     return;
   const manifest = await readVerifiedManifest(session);
+  manifest.previousManifestHash = session.recoveryBundle.manifestHash;
   manifest.archivedAt = new Date().toISOString();
   session.recoveryBundle.manifestHash = await writeManifest(
     session.recoveryBundle.path,
@@ -407,9 +408,48 @@ async function readVerifiedManifest(
     throw new Error("Session has no recovery bundle");
   const raw = await readFile(manifestPath(session), "utf8");
   const hash = hashBytes(Buffer.from(raw));
-  if (hash !== session.recoveryBundle.manifestHash)
-    throw new Error(`Recovery manifest hash mismatch for ${session.id}`);
-  return JSON.parse(raw) as RecoveryBundleManifest;
+  const manifest = JSON.parse(raw) as RecoveryBundleManifest;
+  if (
+    manifest.version !== 1 ||
+    manifest.sessionId !== session.id ||
+    manifest.repositoryId !== session.repositoryId ||
+    manifest.sourceCommit !== session.readyCommit
+  )
+    throw new Error(
+      `Incompatible or mismatched recovery manifest for ${session.id}`,
+    );
+  if (hash !== session.recoveryBundle.manifestHash) {
+    // A process can stop between publishing bundle evidence and the session pointer.
+    // Accept only independently retained, hash-linked local recovery evidence.
+    const history = join(session.recoveryBundle.path, "manifests");
+    let cursor = hash;
+    let found = false;
+    for (let depth = 0; depth < 100; depth++) {
+      if (cursor === session.recoveryBundle.manifestHash) {
+        found = true;
+        break;
+      }
+      let saved: Buffer;
+      try {
+        saved = await readFile(join(history, `${cursor}.json`));
+      } catch {
+        break;
+      }
+      if (hashBytes(saved) !== cursor) break;
+      const prior = JSON.parse(saved.toString()) as RecoveryBundleManifest;
+      if (!prior.previousManifestHash) break;
+      cursor = prior.previousManifestHash;
+    }
+    const local = [...manifest.snapshots]
+      .reverse()
+      .find((s) => s.kind === "local-target");
+    if (!found || !local?.localTarget)
+      throw new Error(`Recovery manifest hash mismatch for ${session.id}`);
+    session.localTargetRecovery = { ...local.localTarget };
+    session.recoveryPhase = "local_target";
+    session.recoveryBundle.manifestHash = hash;
+  }
+  return manifest;
 }
 async function verifyManifest(session: Session): Promise<void> {
   await readVerifiedManifest(session);
@@ -422,6 +462,25 @@ async function writeManifest(
   manifest: RecoveryBundleManifest,
 ): Promise<string> {
   const path = join(root, "manifest.json");
+  const history = join(root, "manifests");
+  await mkdir(history, { recursive: true });
+  try {
+    const previous = await readFile(path);
+    await writeFile(join(history, `${hashBytes(previous)}.json`), previous, {
+      flag: "wx",
+    });
+  } catch (e) {
+    if (!["ENOENT", "EEXIST"].includes((e as NodeJS.ErrnoException).code ?? ""))
+      throw e;
+  }
+  const bytes = Buffer.from(JSON.stringify(manifest, null, 2) + "\n");
+  try {
+    await writeFile(join(history, `${hashBytes(bytes)}.json`), bytes, {
+      flag: "wx",
+    });
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+  }
   await writeJsonAtomic(path, manifest);
   return hashBytes(await readFile(path));
 }
@@ -471,4 +530,46 @@ function hashBytes(value: Buffer): string {
 
 function resolveGitDir(worktree: string, gitDir: string): string {
   return isAbsolute(gitDir) ? gitDir : resolve(worktree, gitDir);
+}
+
+// Append immutable inputs and phase evidence without replacing original snapshots.
+export async function recordLocalTargetRecovery(
+  repository: RepositoryConfig,
+  session: Session,
+): Promise<void> {
+  const state = session.localTargetRecovery!;
+  const manifest = await readVerifiedManifest(session);
+  const sequence = manifest.snapshots.length + 1;
+  for (const [name, commit] of Object.entries({
+    base: state.baseCommit,
+    target: state.targetCommit,
+    staging: state.stagingBefore,
+    resolved: state.resolvedCommit,
+    result: state.resultCommit,
+  })) {
+    if (commit)
+      await createImmutableRef(
+        repository.path,
+        recoveryRef(session, `local-${sequence}-${name}`),
+        commit,
+      );
+  }
+  const ref = recoveryRef(session, `local-${sequence}`);
+  const object = await createImmutableBlobRef(
+    repository.path,
+    ref,
+    JSON.stringify(state),
+  );
+  await appendSnapshot(session, manifest, {
+    kind: "local-target",
+    sequence,
+    createdAt: new Date().toISOString(),
+    ref,
+    object,
+    localTarget: { ...state },
+  });
+}
+
+export async function verifyRecoveryBundle(session: Session): Promise<void> {
+  await readVerifiedManifest(session);
 }

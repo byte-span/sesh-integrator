@@ -1,8 +1,9 @@
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { observeGitState } from "./git.js";
 import { run, runChecked } from "./process.js";
+import { cleanupBenchmark } from "./benchmark-cleanup.js";
 
 interface BenchmarkSummary {
   scenario: string;
@@ -97,7 +98,7 @@ export async function benchmarkCommand(options: {
       }
     }
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await cleanupBenchmark(root);
   }
 }
 

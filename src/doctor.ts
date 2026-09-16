@@ -1,3 +1,10 @@
+import {
+  harnessInfo,
+  harnessCommand,
+  installedHarnesses,
+  validateHarnessConfig,
+  type Harness,
+} from "./harness.js";
 import { isRepositoryDisabled, repositoryCommonDir } from "./enablement.js";
 import { constants } from "node:fs";
 import { access, readFile, readdir, realpath } from "node:fs/promises";
@@ -29,7 +36,11 @@ const STALE_CONCURRENCY_RULES = [
   /(?:cannot|must not|do not) (?:start|begin|create)[^.\n]{0,180}(?:while|when)[^.\n]{0,120}(?:active|existing) session/i,
 ];
 
-export async function doctorCommand(cwd = process.cwd()): Promise<void> {
+export async function doctorCommand(
+  cwd = process.cwd(),
+  harness: Harness = "codex",
+): Promise<void> {
+  const selectedHarness = harnessInfo[harness];
   const checks: Check[] = [];
   const major = Number(process.versions.node.split(".")[0]);
   checks.push(
@@ -43,7 +54,6 @@ export async function doctorCommand(cwd = process.cwd()): Promise<void> {
   const requiredPaths = [
     paths.config,
     paths.state,
-    paths.codexHome,
     paths.sessions,
     paths.locks,
     paths.logs,
@@ -75,38 +85,46 @@ export async function doctorCommand(cwd = process.cwd()): Promise<void> {
     checks.push(fail("Configuration", errorMessage(error)));
   }
 
-  if (config?.conflictResolutionMode === "nested-codex") {
-    try {
-      await access(paths.codexHome, constants.W_OK);
-      checks.push(pass("Resolver state", `${paths.codexHome} is writable`));
-    } catch {
-      checks.push(
-        fail("Resolver state", `${paths.codexHome} must be writable by Codex`),
-      );
-    }
+  if (config)
     checks.push(
-      await executableCheck("Codex CLI", config.codexCommand, ["--version"]),
+      await executableCheck(
+        selectedHarness.name,
+        harnessCommand(config, harness),
+        selectedHarness.versionArgs,
+      ),
     );
-  }
+  checks.push(
+    pass(
+      "Agent features",
+      "current-session recovery, nested resolution, and automated diagnosis",
+    ),
+  );
 
   const home = process.env.PARALLEL_INTEGRATOR_DOCTOR_HOME ?? homedir();
-  const skillRoot = join(home, ".agents", "skills", "sesh-integrator-workflow");
+  const skillRoot = join(
+    home,
+    selectedHarness.skillDirectory,
+    "skills",
+    "sesh-integrator-workflow",
+  );
   const skillFiles = [
     join(skillRoot, "SKILL.md"),
-    join(skillRoot, "agents", "openai.yaml"),
+    ...selectedHarness.metadataFiles.map((file) => join(skillRoot, file)),
   ];
   const bundledSkillRoot = fileURLToPath(
     new URL("../skill/sesh-integrator-workflow", import.meta.url),
   );
   const bundledSkillFiles = [
     join(bundledSkillRoot, "SKILL.md"),
-    join(bundledSkillRoot, "agents", "openai.yaml"),
+    ...selectedHarness.metadataFiles.map((file) =>
+      join(bundledSkillRoot, file),
+    ),
   ];
   if (!(await allExist(skillFiles))) {
     checks.push(
       fail(
         "Workflow skill",
-        `missing installation at ${skillRoot}; run scripts/install-skill.sh`,
+        `missing installation at ${skillRoot}; run seshx setup --harness ${harness}`,
       ),
     );
   } else if (
@@ -116,14 +134,18 @@ export async function doctorCommand(cwd = process.cwd()): Promise<void> {
     checks.push(
       fail(
         "Workflow skill",
-        `installed files differ from this CLI; run scripts/install-skill.sh`,
+        `installed files differ from this CLI; run seshx setup --harness ${harness}`,
       ),
     );
   } else {
     checks.push(pass("Workflow skill", skillRoot));
   }
 
-  const agentsPath = join(home, ".codex", "AGENTS.md");
+  const agentsPath = join(
+    home,
+    selectedHarness.directory,
+    selectedHarness.instructions,
+  );
   const bundledGuidancePath = fileURLToPath(
     new URL("../GLOBAL_AGENTS_SNIPPET.md", import.meta.url),
   );
@@ -176,14 +198,6 @@ export async function doctorCommand(cwd = process.cwd()): Promise<void> {
 }
 
 async function repositoryChecks(config: Config, cwd: string): Promise<Check[]> {
-  if (await isSelfHostingRepository(cwd)) {
-    return [
-      skip(
-        "Current repository",
-        "sesh-integrator is intentionally self-managed and excluded from registration",
-      ),
-    ];
-  }
   try {
     if (isRepositoryDisabled(config, await repositoryCommonDir(cwd)))
       return [
@@ -279,19 +293,6 @@ async function repositoryChecks(config: Config, cwd: string): Promise<Check[]> {
     );
   }
   return checks;
-}
-
-async function isSelfHostingRepository(cwd: string): Promise<boolean> {
-  try {
-    const toolRoot = fileURLToPath(new URL("..", import.meta.url));
-    const [current, self] = await Promise.all([
-      realpath((await inspectGit(cwd)).gitCommonDir),
-      realpath((await inspectGit(toolRoot)).gitCommonDir),
-    ]);
-    return current === self;
-  } catch {
-    return false;
-  }
 }
 
 async function pullRequestPromotionCheck(
@@ -468,7 +469,7 @@ async function executableCheck(
   args: string[],
 ): Promise<Check> {
   try {
-    const result = await run(command, args);
+    const result = await run(command, args, { timeoutMs: 10_000 });
     const detail = (result.stdout || result.stderr).trim().split("\n")[0];
     return result.code === 0
       ? pass(label, detail || command)
@@ -482,8 +483,6 @@ function validateConfig(config: Config): void {
   if (
     !config ||
     typeof config.lockWaitSeconds !== "number" ||
-    typeof config.codexCommand !== "string" ||
-    config.codexCommand.length === 0 ||
     !Array.isArray(config.repositories)
   ) {
     throw new Error("invalid config.json structure");
@@ -498,13 +497,7 @@ function validateConfig(config: Config): void {
   if (!validDefaultPromotionConfig(config.defaultPromotion)) {
     throw new Error("invalid defaultPromotion");
   }
-  if (
-    config.conflictResolutionMode !== undefined &&
-    config.conflictResolutionMode !== "current-session" &&
-    config.conflictResolutionMode !== "nested-codex"
-  ) {
-    throw new Error("invalid conflictResolutionMode");
-  }
+  validateHarnessConfig(config);
   for (const repository of config.repositories) {
     if (
       typeof repository.path !== "string" ||
@@ -669,4 +662,19 @@ function managedSection(contents: string): string | undefined {
 
 function hasStaleConcurrencyRule(contents: string): boolean {
   return STALE_CONCURRENCY_RULES.some((pattern) => pattern.test(contents));
+}
+
+export async function doctorInstalledCommand(
+  cwd = process.cwd(),
+): Promise<void> {
+  const home = process.env.PARALLEL_INTEGRATOR_DOCTOR_HOME ?? homedir();
+  const installed = installedHarnesses(home);
+  if (!installed.length)
+    throw new Error(
+      "No harness workflow installed; run seshx setup --harness <name>",
+    );
+  for (const harness of installed) {
+    process.stdout.write(`\nHarness: ${harnessInfo[harness].name}\n`);
+    await doctorCommand(cwd, harness);
+  }
 }

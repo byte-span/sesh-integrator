@@ -14,6 +14,7 @@
     "dist",
     "skill",
     "scripts/install-cli.sh",
+    "scripts/postinstall.mjs",
     "scripts/install-skill.sh",
     "scripts/install-machine-safeguards.sh",
     "scripts/sync-managed-guidance.mjs",
@@ -29,17 +30,26 @@
     "scripts/com.codex.gpg-agent.plist",
     "GLOBAL_AGENTS_SNIPPET.md",
     "scripts/parallel-integrator-health-check",
-    "scripts/update-macos.sh"
+    "scripts/update-macos.sh",
+    "harnesses.json",
+    "scripts/harness-metadata.mjs",
+    "scripts/install-harnesses.mjs",
+    "CONTRIBUTING.md",
+    "SECURITY.md"
   ],
   "scripts": {
+    "postinstall": "node scripts/postinstall.mjs",
     "build": "tsc -p tsconfig.build.json",
     "pretest": "pnpm build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --testTimeout=30000 --hookTimeout=30000",
     "benchmark": "pnpm build && node dist/cli.js benchmark",
     "benchmark:check": "pnpm build && node dist/cli.js benchmark --check",
-    "format": "prettier --write \"{src,test}/**/*.ts\" \"*.{json,md}\" \"skill/**/*.md\"",
-    "format:check": "prettier --check \"{src,test}/**/*.ts\" \"*.{json,md}\" \"skill/**/*.md\""
+    "format": "prettier --write \"{src,test}/**/*.ts\" \"*.{json,md}\" \"skill/**/*.md\" \"smoke/**/*.{ts,md}\"",
+    "format:check": "prettier --check \"{src,test}/**/*.ts\" \"*.{json,md}\" \"skill/**/*.md\" \"smoke/**/*.{ts,md}\"",
+    "prepack": "npm run build",
+    "test:smoke": "pnpm build && vitest run test/package-smoke.test.ts test/harness-smoke.test.ts",
+    "test:smoke:live": "pnpm build && vitest run --config smoke/vitest.config.ts"
   },
   "engines": {
     "node": ">=20"
@@ -50,5 +60,14 @@
     "prettier": "3.9.6",
     "typescript": "5.9.3",
     "vitest": "3.2.7"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/byte-span/sesh-integrator.git"
+  },
+  "homepage": "https://github.com/byte-span/sesh-integrator#readme",
+  "bugs": {
+    "url": "https://github.com/byte-span/sesh-integrator/issues"
+  },
+  "license": "MIT"
 }

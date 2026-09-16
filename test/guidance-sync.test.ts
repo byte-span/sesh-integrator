@@ -82,3 +82,98 @@ it.each([false, true])(
     }
   },
 );
+
+it.each([
+  ["claude", ".claude", "CLAUDE.md"],
+  ["gemini", ".gemini", "GEMINI.md"],
+  ["grok", ".grok", "AGENTS.md"],
+])(
+  "installs %s idempotently while preserving personal instructions",
+  async (harness, directory, filename) => {
+    const home = await mkdtemp(join(tmpdir(), "sesh-harness-install-"));
+    try {
+      await mkdir(join(home, directory!), { recursive: true });
+      const instructions = join(home, directory!, filename!);
+      await writeFile(instructions, "# My preferences\nKeep my settings.\n");
+      const install = () =>
+        execFileSync(
+          "sh",
+          [
+            join(process.cwd(), "scripts/install-skill.sh"),
+            "--harness",
+            harness!,
+          ],
+          { env: { ...process.env, HOME: home }, encoding: "utf8" },
+        );
+      install();
+      const first = await readFile(instructions, "utf8");
+      expect(first).toContain("# My preferences\nKeep my settings.");
+      expect(first).toContain("seshx");
+      install();
+      expect(await readFile(instructions, "utf8")).toBe(first);
+      expect(
+        await readFile(
+          join(home, directory!, "skills/sesh-integrator-workflow/SKILL.md"),
+          "utf8",
+        ),
+      ).toBe(await readFile("skill/sesh-integrator-workflow/SKILL.md", "utf8"));
+      expect(await readdir(home)).toEqual(
+        expect.arrayContaining([directory, ".sesh-integrator"]),
+      );
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  },
+);
+
+it("refreshes installed harnesses and refuses customized content without changing other integrations", async () => {
+  const home = await mkdtemp(join(tmpdir(), "sesh-refresh-"));
+  try {
+    const manifest = JSON.parse(await readFile("harnesses.json", "utf8"));
+    const install = (...args: string[]) =>
+      execFileSync(
+        "sh",
+        [join(process.cwd(), "scripts/install-skill.sh"), ...args],
+        { env: { ...process.env, HOME: home }, encoding: "utf8" },
+      );
+    expect(install("--installed")).toContain("No installed harness");
+    expect(await readdir(home)).toEqual([]);
+    for (const harness of Object.keys(manifest)) install("--harness", harness);
+    install("--installed");
+    for (const info of Object.values(manifest) as any[]) {
+      await writeFile(
+        join(
+          home,
+          info.skillDirectory,
+          "skills/sesh-integrator-workflow/SKILL.md",
+        ),
+        "stale",
+      );
+      await writeFile(
+        join(home, info.directory, info.instructions),
+        "Personal text\n<!-- codex-handoff:managed:start -->\nStale\n<!-- codex-handoff:managed:end -->\n",
+      );
+    }
+    expect(() => install("--installed")).toThrow();
+    for (const info of Object.values(manifest) as any[]) {
+      expect(
+        await readFile(
+          join(
+            home,
+            info.skillDirectory,
+            "skills/sesh-integrator-workflow/SKILL.md",
+          ),
+          "utf8",
+        ),
+      ).toBe("stale");
+      const guidance = await readFile(
+        join(home, info.directory, info.instructions),
+        "utf8",
+      );
+      expect(guidance).toContain("Personal text");
+      expect(guidance).toContain("Stale");
+    }
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});

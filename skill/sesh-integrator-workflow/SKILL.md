@@ -1,6 +1,6 @@
 ---
 name: sesh-integrator-workflow
-description: Use for most code-changing Codex CLI tasks in Git repositories that should run in an isolated source worktree and be validated and promoted by the local sesh-integrator tool. Automatically register and begin or continue a session, then create a focused commit, validate, integrate, and resume when safe. Never use for read-only work, non-Git directories, sesh-integrator itself, its integration branch, or the legacy codex-integrator workflow.
+description: Use for most code-changing coding-agent tasks in Git repositories that should run in an isolated source worktree and be validated and promoted by the local sesh-integrator tool. Automatically register and begin or continue a session, then create a focused commit, validate, integrate, and resume when safe. Never use for read-only work, non-Git directories, its integration branch, or the legacy codex-integrator workflow.
 ---
 
 # Sesh Integrator Workflow
@@ -8,6 +8,25 @@ description: Use for most code-changing Codex CLI tasks in Git repositories that
 This skill coordinates a coding session with the local `sesh-integrator` CLI.
 
 It does not perform daemon monitoring.
+
+Supported harnesses are Codex CLI (`codex`), Claude Code (`claude`), Gemini CLI
+(`gemini`), and Grok Build (`grok`). When beginning a session, pass
+`--harness <your-harness>` with the matching identifier; omission means Codex
+for compatibility. Use the same identifier with `seshx doctor --harness`.
+Resolve conflicts and inspect failure evidence in the current agent session.
+Optional nested resolution (`conflictResolutionMode: "nested-agent"`) and
+automated incident investigation use the session's recorded harness.
+All harnesses share the same features; keep exceptions limited to documented
+harness behavior. `seshx doctor --installed` checks every installed workflow.
+Read repository `AGENTS.md` and your harness's project instructions, such as
+`CLAUDE.md` or `GEMINI.md`, before editing.
+
+When developing `sesh-integrator` itself, follow its repository instructions:
+use isolated source worktrees and a stable installed coordinator outside the
+source repository. Pin the resolved coordinator CLI path for the entire session,
+including resume, and run lifecycle commands through that path. Never coordinate
+integration with the candidate build being modified or replace the coordinator
+during unfinished sessions. See the repository README for snapshot installation.
 
 Use `seshx` as the preferred command. `sesh-integrator`, `pintx`,
 `parallel-integrator`, and `codex-handoff` remain compatible aliases. Existing
@@ -17,6 +36,28 @@ Runtime paths below use the fresh-install default. If `SESH_INTEGRATOR_HOME`, `P
 or compatibility `CODEX_HANDOFF_HOME` is set, use that directory instead.
 Otherwise reuse `~/.codex-handoff/` first, then `~/.parallel-integrator/` if present;
 fresh installations use `~/.sesh-integrator/`. Do not move existing session or worktree data.
+
+## Adoption and installation continuity
+
+Repository-scoped registration/begin reports existing dirty work and managed
+sessions. Isolated tasks may start from dirty launch checkouts; never import,
+commit, stash, or discard old edits automatically. Global setup cannot discover
+intended repositories or enroll already-open conversations. Inspect status in
+each known repository and continue tasks by session ID.
+
+New sessions retain a content-hashed coordinator and resource copy under the
+runtime's `coordinators/` directory. `status --session <id>` identifies it and
+reports missing assets. Keep the pinned coordinator for unfinished tasks;
+compatible reinstall can recover if the original executable is missing.
+`seshx installation-check` rejects incompatible state before installation changes.
+Do not run older pre-contract executables on newer session records.
+
+Uninstall stops new enrollment for selected harnesses and defers guidance removal
+while their sessions are unfinished. Existing sessions can finish using retained
+executables; rerun uninstall afterward. Direct npm package removal can bypass
+uninstall, so preserve runtime data, recovery bundles and Git refs. Reinstall with
+the same runtime home and a compatible build. Never remove an ambiguous lock to
+make installation or recovery proceed.
 
 ## Start of a code-changing task
 
@@ -30,7 +71,7 @@ Only enable the repository when the user requests it.
 Before modifying files:
 
 1. Confirm this is code-changing work in a Git repository and is not work on
-   `sesh-integrator` itself or its configured integration branch.
+   its configured integration branch.
 2. Inspect repository instructions and Git state. Never reset, overwrite,
    discard, clean, or silently stash existing user state.
 3. Check whether `seshx` is available and inspect
@@ -199,6 +240,11 @@ Before saying the task is complete:
     condition (for example, check out the target branch or save and clean user
     changes in its worktree)
     and run `seshx resume`. Do not reset, clean, or discard user state.
+    If its owner committed the old target edits, resume reconciles both histories
+    in an isolated worktree and runs full integration validation. Resolve/stage
+    conflicts in the reported worktree without committing, then resume. Each
+    resume makes one local reconciliation attempt; another target movement stays
+    pending. Never replace the recorded expected SHA manually.
 11. If shared-target remote recovery reports a conflict, resolve and stage only
     the preserved integration worktree it names, then run `seshx
 resume`. Do not fetch, merge, push, reset, or retry manually; the CLI owns

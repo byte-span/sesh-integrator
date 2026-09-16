@@ -1,6 +1,6 @@
-import { chmod, mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
 import { detectValidationPreparation } from "../src/preparation.js";
 import { runValidation } from "../src/process.js";
@@ -26,12 +26,13 @@ describe("validation preparation inference", () => {
       "@react-router/dev": "^7.0.0",
     });
 
+    const canonicalRepository = await realpath(repository);
     const preparations = await detectValidationPreparation(repository);
 
     expect(
       preparations.map(({ environment, cwd, command }) => ({
         environment,
-        cwd: cwd.slice(repository.length + 1),
+        cwd: relative(canonicalRepository, cwd),
         command,
       })),
     ).toEqual([

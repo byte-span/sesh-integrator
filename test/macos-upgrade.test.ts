@@ -100,7 +100,7 @@ it("upgrades a clean Mac checkout and preserves dirty or divergent work", async 
     const result = run(repo);
     expect(result.status, result.stdout + result.stderr).toBe(0);
     const renamed = join(root, "sesh-integrator");
-    expect(await realpath(repo)).toBe(renamed);
+    expect(await realpath(repo)).toBe(await realpath(renamed));
     expect(git(renamed, "rev-parse", "HEAD")).toBe(upgraded);
     expect(git(renamed, "rev-parse", "main")).toBe(baseline);
     expect(git(renamed, "remote", "get-url", "origin")).toBe(

@@ -1,3 +1,4 @@
+import { validateHarnessConfig } from "./harness.js";
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import {
@@ -214,6 +215,7 @@ export async function readConfig(readOnly = false): Promise<Config> {
       );
     }
   }
+  validateHarnessConfig(value);
   value.conflictResolutionMode ??= "current-session";
   return value;
 }

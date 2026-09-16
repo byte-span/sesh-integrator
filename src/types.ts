@@ -72,8 +72,10 @@ export interface Config {
   /** Canonical Git common directories, independent of registration. */
   disabledRepositories?: string[];
   lockWaitSeconds: number;
-  codexCommand: string;
-  conflictResolutionMode?: "current-session" | "nested-codex";
+  /** Legacy alias for harnessCommands.codex. */
+  codexCommand?: string;
+  harnessCommands?: Partial<Record<import("./harness.js").Harness, string>>;
+  conflictResolutionMode?: "current-session" | "nested-agent" | "nested-codex";
   defaultTargetBranch?: string;
   defaultPromotion?: DefaultPromotionConfig;
   repositories: RepositoryConfig[];
@@ -104,7 +106,30 @@ export interface SessionTask {
   updatedAt: string;
 }
 
+export interface CoordinatorIdentity {
+  buildId: string;
+  version: string;
+  stateContract: number;
+  recoveryContract: number;
+  cliPath: string;
+}
+
+export interface LocalTargetRecovery {
+  baseCommit: string;
+  targetCommit: string;
+  stagingBefore: string;
+  worktree: string;
+  resolvedCommit?: string;
+  resultCommit?: string;
+}
+
 export interface Session {
+  coordinator?: CoordinatorIdentity;
+  recoveryCoordinator?: CoordinatorIdentity;
+  localTargetRecovery?: LocalTargetRecovery;
+  localTargetRecoveryHistory?: LocalTargetRecovery[];
+  /** Missing in legacy sessions means Codex. */
+  harness?: import("./harness.js").Harness;
   id: string;
   closedAt?: string;
   satisfiedBySessionId?: string;
@@ -150,7 +175,8 @@ export interface Session {
     | "post_integration"
     | "promotion"
     | "pull_request"
-    | "remote_promotion";
+    | "remote_promotion"
+    | "local_target";
   latestError?: string;
   conflictPromptPath?: string;
   conflictIntegrationHead?: string;
@@ -201,7 +227,13 @@ export interface RecoveryBundlePointer {
 }
 
 export interface RecoverySnapshot {
-  kind: "conflict-index" | "merged-tree" | "staging-commit" | "validation";
+  kind:
+    | "conflict-index"
+    | "merged-tree"
+    | "staging-commit"
+    | "validation"
+    | "local-target";
+  localTarget?: LocalTargetRecovery;
   sequence: number;
   createdAt: string;
   ref?: string;

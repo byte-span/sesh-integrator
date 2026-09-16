@@ -43,16 +43,28 @@ There is no permanent watcher, polling loop, queue daemon, LaunchAgent, or backg
 
 ## Self-hosting workflow
 
-Do not register this repository with `sesh-integrator`; it is intentionally
-self-managed to avoid depending on the executable while modifying it.
+Use the normal session workflow for this repository, with isolated source
+worktrees and local `dev` as the target. Never run parallel code-changing
+sessions directly on `dev`. Local task branches are expected; only `dev` is
+published for the shared `dev` to `main` pull request.
 
-For changes to this repository, work and commit directly on local `dev`, then
-run the normal validation suite and rebuild `dist`. Push `dev` without force.
-Reuse the existing open `dev` to `main` pull request when one exists; pushing
-`dev` updates it. Otherwise, open a new pull request from `dev` to `main`.
-Do not create or push separate task branches for this repository's pull requests.
-Never close, merge, delete, or force-push an existing pull request or remote
-branch unless the user explicitly requests that action.
+The coordinator must be a stable snapshot outside every development worktree.
+See README's "Developing sesh-integrator concurrently" section. Resolve and
+record its real CLI path before beginning, and use `node "$SESH_COORDINATOR"`
+for every lifecycle command, including recovery. Never use a task's `dist/cli.js`
+to coordinate its own integration. Build and test candidate code in the task
+worktree. Do not replace a coordinator while its sessions are unfinished;
+retain old releases for recovery and coordinate schema changes before upgrading.
+
+Register with `--auto-config`, explicitly target `dev`, and keep promotion local
+unless pushing is requested. Resolve conflicts in the current agent session,
+validate, and resume using the pinned coordinator. Keep dirty launch-checkout
+state untouched; it can defer target promotion until its owner finishes.
+
+After an explicitly requested push, reuse the existing open `dev` to `main`
+pull request or create one if absent. Never push task branches, close or merge
+pull requests, or delete or force-push remote branches without explicit user
+instructions.
 
 Every pull request opened for this repository must request review from
 `scram-j`. Pass `--reviewer scram-j` to `gh pr create`, or immediately add the
@@ -141,8 +153,8 @@ repository.
 ## Session Start
 
 For most code-changing tasks in a Git repository, use `sesh-integrator`. Skip it
-for read-only work, non-Git directories, and work on this `sesh-integrator`
-repository itself. Do not gate the workflow on application mode metadata or
+for read-only work and non-Git directories. For this repository, use the stable
+coordinator described above. Do not gate the workflow on application mode metadata or
 require a linked worktree.
 
 Operate autonomously by default. Registration and normal lifecycle commands do

@@ -2,6 +2,13 @@
 
 Complete personal MVP implementation checklist.
 
+## Public installation
+
+- [x] Package the built CLI with a prepack build
+- [x] Add guided setup with PATH detection and explicit unattended selection
+- [x] Preserve customized files during setup and uninstall
+- [x] Separate source installation from opt-in maintainer safeguards
+
 ## Foundation
 
 - [x] Expose `seshx` as the preferred command while preserving compatibility aliases
@@ -126,6 +133,10 @@ Complete personal MVP implementation checklist.
 
 ## Skill and global guidance
 
+- [x] Share nested resolution, diagnosis, installation metadata, refresh, and health checks across supported harnesses
+
+- [x] Support Claude Code, Gemini CLI, and Grok Build installation, harness metadata, readiness checks, and current-session recovery
+
 - [x] Provide explicit, previewable bulk cleanup of old repository blocks with backups
 
 - [x] Synchronize global guidance only; leave repository instructions optional and untouched
@@ -189,3 +200,19 @@ Complete personal MVP implementation checklist.
 - [x] Provide a no-autostart health-checking wrapper with launchd recovery
 - [x] Provide a keepalive canonical-agent LaunchAgent installer with config backups
 - [x] Retain fake-GPG coverage and add an opt-in real sandboxed end-to-end test
+
+## Concurrent self-development
+
+- [x] Support stable coordinator snapshots outside development worktrees
+- [x] Enable self-repository registration checks and isolated sessions targeting dev
+- [x] Keep merge hooks and health checks from independently moving dev or installing candidate code
+
+## Adoption and installation transitions
+
+- [x] Diagnose repository-scoped existing work without importing edits or enrolling conversations
+- [x] Retain content-identified compatible recovery coordinators independently of package installation
+- [x] Stop enrollment and defer uninstall while selected harness sessions remain unfinished
+- [x] Preserve customized guidance, other harnesses, runtime homes, locks and recovery data across reinstall
+- [x] Reconcile committed local target advancement through same-session resume with full validation
+- [x] Preserve conflicts, failed validation, repeated movement and interrupted local recovery evidence
+- [x] Verify transition behavior with disposable repositories and isolated installation/runtime homes

@@ -2,14 +2,26 @@
 set -eu
 
 quiet=false
-[ "${1:-}" = --quiet ] && quiet=true
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 project_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
+repository_dir=$project_dir
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --quiet) quiet=true; shift ;;
+    --repo)
+      [ "$#" -ge 2 ] || { printf '%s\n' "--repo requires a path" >&2; exit 1; }
+      repository_dir=$2; shift 2 ;;
+    *) printf '%s\n' "Usage: install-machine-safeguards.sh [--quiet] [--repo <checkout>]" >&2; exit 1 ;;
+  esac
+done
+# A stable installation has no .git; install its hooks into the explicit repo.
+hooks_dir=$(git -C "$repository_dir" rev-parse --path-format=absolute --git-path hooks)
 
-"$script_dir/install-skill.sh" ${PARALLEL_INTEGRATOR_SKILL_DIR:+"$PARALLEL_INTEGRATOR_SKILL_DIR"}
-node "$script_dir/sync-managed-guidance.mjs"
+if [ -n "${PARALLEL_INTEGRATOR_SKILL_DIR:-}" ]; then
+  "$script_dir/install-skill.sh" "$PARALLEL_INTEGRATOR_SKILL_DIR"
+fi
+"$script_dir/install-skill.sh" --installed
 
-hooks_dir=$(git -C "$project_dir" rev-parse --path-format=absolute --git-path hooks)
 mkdir -p "$hooks_dir"
 ln -sfn "$script_dir/self-hosting-pre-push" "$hooks_dir/pre-push"
 ln -sfn "$script_dir/self-hosting-post-merge" "$hooks_dir/post-merge"
