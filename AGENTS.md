@@ -70,6 +70,13 @@ Every pull request opened for this repository must request review from
 `scram-j`. Pass `--reviewer scram-j` to `gh pr create`, or immediately add the
 review request with `gh pr edit <pr-url> --add-reviewer scram-j`.
 
+Before configured PR promotion, verify that `origin/main` is an ancestor of
+`dev`. Authorization to push does not bypass this repository's ancestry guard.
+If synchronization is needed, merge the exact fetched `origin/main` commit in
+an isolated managed source worktree, validate and integrate that session, then
+resume the blocked promotion. Preserve pending sessions and dirty checkout
+state; never disable the pre-push hook or force-push to satisfy this prerequisite.
+
 Do not run parallel code-changing sessions directly on `dev` in this repository.
 
 ## Read First
