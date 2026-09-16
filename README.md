@@ -28,6 +28,13 @@ old: ~/.codex-integrator/    codex/integration
 Use **`seshx`** as the short command. `sesh-integrator`, `pintx`, `parallel-integrator`, and `codex-handoff`
 remain supported aliases for the same CLI.
 
+## License, contributing, and security
+
+Licensed under the [MIT License](LICENSE).
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development and pull-request guidance
+and [SECURITY.md](SECURITY.md) for private vulnerability reporting and trust boundaries.
+
 ## Requirements and installation
 
 ### Renaming an existing installation

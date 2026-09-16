@@ -32,7 +32,9 @@
     "scripts/update-macos.sh",
     "harnesses.json",
     "scripts/harness-metadata.mjs",
-    "scripts/install-harnesses.mjs"
+    "scripts/install-harnesses.mjs",
+    "CONTRIBUTING.md",
+    "SECURITY.md"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
@@ -54,5 +56,14 @@
     "prettier": "3.9.6",
     "typescript": "5.9.3",
     "vitest": "3.2.7"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/byte-span/sesh-integrator.git"
+  },
+  "homepage": "https://github.com/byte-span/sesh-integrator#readme",
+  "bugs": {
+    "url": "https://github.com/byte-span/sesh-integrator/issues"
+  },
+  "license": "MIT"
 }
