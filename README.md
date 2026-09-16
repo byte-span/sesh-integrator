@@ -1154,7 +1154,9 @@ It proves begin metadata, exact clean merges, simultaneous serialization, refres
 `pnpm test:smoke` checks installation from the npm tarball, the full CLI lifecycle,
 and failure/timeout recovery for every harness adapter. These credential-free
 tests also run in normal CI. `pnpm test:smoke:live --harness codex` (or `--all`) separately checks real edits
-and conflict resolution using explicitly selected sandbox-authenticated harnesses.
+and conflict resolution using explicitly selected harnesses. Codex reuses your
+existing login with no separate sandbox-home setup; other harnesses retain their
+sandbox authentication requirements.
 See [smoke test setup and budget requirements](smoke/README.md).
 
 ### Performance reporting and benchmarks

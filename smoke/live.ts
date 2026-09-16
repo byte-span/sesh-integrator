@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { expect, it } from "vitest";
+import { createCodexLoginCommand } from "./codex-login.js";
 import { harnesses } from "../src/harness.js";
 import {
   conflictingSmoke,
@@ -10,34 +11,56 @@ import {
   smokeFixture,
 } from "../test/smoke-fixture.js";
 
-// Fail closed: running this command without explicit sandbox setup is not a pass.
+// Only the explicit live command opts in; ordinary tests never inherit login.
 const selected = process.env.SESH_SMOKE_HARNESSES?.split(",") ?? [];
 const sandboxHome = process.env.SESH_SMOKE_HOME ?? "";
 if (
-  process.env.SESH_SMOKE_BUDGET_CONFIRMED !== "1" ||
-  !isAbsolute(sandboxHome) ||
-  (await realpath(sandboxHome)) === (await realpath(homedir())) ||
+  process.env.SESH_SMOKE_LIVE_CONFIRMED !== "1" ||
   selected.length === 0 ||
   new Set(selected).size !== selected.length ||
   selected.some((h) => !harnesses.includes(h as (typeof harnesses)[number]))
 )
   throw new Error(
-    "Set SESH_SMOKE_HARNESSES, a separate SESH_SMOKE_HOME, and SESH_SMOKE_BUDGET_CONFIRMED=1 after configuring sandbox authentication and a provider spending cap. See smoke/README.md.",
+    "Use pnpm test:smoke:live --harness <name> to opt in to real AI calls.",
   );
+if (
+  selected.some((h) => h !== "codex") &&
+  (process.env.SESH_SMOKE_BUDGET_CONFIRMED !== "1" ||
+    !isAbsolute(sandboxHome) ||
+    (await realpath(sandboxHome)) === (await realpath(homedir())))
+)
+  throw new Error(
+    "Non-Codex harnesses require a separate SESH_SMOKE_HOME and SESH_SMOKE_BUDGET_CONFIRMED=1. See smoke/README.md.",
+  );
+if (sandboxHome) {
+  if (!isAbsolute(sandboxHome))
+    throw new Error("SESH_SMOKE_HOME must be absolute.");
+  await realpath(sandboxHome);
+}
 
 it.each(selected)(
   "%s performs a real edit and resolves a conflict through its adapter",
   async (harness) => {
-    const f = await smokeFixture(undefined, sandboxHome);
+    const f = await smokeFixture(
+      undefined,
+      harness === "codex" ? undefined : sandboxHome,
+      true,
+    );
     try {
       await registerSmoke(f);
+      if (harness === "codex") {
+        const command = await createCodexLoginCommand(f.root);
+        await f.configure((c) => {
+          c.harnessCommands = { codex: command };
+        });
+      }
       const task = join(f.root, "task.mjs");
       await writeFile(
         task,
         `
 import {runAgent} from ${JSON.stringify(pathToFileURL(join(process.cwd(), "dist/agent.js")).href)};
-import {defaultConfig} from ${JSON.stringify(pathToFileURL(join(process.cwd(), "dist/runtime.js")).href)};
-await runAgent({config:defaultConfig(),harness:${JSON.stringify(harness)},purpose:'resolve',cwd:process.cwd(),prompt:'Edit features.json to enable alpha while keeping beta false. Modify only this file. Do not commit, run seshx, or access external services.'});
+import {readConfig} from ${JSON.stringify(pathToFileURL(join(process.cwd(), "dist/runtime.js")).href)};
+await runAgent({config:await readConfig(),harness:${JSON.stringify(harness)},purpose:'resolve',cwd:process.cwd(),prompt:'Edit features.json to enable alpha while keeping beta false. Modify only this file. Do not commit, run seshx, or access external services.'});
 `,
       );
       const base = await f.git(f.repo, "rev-parse", "HEAD");

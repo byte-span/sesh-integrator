@@ -17,6 +17,7 @@ import type { Config, Session } from "../src/types.js";
 export async function smokeFixture(
   cli = join(process.cwd(), "dist/cli.js"),
   liveHome?: string,
+  suppressOutput = Boolean(liveHome),
 ) {
   const root = await realpath(await mkdtemp(join(tmpdir(), "sesh-smoke-")));
   const home = join(root, "home");
@@ -96,7 +97,7 @@ export async function smokeFixture(
     // Live provider output is intentionally never included in assertion messages.
     expect(
       result.code,
-      liveHome
+      suppressOutput
         ? `seshx ${args[0]} failed (provider output suppressed)`
         : result.stdout + result.stderr,
     ).toBe(expected);

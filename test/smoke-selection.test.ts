@@ -51,8 +51,21 @@ it("routes only selected harnesses to Vitest and preserves safety settings", () 
   const [command, args, options] = execute.mock.calls[1]!;
   expect(command).toBe(process.execPath);
   expect(args.slice(1)).toEqual(["run", "--config", "smoke/vitest.config.ts"]);
-  expect(options.env).toEqual({ ...env, SESH_SMOKE_HARNESSES: "codex" });
+  expect(options.env).toEqual({
+    ...env,
+    SESH_SMOKE_HARNESSES: "codex",
+    SESH_SMOKE_LIVE_CONFIRMED: "1",
+  });
   expect(env.SESH_SMOKE_HARNESSES).toBe("claude");
+});
+
+it("opts Codex into live calls without requiring a separate home or budget flag", () => {
+  const execute = vi.fn().mockReturnValue({ status: 0 });
+  expect(main(["--harness", "codex"], {}, execute)).toBe(0);
+  const env = execute.mock.calls[1]![2].env;
+  expect(env.SESH_SMOKE_LIVE_CONFIRMED).toBe("1");
+  expect(env.SESH_SMOKE_HOME).toBeUndefined();
+  expect(env.SESH_SMOKE_BUDGET_CONFIRMED).toBeUndefined();
 });
 
 it("does not launch live tests after a failed build or add budget approval", () => {

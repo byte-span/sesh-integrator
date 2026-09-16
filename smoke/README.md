@@ -29,19 +29,43 @@ Git user configuration. Test-owned temporary directories are removed afterward.
 
 ## Opt-in live harness tests
 
-Use a trusted, reviewed checkout on Linux or macOS. Install the harness CLIs to
-be tested and prepare a **separate sandbox home outside the repository** with
-sandbox-only authentication. Never use a Production account, your normal home,
-or credentials available to unreviewed fork jobs. Configure authentication on a
-trusted machine; do not put credential values in commands, source, or reports.
+### Codex: use your existing login
 
-Set a provider-enforced spending limit before acknowledging the budget below.
-A timeout limits elapsed time, not money. The runner cannot establish billing
-caps for you. The sandbox home must contain only the intended harness settings
-and authentication: no additional MCP servers, hooks, skills, or integrations.
-Ambient credential environment variables are deliberately not forwarded. Use
-file-based sandbox login supported by each installed harness; Codex reads the
-sandbox home's `.codex` configuration through the existing adapter.
+From a trusted, reviewed checkout on Linux or macOS, with Codex already installed
+and logged in, run:
+
+```sh
+pnpm test:smoke:live --harness codex
+```
+
+Invoking this explicit live command is consent to real AI calls using your
+existing account and its usage limits. Codex requires no separate account,
+`SESH_SMOKE_HOME`, or `SESH_SMOKE_BUDGET_CONFIRMED`. This command remains separate
+from normal tests and is never scheduled automatically.
+
+The smoke-only Codex launcher forwards the adapter's arguments (including
+`--sandbox workspace-write`) and uses your current `CODEX_HOME`, falling back to
+`~/.codex`. It also preserves your normal home and XDG configuration location
+for the Codex process. Authentication files are not read or copied by the smoke
+launcher. Codex itself uses its normal authentication and configuration, and may
+update its usual session/login state. Account settings, configured integrations
+and normal Codex usage charges still apply.
+
+Disposable repositories, temporary integrator state, isolated Git configuration,
+and timeouts remain automatic. No manual sandbox setup is needed. Other test
+subprocesses retain their temporary home; normal CI does not inherit your login.
+Ambient API-key variables are not forwarded. If your Codex configuration depends
+on credentials supplied only through environment variables, that authentication
+mode remains unsupported by this runner. An optional `SESH_SMOKE_HOME` explicitly
+selects a different home's `.codex` directory instead of your current login.
+
+### Other harnesses and combined runs
+
+Claude, Gemini and Grok still require a separate `SESH_SMOKE_HOME` containing
+sandbox authentication, and provider spending caps acknowledged with
+`SESH_SMOKE_BUDGET_CONFIRMED=1`. Configure credentials on a trusted machine, never
+in source or an unreviewed fork job. No Production credentials are required.
+These requirements also apply when selecting them alongside Codex:
 
 ```sh
 SESH_SMOKE_HOME=/absolute/path/to/sandbox-home \
@@ -49,7 +73,7 @@ SESH_SMOKE_BUDGET_CONFIRMED=1 \
 pnpm test:smoke:live --all
 ```
 
-Select individual harnesses with flags:
+### Selection and opt-in
 
 ```sh
 pnpm test:smoke:live --harness codex
@@ -58,17 +82,14 @@ pnpm test:smoke:live --all
 pnpm test:smoke:live --help
 ```
 
-The sandbox home and budget environment variables above still apply to each
-live run. `--help` needs neither and makes no calls. Explicit selection flags
-override `SESH_SMOKE_HARNESSES`; the environment variable remains supported
-when no selection flag is supplied. `--harness` and `--all` cannot be combined.
-Unknown names, duplicates, empty lists and unsupported arguments are rejected
-before building or invoking providers.
+`--help` makes no calls. Explicit selection flags override
+`SESH_SMOKE_HARNESSES`; the environment variable remains supported when no
+selection flag is supplied. `--harness` and `--all` cannot be combined. Unknown
+names, duplicates, empty lists and unsupported arguments are rejected before
+building or invoking providers. The launcher marks its Vitest subprocess with
+`SESH_SMOKE_LIVE_CONFIRMED=1`; direct Vitest invocation without that opt-in fails.
 
-Choose one or more comma-separated harness names. Missing/unknown harnesses,
-missing budget acknowledgement, and missing/ordinary home paths fail the run;
-they never silently skip into a passing result. This command is separate from
-normal CI and is not scheduled automatically.
+### Assertions and isolation
 
 Each selected harness gets two adapter invocations, sequentially, without
 retries or automatic AI incident diagnosis:
@@ -83,7 +104,7 @@ retries or automatic AI incident diagnosis:
 Each invocation has an outer two-minute process-group deadline. No pushes or
 publishing occur. Provider output is captured in memory but omitted from test
 failure messages; temporary integrator evidence is removed on completion.
-The supplied sandbox home remains in place. This is process/home isolation,
+Your normal Codex home and any supplied sandbox home remain in place. This is process/home isolation,
 not a container or security boundary against a malicious harness.
 
 Record the tested CLI versions and outcomes in release review. Run all four

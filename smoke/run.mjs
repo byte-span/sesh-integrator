@@ -14,8 +14,10 @@ const help = `Usage: pnpm test:smoke:live --harness codex[,claude,...] | --all
   --help             Show help without building or making AI calls.
 
 Explicit flags override SESH_SMOKE_HARNESSES; without flags it remains supported.
-SESH_SMOKE_HOME and SESH_SMOKE_BUDGET_CONFIRMED=1 are still required.
-Use sandbox authentication and provider spending caps. See smoke/README.md.
+Running this live command explicitly opts in to real AI calls.
+Codex uses your existing login; no separate home or budget flag is required.
+Other harnesses require SESH_SMOKE_HOME and SESH_SMOKE_BUDGET_CONFIRMED=1.
+See smoke/README.md.
 `;
 
 export function selection(args, env = process.env) {
@@ -54,7 +56,11 @@ export function main(args, env = process.env, execute = spawnSync) {
   }
   const options = {
     cwd: root,
-    env: { ...env, SESH_SMOKE_HARNESSES: selected.harnesses.join(",") },
+    env: {
+      ...env,
+      SESH_SMOKE_HARNESSES: selected.harnesses.join(","),
+      SESH_SMOKE_LIVE_CONFIRMED: "1",
+    },
     stdio: "inherit",
   };
   const build = execute(
