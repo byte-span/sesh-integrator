@@ -172,3 +172,42 @@ are needed. An unsupported format produces unknown usage rather than zero.
 For broader conflict-resolution quality checks, see the twelve opt-in
 [live evaluation scenarios](../eval/README.md). Their calls share this usage
 history and warning configuration.
+
+## Minimal live connectivity ping
+
+```sh
+pnpm test:ping:live --harness claude,gemini,grok
+pnpm test:ping:live --installed
+```
+
+This separate, explicitly invoked command sends `Reply exactly OK` once per
+selected harness in an empty temporary directory. It uses configured
+`harnessCommands` executable paths (and the legacy `codexCommand`) plus existing
+CLI authentication and environment. It never reads or copies credential files.
+`--installed` discovers executable commands, not authenticated accounts or
+installed workflow skills. No selection is an error. Normal tests and CI make
+no live calls; their ping tests use fake executables.
+
+Each result reports pass/fail, elapsed milliseconds, and provider-reported total
+tokens, marking partial or unavailable usage. Any failure produces a nonzero exit
+code after checking the remaining selections. Raw provider output is suppressed.
+An unresponsive process is killed after 30 seconds (including its process group
+on Linux/macOS); output capture is capped. The runner does not retry.
+
+Tools are disabled or denied for the ping. Claude uses safe mode to retain OAuth
+and requests at most 16 output tokens; Claude and Grok allow one agent turn.
+Gemini uses a deny-all policy and temporary workspace settings. Codex skips user
+configuration to omit configured integrations while retaining its normal
+`CODEX_HOME` authentication; custom providers/models in config.toml therefore are
+not checked by this minimal Codex ping. Recent CLIs supporting these flags are
+required. Existing smoke/edit tests are unchanged.
+
+This is a small prompt, not a guaranteed token or cost ceiling: harness context,
+reasoning, internal retries, or model routing can add usage. Gemini and Codex have
+no universal output-token cap here. CLI-managed login/session state may still be
+updated. Unlike the editing smoke suite, ping needs no sandbox-home or budget
+acknowledgment variables. Invocation explicitly opts into account usage.
+
+Flag references: [Claude CLI](https://code.claude.com/docs/en/cli-reference),
+[Gemini configuration](https://geminicli.com/docs/reference/configuration/), and
+[Grok headless mode](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/14-headless-mode.md).
