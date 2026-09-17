@@ -3394,7 +3394,11 @@ process.stdout.write(JSON.stringify({status:"SUCCESS",response:"resolved",text:"
             "utf8",
           ),
         );
-        expect(incident.investigationError).toContain("missing-agent");
+        expect(incident.investigationError).toContain(
+          harness === "antigravity"
+            ? "does not enforce read-only"
+            : "missing-agent",
+        );
         expect(
           await exists(join(fixture.runtime, "codex-home", "auth.json")),
         ).toBe(false);
