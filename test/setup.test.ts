@@ -127,3 +127,27 @@ it("source CLI installer does not invoke machine maintenance", async () => {
     }),
   ).toContain("Run seshx setup");
 });
+
+it("detects agy and preserves legacy Gemini skills while installing Antigravity", async () => {
+  const { home, bin, cli } = await fixture();
+  await writeFile(join(bin, "agy"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+  const legacy = join(home, ".gemini/skills/sesh-integrator-workflow");
+  await mkdir(legacy, { recursive: true });
+  await writeFile(join(legacy, "SKILL.md"), "custom legacy workflow");
+  const result = cli(["setup", "--detected", "--yes"]);
+  expect(result.status, result.stderr).toBe(0);
+  expect(result.stdout).toContain("antigravity");
+  expect(
+    await readFile(
+      join(
+        home,
+        ".gemini/antigravity-cli/skills/sesh-integrator-workflow/SKILL.md",
+      ),
+      "utf8",
+    ),
+  ).toContain("--harness");
+  expect(await readFile(join(legacy, "SKILL.md"), "utf8")).toBe(
+    "custom legacy workflow",
+  );
+  expect(cli(["begin", "--harness", "gemini"]).status).not.toBe(0);
+});

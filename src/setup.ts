@@ -109,7 +109,8 @@ async function setupUnlocked(args: string[], uninstall = false): Promise<void> {
   const home = homedir();
   const available: Harness[] = [];
   for (const harness of harnesses)
-    if (await executableOnPath(harness)) available.push(harness);
+    if (await executableOnPath(harnessInfo[harness].command ?? harness))
+      available.push(harness);
   let selected = [
     ...new Set(
       explicit.length
@@ -323,7 +324,7 @@ async function setupUnlocked(args: string[], uninstall = false): Promise<void> {
       for (const harness of selected)
         if (!available.includes(harness))
           console.log(
-            `Warning: ${harness} is not on PATH. Install it before using this integration.`,
+            `Warning: ${harnessInfo[harness].command ?? harness} is not on PATH. Install it before using this integration.`,
           );
       console.log(
         "Global setup cannot discover intended repositories or enroll open conversations. Next: in your project, run seshx register --auto-config, then seshx doctor --installed.",

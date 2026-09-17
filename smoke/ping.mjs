@@ -8,10 +8,10 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import { harnessInfo } from "../scripts/harness-metadata.mjs";
 
-const names = Object.keys(harnessInfo);
+const names = Object.keys(harnessInfo).filter((h) => !harnessInfo[h].legacy);
 const prompt = "Reply exactly OK";
 const root = fileURLToPath(new URL("../", import.meta.url));
-const help = `Usage: pnpm test:ping:live --harness claude,gemini,grok | --installed
+const help = `Usage: pnpm test:ping:live --harness claude,antigravity,grok | --installed
 One short live prompt per harness, using existing login; normal account charges apply.
 --installed selects executable configured commands on PATH, not authenticated accounts.
 30-second timeout per harness; no automatic retries. Provider output is suppressed.
@@ -88,6 +88,22 @@ export async function invocation(harness, cwd, environment) {
           "1",
           "--system-prompt",
           "Reply exactly OK.",
+        ],
+      };
+    case "antigravity":
+      return {
+        env,
+        args: [
+          "--print",
+          prompt,
+          "--output-format",
+          "json",
+          "--mode",
+          "plan",
+          "--disable-slash-commands",
+          "--sandbox",
+          "--print-timeout",
+          "30s",
         ],
       };
     case "gemini": {
@@ -290,12 +306,15 @@ export function validResponse(harness, stdout) {
     return (
       !!e &&
       !e.error &&
+      (harness !== "antigravity" ||
+        (e.status === "SUCCESS" &&
+          !(Array.isArray(e.denied_actions) && e.denied_actions.length))) &&
       !e.is_error &&
       e.type !== "error" &&
       !String(e.subtype).startsWith("error") &&
       (harness === "claude"
         ? e.result
-        : harness === "gemini"
+        : harness === "gemini" || harness === "antigravity"
           ? e.response
           : e.text
       )?.trim() === "OK"
@@ -341,6 +360,7 @@ export async function runSelected(
   const command = (h) =>
     config.harnessCommands?.[h] ??
     (h === "codex" ? config.codexCommand : undefined) ??
+    harnessInfo[h].command ??
     h;
   const harnesses = selected.installed ? names : selected.harnesses;
   let count = 0,

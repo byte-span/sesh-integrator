@@ -15,13 +15,23 @@
     "metadataFiles": [],
     "versionArgs": ["--version"]
   },
+  "antigravity": {
+    "name": "Antigravity CLI",
+    "command": "agy",
+    "directory": ".gemini",
+    "instructions": "GEMINI.md",
+    "skillDirectory": ".gemini/antigravity-cli",
+    "metadataFiles": [],
+    "versionArgs": ["--version"]
+  },
   "gemini": {
     "name": "Gemini CLI",
     "directory": ".gemini",
     "instructions": "GEMINI.md",
     "skillDirectory": ".gemini",
     "metadataFiles": [],
-    "versionArgs": ["--version"]
+    "versionArgs": ["--version"],
+    "legacy": true
   },
   "grok": {
     "name": "Grok Build",

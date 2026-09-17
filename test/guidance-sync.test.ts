@@ -85,7 +85,7 @@ it.each([false, true])(
 
 it.each([
   ["claude", ".claude", "CLAUDE.md"],
-  ["gemini", ".gemini", "GEMINI.md"],
+  ["antigravity", ".gemini", "GEMINI.md"],
   ["grok", ".grok", "AGENTS.md"],
 ])(
   "installs %s idempotently while preserving personal instructions",
@@ -113,7 +113,11 @@ it.each([
       expect(await readFile(instructions, "utf8")).toBe(first);
       expect(
         await readFile(
-          join(home, directory!, "skills/sesh-integrator-workflow/SKILL.md"),
+          join(
+            home,
+            harness === "antigravity" ? ".gemini/antigravity-cli" : directory!,
+            "skills/sesh-integrator-workflow/SKILL.md",
+          ),
           "utf8",
         ),
       ).toBe(await readFile("skill/sesh-integrator-workflow/SKILL.md", "utf8"));
@@ -130,6 +134,7 @@ it("refreshes installed harnesses and refuses customized content without changin
   const home = await mkdtemp(join(tmpdir(), "sesh-refresh-"));
   try {
     const manifest = JSON.parse(await readFile("harnesses.json", "utf8"));
+    delete manifest.gemini;
     const install = (...args: string[]) =>
       execFileSync(
         "sh",

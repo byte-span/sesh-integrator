@@ -160,10 +160,25 @@ const gemini: UsageAdapter = (stdout) => {
     return result;
   });
 };
+const antigravity: UsageAdapter = (stdout) => {
+  const envelope = json(stdout);
+  const usage = object(envelope.usage);
+  const result = row(
+    envelope.model,
+    tokenCount(usage.input_tokens),
+    tokenCount(usage.output_tokens),
+    tokenCount(usage.cache_read_tokens),
+    tokenCount(usage.total_tokens),
+  );
+  if (envelope.status !== "SUCCESS" && result.coverage === "reported")
+    result.coverage = "partial";
+  return [result];
+};
 const adapters = new Map<string, UsageAdapter>([
   ["codex", codex],
   ["claude", (text) => messages(text, false)],
   ["gemini", gemini],
+  ["antigravity", antigravity],
   ["grok", (text) => messages(text, true)],
 ]);
 /** New harness formats plug into this boundary; storage and reporting stay shared. */

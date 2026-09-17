@@ -28,8 +28,8 @@ afterEach(async () => {
 });
 it("requires explicit selection, rejects duplicates and mixed selection", () => {
   expect(
-    selection(["--harness", "claude,gemini", "--harness", "grok"]),
-  ).toEqual({ harnesses: ["claude", "gemini", "grok"] });
+    selection(["--harness", "claude,antigravity", "--harness", "grok"]),
+  ).toEqual({ harnesses: ["claude", "antigravity", "grok"] });
   expect(selection(["--installed"])).toEqual({ installed: true });
   expect(selection(["--help"])).toEqual({ help: true });
   for (const args of [
@@ -51,6 +51,16 @@ const responses = {
       output_tokens: 1,
       cache_read_input_tokens: 0,
       cache_creation_input_tokens: 0,
+    },
+  }),
+  antigravity: JSON.stringify({
+    status: "SUCCESS",
+    response: "OK",
+    usage: {
+      input_tokens: 5,
+      output_tokens: 1,
+      cache_read_tokens: 0,
+      total_tokens: 6,
     },
   }),
   gemini: JSON.stringify({

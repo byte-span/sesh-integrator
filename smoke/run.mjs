@@ -4,7 +4,9 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import { harnessInfo } from "../scripts/harness-metadata.mjs";
 
-const harnesses = Object.keys(harnessInfo);
+const harnesses = Object.keys(harnessInfo).filter(
+  (h) => !harnessInfo[h].legacy,
+);
 const root = fileURLToPath(new URL("../", import.meta.url));
 const require = createRequire(import.meta.url);
 const help = `Usage: pnpm test:smoke:live --harness codex[,claude,...] | --all

@@ -191,7 +191,7 @@ export async function setEnrollment(
   harnesses: string[],
   stopped: boolean,
 ): Promise<void> {
-  const all = ["codex", "claude", "gemini", "grok"];
+  const all = ["codex", "claude", "antigravity", "gemini", "grok"];
   const disabled = [];
   for (const h of all)
     if (harnesses.includes(h) ? stopped : await enrollmentStopped(h))

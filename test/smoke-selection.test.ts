@@ -18,14 +18,14 @@ it("selects one or several harnesses and lets explicit flags override the enviro
   expect(selection(["--harness=codex,claude"])).toEqual({
     harnesses: ["codex", "claude"],
   });
-  expect(selection(["--harness", "gemini", "--harness", "grok"])).toEqual({
-    harnesses: ["gemini", "grok"],
+  expect(selection(["--harness", "antigravity", "--harness", "grok"])).toEqual({
+    harnesses: ["antigravity", "grok"],
   });
   expect(selection(["--all"], { SESH_SMOKE_HARNESSES: "codex" })).toEqual({
-    harnesses: ["codex", "claude", "gemini", "grok"],
+    harnesses: ["codex", "claude", "antigravity", "grok"],
   });
-  expect(selection([], { SESH_SMOKE_HARNESSES: "codex,gemini" })).toEqual({
-    harnesses: ["codex", "gemini"],
+  expect(selection([], { SESH_SMOKE_HARNESSES: "codex,antigravity" })).toEqual({
+    harnesses: ["codex", "antigravity"],
   });
 });
 
