@@ -8,14 +8,15 @@ Operate autonomously by default. Do not ask for routine approval to register,
 begin, validate, commit, integrate, resume, or safely promote local work that is
 already within the user's request.
 
-Supported harnesses are Codex CLI (`codex`), Claude Code (`claude`), Gemini CLI
-(`gemini`), and Grok Build (`grok`). When beginning a session, pass
+Supported harnesses are Codex CLI (`codex`), Claude Code (`claude`), Antigravity CLI
+(`antigravity`), and Grok Build (`grok`). When beginning a session, pass
 `--harness <your-harness>` with the matching identifier; omission means Codex
 for compatibility. Use the same identifier with `seshx doctor --harness`.
 Resolve conflicts and inspect failure evidence in the current agent session.
 Optional nested resolution (`conflictResolutionMode: "nested-agent"`) and
 automated incident investigation use the session's recorded harness.
-All harnesses share the same features; keep exceptions limited to documented
+Antigravity automated diagnosis uses a neutral fallback because plan mode is not
+enforced read-only. All harnesses share the Git lifecycle; keep exceptions limited to documented
 harness behavior. `seshx doctor --installed` checks every installed workflow.
 Read repository `AGENTS.md` and your harness's project instructions, such as
 `CLAUDE.md` or `GEMINI.md`, before editing.

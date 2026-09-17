@@ -233,3 +233,36 @@ it("validates all threshold configuration before any calls", async () => {
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+it("reads Antigravity's native usage envelope without reinterpreting legacy Gemini stats", () => {
+  expect(
+    normalizeUsage(
+      "antigravity",
+      JSON.stringify({
+        status: "SUCCESS",
+        usage: {
+          input_tokens: 100,
+          output_tokens: 20,
+          thinking_tokens: 5,
+          cache_read_tokens: 70,
+          total_tokens: 120,
+        },
+      }),
+    ),
+  ).toEqual([
+    {
+      model: null,
+      input: 100,
+      output: 20,
+      cached: 70,
+      total: 120,
+      coverage: "reported",
+    },
+  ]);
+  expect(
+    normalizeUsage(
+      "antigravity",
+      JSON.stringify({ status: "ERROR", usage: { total_tokens: 4 } }),
+    )[0]?.coverage,
+  ).toBe("partial");
+});

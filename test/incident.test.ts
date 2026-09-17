@@ -92,14 +92,20 @@ else process.stdout.write(JSON.stringify({text:JSON.stringify(diagnosis),stopRea
     },
   );
 
-  it("records a neutral fallback when investigation is unavailable", async () => {
-    const root = await mkdtemp(join(tmpdir(), "handoff-incident-"));
-    roots.push(root);
-    process.env.PARALLEL_INTEGRATOR_HOME = root;
-    await configureCodex(join(root, "missing-codex"));
-    const incident = await recordIncident(session(), "novel failure 42");
-    expect(incident.investigationSource).toBe("fallback");
-    expect(incident.category).toBe("unclassified");
-    expect(incident.investigationError).toBeTruthy();
-  });
+  it.each(["codex", "antigravity"] as const)(
+    "records a neutral fallback when %s investigation is unavailable",
+    async (harness) => {
+      const root = await mkdtemp(join(tmpdir(), "handoff-incident-"));
+      roots.push(root);
+      process.env.PARALLEL_INTEGRATOR_HOME = root;
+      await configureCodex(join(root, "missing-codex"));
+      const incident = await recordIncident(
+        session({ harness }),
+        "novel failure 42",
+      );
+      expect(incident.investigationSource).toBe("fallback");
+      expect(incident.category).toBe("unclassified");
+      expect(incident.investigationError).toBeTruthy();
+    },
+  );
 });

@@ -135,7 +135,7 @@ Complete personal MVP implementation checklist.
 
 - [x] Share nested resolution, diagnosis, installation metadata, refresh, and health checks across supported harnesses
 
-- [x] Support Claude Code, Gemini CLI, and Grok Build installation, harness metadata, readiness checks, and current-session recovery
+- [x] Support Claude Code, Antigravity CLI, and Grok Build installation, harness metadata, readiness checks, and current-session recovery
 
 - [x] Provide explicit, previewable bulk cleanup of old repository blocks with backups
 

@@ -2,9 +2,11 @@ import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import type { Config } from "./types.js";
 
-export type Harness = "codex" | "claude" | "gemini" | "grok";
+export type Harness = "codex" | "claude" | "antigravity" | "gemini" | "grok";
 interface HarnessInfo {
   name: string;
+  command?: string;
+  legacy?: boolean;
   directory: string;
   instructions: string;
   skillDirectory: string;
@@ -15,10 +17,12 @@ interface HarnessInfo {
 export const harnessInfo = JSON.parse(
   readFileSync(new URL("../harnesses.json", import.meta.url), "utf8"),
 ) as Record<Harness, HarnessInfo>;
-export const harnesses = Object.keys(harnessInfo) as Harness[];
+export const harnesses = (Object.keys(harnessInfo) as Harness[]).filter(
+  (h) => !harnessInfo[h].legacy,
+);
 
 export function parseHarness(value: string): Harness {
-  if (!Object.hasOwn(harnessInfo, value))
+  if (!harnesses.includes(value as Harness))
     throw new Error(`--harness must be ${harnesses.join(", ")}`);
   return value as Harness;
 }
@@ -27,6 +31,7 @@ export function harnessCommand(config: Config, harness: Harness): string {
   return (
     config.harnessCommands?.[harness] ??
     (harness === "codex" ? config.codexCommand : undefined) ??
+    harnessInfo[harness].command ??
     harness
   );
 }
@@ -59,7 +64,8 @@ export function validateHarnessConfig(config: Config): void {
     )
       throw new Error("invalid harnessCommands");
     for (const [harness, command] of Object.entries(config.harnessCommands)) {
-      parseHarness(harness);
+      if (!Object.hasOwn(harnessInfo, harness))
+        throw new Error(`invalid harnessCommands.${harness}`);
       if (typeof command !== "string" || !command.trim())
         throw new Error(`invalid harnessCommands.${harness}`);
     }

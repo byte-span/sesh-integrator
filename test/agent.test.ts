@@ -14,7 +14,7 @@ afterEach(async () => {
   );
 });
 
-it.each(harnesses)(
+it.each([...harnesses.filter((h) => h !== "antigravity"), "gemini"] as const)(
   "%s supports both agent purposes and rejects failed responses",
   async (harness) => {
     const root = await mkdtemp(join(tmpdir(), "sesh-agent-"));
@@ -188,5 +188,71 @@ process.exitCode = 9;
     else process.env.SESH_SMOKE_USAGE_DIR = previousDirectory;
     if (previousRun === undefined) delete process.env.SESH_SMOKE_USAGE_RUN_ID;
     else process.env.SESH_SMOKE_USAGE_RUN_ID = previousRun;
+  }
+});
+
+it("uses Antigravity's native command and preserves legacy Gemini configuration", async () => {
+  const { harnessCommand, parseHarness } = await import("../src/harness.js");
+  expect(harnessCommand(defaultConfig(), "antigravity")).toBe("agy");
+  expect(harnessCommand(defaultConfig(), "gemini")).toBe("gemini");
+  expect(() => parseHarness("gemini")).toThrow();
+  expect(() =>
+    validateHarnessConfig({
+      ...defaultConfig(),
+      harnessCommands: { gemini: "old-gemini" },
+    }),
+  ).not.toThrow();
+  const root = await mkdtemp(join(tmpdir(), "sesh-agy-"));
+  roots.push(root);
+  process.env.PARALLEL_INTEGRATOR_HOME = root;
+  const fake = join(root, "agy");
+  const record = join(root, "args.json");
+  const response = join(root, "response.json");
+  await writeFile(
+    fake,
+    `#!/usr/bin/env node
+const fs = require('fs');
+fs.writeFileSync(${JSON.stringify(record)}, JSON.stringify(process.argv.slice(2)));
+process.stdout.write(fs.readFileSync(${JSON.stringify(response)}, 'utf8'));
+`,
+    { mode: 0o755 },
+  );
+  const options = {
+    config: { ...defaultConfig(), harnessCommands: { antigravity: fake } },
+    harness: "antigravity" as const,
+    cwd: root,
+    prompt: "Resolve compatible changes. Do not commit.",
+  };
+  await expect(
+    runAgent({ ...options, purpose: "diagnose", schema: {} }),
+  ).rejects.toThrow("read-only");
+  await expect(readFile(record)).rejects.toThrow();
+  await writeFile(
+    response,
+    JSON.stringify({ status: "SUCCESS", response: "resolved" }),
+  );
+  await runAgent({ ...options, purpose: "resolve" });
+  expect(JSON.parse(await readFile(record, "utf8"))).toEqual([
+    "--print",
+    options.prompt,
+    "--output-format",
+    "json",
+    "--mode",
+    "accept-edits",
+    "--disable-slash-commands",
+    "--sandbox",
+    "--print-timeout",
+    "5m",
+  ]);
+  for (const envelope of [
+    {},
+    { status: "ERROR" },
+    { status: "WAITING" },
+    { status: "SUCCESS", denied_actions: ["write_file"] },
+  ]) {
+    await writeFile(response, JSON.stringify(envelope));
+    await expect(runAgent({ ...options, purpose: "resolve" })).rejects.toThrow(
+      "unsuccessful",
+    );
   }
 });

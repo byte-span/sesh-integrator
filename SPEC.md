@@ -913,10 +913,11 @@ session-state event.
 
 ## Coding harness support
 
-`begin --harness codex|claude|gemini|grok` records the originating harness. Omitted
+`begin --harness codex|claude|antigravity|grok` records the originating harness. Omitted
 flags and legacy session records mean Codex. Installation and `doctor --harness`
 select the native user skill and global instruction paths documented in README.
-All harnesses share the Git lifecycle, nested resolution, and automated diagnosis.
+All harnesses share the Git lifecycle and nested resolution. Antigravity uses
+the neutral incident fallback because plan mode is not enforced read-only.
 `nested-agent` selects the session's harness; `nested-codex` is a compatibility
 alias. Optional `harnessCommands` overrides executable paths. Shared response
 validation and failure preservation apply to every adapter. Installation metadata
