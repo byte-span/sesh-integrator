@@ -17,6 +17,11 @@ export async function runAgent(options: {
 }): Promise<unknown> {
   const { config, harness, purpose, cwd, schema } = options;
   const diagnosis = purpose === "diagnose";
+  // Plan mode is a prompt prefix, not a read-only security boundary.
+  if (harness === "antigravity" && diagnosis)
+    throw new Error(
+      "Antigravity automated diagnosis is unavailable: use current-session investigation; plan mode does not enforce read-only access.",
+    );
   const paths = await ensureRuntime();
   const temporary = await mkdtemp(join(paths.root, "agent-call-"));
   let usageCall: Awaited<ReturnType<typeof beginUsageCall>>;
@@ -77,6 +82,20 @@ export async function runAgent(options: {
           ...(diagnosis ? ["--json-schema", JSON.stringify(schema)] : []),
         ];
         input = prompt;
+        break;
+      case "antigravity":
+        args = [
+          "--print",
+          prompt,
+          "--output-format",
+          "json",
+          "--mode",
+          "accept-edits",
+          "--disable-slash-commands",
+          "--sandbox",
+          "--print-timeout",
+          "5m",
+        ];
         break;
       case "gemini": {
         // A per-call policy prevents a user's broader approvals from turning
@@ -162,7 +181,11 @@ export async function runAgent(options: {
       typeof envelope !== "object" ||
       envelope.error ||
       envelope.is_error ||
-      envelope.type === "error"
+      envelope.type === "error" ||
+      (harness === "antigravity" &&
+        (envelope.status !== "SUCCESS" ||
+          (Array.isArray(envelope.denied_actions) &&
+            envelope.denied_actions.length > 0)))
     )
       throw new Error(
         `${harnessInfo[harness].name} reported an unsuccessful response`,

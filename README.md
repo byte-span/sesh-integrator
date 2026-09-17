@@ -1,6 +1,6 @@
 # sesh-integrator (`seshx`)
 
-`sesh-integrator` is a personal, one-shot Git integration CLI for Codex CLI, Claude Code, Gemini CLI, and Grok Build sessions working in parallel worktrees. It has no integration daemon, polling service, LaunchAgent, or background queue.
+`sesh-integrator` is a personal, one-shot Git integration CLI for Codex CLI, Claude Code, Antigravity CLI, and Grok Build sessions working in parallel worktrees. It has no integration daemon, polling service, LaunchAgent, or background queue.
 
 ```text
 seshx begin
@@ -170,7 +170,7 @@ The install script prints a reminder to run `seshx setup`; `--foreground-scripts
 makes it visible because npm otherwise hides lifecycle output. Setup remains a
 separate, interactive step. Disabling lifecycle scripts skips the reminder.
 
-`setup` detects `codex`, `claude`, `gemini`, and `grok` executables on `PATH`,
+`setup` detects `codex`, `claude`, `agy`, and `grok` executables on `PATH`,
 preselects detected harnesses, and lets you choose integrations. It previews the
 skill and global instruction paths before confirmation, initializes configuration,
 and verifies Git and installed files. Detection does not execute harnesses or
@@ -182,7 +182,7 @@ For unattended installation, explicitly choose integrations:
 
 ```bash
 seshx setup --detected --yes
-seshx setup --harness claude --harness gemini --yes
+seshx setup --harness claude --harness antigravity --yes
 ```
 
 Then, in your project:
@@ -1294,14 +1294,14 @@ For rollback, stop invoking the new skill, restore the previous global guidance,
 ## Additional coding harnesses
 
 For a small live connectivity check using existing logins, run
-`pnpm test:ping:live --harness claude,gemini,grok` or
+`pnpm test:ping:live --harness claude,antigravity,grok` or
 `pnpm test:ping:live --installed`. See [ping behavior and limits](smoke/README.md#minimal-live-connectivity-ping).
 
 Install the shared workflow and global instructions for each harness you use:
 
 ```bash
 seshx setup --harness claude
-seshx setup --harness gemini
+seshx setup --harness antigravity
 seshx setup --harness grok
 ```
 
@@ -1309,12 +1309,12 @@ Setup preserves personal text outside the managed instruction block and leaves
 repository instructions untouched. The legacy `scripts/install-skill.sh` keeps
 its no-argument Codex default and positional custom skill directory support.
 
-| Harness                       | Identifier | User skill directory | Global instructions   |
-| ----------------------------- | ---------- | -------------------- | --------------------- |
-| Codex CLI                     | `codex`    | `~/.agents/skills/`  | `~/.codex/AGENTS.md`  |
-| Claude Code                   | `claude`   | `~/.claude/skills/`  | `~/.claude/CLAUDE.md` |
-| Gemini CLI                    | `gemini`   | `~/.gemini/skills/`  | `~/.gemini/GEMINI.md` |
-| Grok Build (official xAI CLI) | `grok`     | `~/.grok/skills/`    | `~/.grok/AGENTS.md`   |
+| Harness                       | Identifier    | User skill directory                | Global instructions   |
+| ----------------------------- | ------------- | ----------------------------------- | --------------------- |
+| Codex CLI                     | `codex`       | `~/.agents/skills/`                 | `~/.codex/AGENTS.md`  |
+| Claude Code                   | `claude`      | `~/.claude/skills/`                 | `~/.claude/CLAUDE.md` |
+| Antigravity CLI               | `antigravity` | `~/.gemini/antigravity-cli/skills/` | `~/.gemini/GEMINI.md` |
+| Grok Build (official xAI CLI) | `grok`        | `~/.grok/skills/`                   | `~/.grok/AGENTS.md`   |
 
 Each skill directory contains `sesh-integrator-workflow/SKILL.md`. These commands
 use the standard user directories under HOME. Custom harness home directories
@@ -1326,19 +1326,30 @@ seshx doctor --harness claude
 seshx begin --harness claude --create-worktree --summary "Implement the change"
 ```
 
-Substitute `gemini` or `grok` as appropriate. Session status records the harness;
+Substitute `antigravity` or `grok` as appropriate. Session status records the harness;
 old sessions and omitted flags retain Codex behavior. All four use the same
 commit, validation, integration, checklist, and recovery commands. Conflicts are
 resolved by the active agent, followed by `seshx resume`. Claude and Gemini project
 instructions are included alongside `AGENTS.md` in saved conflict context.
 
-All harnesses support current-session recovery, optional nested resolution, and
+All harnesses support current-session recovery and optional nested resolution.
+Antigravity uses the neutral incident fallback; automatic diagnosis is disabled
+because its plan mode does not enforce read-only access. Other harnesses support
 automated incident diagnosis. One runner owns time limits, prompt delivery, error
 handling, and response decoding; shared incident validation rejects malformed
 results and preserves a neutral fallback. Nested agents edit conflict contents; seshx verifies the integration HEAD and
 checks for leftover markers before staging the original conflicted paths. All
 Git checks remain in the shared lifecycle. Tests use fake CLIs and disposable repositories; live authenticated
 agent behavior is not covered by automated tests.
+
+Antigravity replaces Gemini in new setup and session selections. Legacy Gemini
+session IDs, command overrides, usage records, and recovery adapters remain
+readable and are not rewritten to run a different executable. Finish those
+sessions with their retained coordinator. Existing Gemini skills are preserved;
+install the Antigravity workflow with `seshx setup --harness antigravity` after
+upgrading the coordinator. `GEMINI.md` remains Antigravity's native rules filename.
+The live Antigravity ping uses plan mode and existing account permissions; it
+does not provide the tool-free isolation available in the other ping adapters.
 
 ### Shared harness configuration and maintenance
 
@@ -1351,14 +1362,14 @@ native skill metadata. Both the CLI and installation scripts consume it.
   "harnessCommands": {
     "codex": "codex",
     "claude": "claude",
-    "gemini": "gemini",
+    "antigravity": "agy",
     "grok": "grok"
   }
 }
 ```
 
 These optional fields belong in the existing global config. Executables default
-to the harness identifier. `codexCommand` remains a legacy fallback for Codex;
+to the harness identifier, except Antigravity which uses `agy`. `codexCommand` remains a legacy fallback for Codex;
 `harnessCommands.codex` takes precedence. Current-session remains the default.
 
 `scripts/install-skill.sh --installed` refreshes all installed workflows and their
@@ -1378,8 +1389,9 @@ and positional custom-directory installer remain compatible.
   `CODEX_HOME` handling remains internal to that adapter.
 - Claude uses print-mode JSON and native structured output, restricted tools,
   and plan/acceptEdits permissions. Bare mode disables automatic plugin/hook discovery.
-- Gemini returns JSON containing a response string. A per-call policy restricts
-  diagnosis to read tools and resolution to reading and editing.
+- Antigravity uses `agy --print`, JSON success status and response, sandboxed
+  terminal commands, and accept-edits mode for resolution. Existing user
+  permissions still apply. Plan mode is not a read-only boundary.
 - Grok uses a prompt file, JSON containing `text`, native read-only/workspace
   sandbox profiles, and tool/permission filters. Automatic updates are disabled
   for these one-shot calls.
@@ -1387,20 +1399,20 @@ and positional custom-directory installer remain compatible.
 CLI permission/sandbox guarantees differ and can be constrained by managed
 policy. No adapter requests a blanket permission bypass. Unsupported flags,
 missing authentication, rejected tools, and invalid diagnoses fail safely;
-update the CLI or continue recovery in the current session. Gemini/Grok diagnoses
+update the CLI or continue recovery in the current session. Grok diagnoses
 are validated locally against the same required fields as native structured outputs.
 
 The legacy audit still targets the historical `codex-integrator` daemon because
 that is the legacy system being detected; it is available from every harness.
 
 References: [Claude skills](https://code.claude.com/docs/en/skills),
-[Gemini skills](https://geminicli.com/docs/cli/using-agent-skills/),
+[Antigravity skills](https://antigravity.google/docs/cli/plugins/),
 [Grok skills](https://docs.x.ai/build/features/skills-plugins-marketplaces),
 [Grok global rules](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/01-getting-started.md).
 
 Execution references: [Claude CLI](https://code.claude.com/docs/en/cli-reference),
-[Gemini headless output](https://geminicli.com/docs/cli/headless/),
-[Gemini policy engine](https://geminicli.com/docs/reference/policy-engine/),
+[Antigravity headless output](https://antigravity.google/docs/cli/headless/),
+[Antigravity modes](https://antigravity.google/docs/cli/modes/),
 [Grok headless flags and output](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/14-headless-mode.md),
 [Grok sandbox profiles](https://docs.x.ai/build/features/sandbox).
 

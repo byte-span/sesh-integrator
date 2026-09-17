@@ -47,7 +47,7 @@ afterEach(async () => {
 });
 
 describe.sequential("sesh-integrator repository workflow", () => {
-  it.each(["claude", "gemini", "grok"])(
+  it.each(["claude", "antigravity", "grok"])(
     "installs and checks %s without Codex",
     async (harness) => {
       const fixture = await createFixture();
@@ -60,7 +60,7 @@ describe.sequential("sesh-integrator repository workflow", () => {
       const bin = join(fixture.root, "bin");
       await mkdir(bin);
       await writeFile(
-        join(bin, harness),
+        join(bin, harness === "antigravity" ? "agy" : harness),
         "#!/bin/sh\nprintf 'test harness 1.0\n'\n",
         { mode: 0o755 },
       );
@@ -111,10 +111,10 @@ describe.sequential("sesh-integrator repository workflow", () => {
         fake,
         `#!/usr/bin/env node
 const fs=require("fs");const cp=require("child_process");const args=process.argv.slice(2);
-const prompt=args.includes("--prompt-file")?fs.readFileSync(args[args.indexOf("--prompt-file")+1],"utf8"):fs.readFileSync(0,"utf8");
+const prompt=args.includes("--print")?args[args.indexOf("--print")+1]:args.includes("--prompt-file")?fs.readFileSync(args[args.indexOf("--prompt-file")+1],"utf8"):fs.readFileSync(0,"utf8");
 if(!prompt.includes("Do not commit")) process.exit(7);
 if (!${leaveMarkers}) fs.writeFileSync("shared.txt","first\\nsecond\\n");
-process.stdout.write(JSON.stringify({response:"resolved",text:"resolved",result:"resolved"}));
+process.stdout.write(JSON.stringify({status:"SUCCESS",response:"resolved",text:"resolved",result:"resolved"}));
 `,
         { mode: 0o755 },
       );
@@ -3334,7 +3334,7 @@ process.stdout.write(JSON.stringify({response:"resolved",text:"resolved",result:
       const instructionFile =
         harness === "claude"
           ? "CLAUDE.md"
-          : harness === "gemini"
+          : harness === "antigravity"
             ? "GEMINI.md"
             : "AGENTS.md";
       commitFile(

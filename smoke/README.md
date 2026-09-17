@@ -61,7 +61,7 @@ selects a different home's `.codex` directory instead of your current login.
 
 ### Other harnesses and combined runs
 
-Claude, Gemini and Grok still require a separate `SESH_SMOKE_HOME` containing
+Claude, Antigravity and Grok still require a separate `SESH_SMOKE_HOME` containing
 sandbox authentication, and provider spending caps acknowledged with
 `SESH_SMOKE_BUDGET_CONFIRMED=1`. Configure credentials on a trusted machine, never
 in source or an unreviewed fork job. No Production credentials are required.
@@ -163,8 +163,9 @@ are needed. An unsupported format produces unknown usage rather than zero.
 - [Claude usage](https://code.claude.com/docs/en/agent-sdk/cost-tracking):
   prefer `modelUsage`, including subagents, over aggregate usage. Add cache reads
   and writes to uncached input. Aggregate-only reports are marked partial.
-- [Gemini headless statistics](https://geminicli.com/docs/cli/headless/):
-  per-model prompt, candidate, thought, cached, and reported total counts.
+- [Antigravity headless usage](https://antigravity.google/docs/cli/headless/):
+  input, output, cache reads, and reported total counts. Legacy Gemini statistics
+  remain supported for old usage records.
 - [Grok headless usage](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/14-headless-mode.md):
   normalized cache-inclusive input. Headless totals exclude compaction and
   side-model work and are therefore marked partial.
@@ -176,7 +177,7 @@ history and warning configuration.
 ## Minimal live connectivity ping
 
 ```sh
-pnpm test:ping:live --harness claude,gemini,grok
+pnpm test:ping:live --harness claude,antigravity,grok
 pnpm test:ping:live --installed
 ```
 
@@ -194,20 +195,22 @@ code after checking the remaining selections. Raw provider output is suppressed.
 An unresponsive process is killed after 30 seconds (including its process group
 on Linux/macOS); output capture is capped. The runner does not retry.
 
-Tools are disabled or denied for the ping. Claude uses safe mode to retain OAuth
+Tools are disabled or denied for Codex, Claude, and Grok pings. Antigravity uses
+plan mode, terminal sandboxing, and the existing account permissions; plan mode
+is not enforced read-only or tool-free isolation. Claude uses safe mode to retain OAuth
 and requests at most 16 output tokens; Claude and Grok allow one agent turn.
-Gemini uses a deny-all policy and temporary workspace settings. Codex skips user
+Codex skips user
 configuration to omit configured integrations while retaining its normal
 `CODEX_HOME` authentication; custom providers/models in config.toml therefore are
 not checked by this minimal Codex ping. Recent CLIs supporting these flags are
 required. Existing smoke/edit tests are unchanged.
 
 This is a small prompt, not a guaranteed token or cost ceiling: harness context,
-reasoning, internal retries, or model routing can add usage. Gemini and Codex have
+reasoning, internal retries, or model routing can add usage. Antigravity and Codex have
 no universal output-token cap here. CLI-managed login/session state may still be
 updated. Unlike the editing smoke suite, ping needs no sandbox-home or budget
 acknowledgment variables. Invocation explicitly opts into account usage.
 
 Flag references: [Claude CLI](https://code.claude.com/docs/en/cli-reference),
-[Gemini configuration](https://geminicli.com/docs/reference/configuration/), and
+[Antigravity modes](https://antigravity.google/docs/cli/modes/), and
 [Grok headless mode](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/14-headless-mode.md).

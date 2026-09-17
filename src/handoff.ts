@@ -2277,7 +2277,7 @@ async function buildConflictPrompt(
   const extraInstruction =
     session.harness === "claude"
       ? "CLAUDE.md"
-      : session.harness === "gemini"
+      : session.harness === "gemini" || session.harness === "antigravity"
         ? "GEMINI.md"
         : undefined;
   if (extraInstruction) {

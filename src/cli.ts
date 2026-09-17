@@ -207,7 +207,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
         }
         if (args.length && (args.length !== 2 || args[0] !== "--harness"))
           throw new Error(
-            "Usage: seshx doctor [--installed | --harness codex|claude|gemini|grok]",
+            "Usage: seshx doctor [--installed | --harness codex|claude|antigravity|grok]",
           );
         await doctorCommand(process.cwd(), parseHarness(args[1] ?? "codex"));
         break;
@@ -449,7 +449,7 @@ Usage:
   seshx disable [repo-path]
   seshx enable [repo-path]
   seshx register [repo-path] [--auto-config] [--setup-command '<json-array>']...
-  seshx begin --summary "..." [--harness codex|claude|gemini|grok] [--create-worktree] [--no-auto-branch] [--depends-on <session-id>]...
+  seshx begin --summary "..." [--harness codex|claude|antigravity|grok] [--create-worktree] [--no-auto-branch] [--depends-on <session-id>]...
   seshx commit --message "..." [--session <session-id>]
   seshx validate [--session <session-id>]
   seshx integrate --summary "..." --rollout <none|applied|automated|manual> [--follow-up "<action, destination, exact configuration names; no secret values>"]... [--session <session-id>]
@@ -465,7 +465,7 @@ Usage:
   seshx reconcile [repo-path] [--apply]
   seshx audit-legacy
   seshx cleanup-guidance [--apply]
-  seshx doctor [--installed | --harness codex|claude|gemini|grok]
+  seshx doctor [--installed | --harness codex|claude|antigravity|grok]
   seshx benchmark [--runs <n>] [--json] [--check]
 `;
 
