@@ -1293,6 +1293,10 @@ For rollback, stop invoking the new skill, restore the previous global guidance,
 
 ## Additional coding harnesses
 
+For a small live connectivity check using existing logins, run
+`pnpm test:ping:live --harness claude,gemini,grok` or
+`pnpm test:ping:live --installed`. See [ping behavior and limits](smoke/README.md#minimal-live-connectivity-ping).
+
 Install the shared workflow and global instructions for each harness you use:
 
 ```bash

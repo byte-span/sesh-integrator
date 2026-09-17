@@ -50,7 +50,8 @@
     "prepack": "npm run build",
     "test:smoke": "pnpm build && vitest run test/package-smoke.test.ts test/harness-smoke.test.ts",
     "test:smoke:live": "node smoke/run.mjs",
-    "test:eval:live": "node eval/run.mjs"
+    "test:eval:live": "node eval/run.mjs",
+    "test:ping:live": "node smoke/ping.mjs"
   },
   "engines": {
     "node": ">=20"
