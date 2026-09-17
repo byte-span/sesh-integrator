@@ -128,6 +128,12 @@ and stages the reported integration worktree, then runs
 must handle every lifecycle command; candidate `dist` builds are only for tests.
 Dirty files in the launch checkout are preserved and may defer promotion.
 
+Before PR promotion, fetch `origin/main` and verify it is an ancestor of `dev`.
+After a shared PR is merged, synchronize the exact fetched merge commit in a
+separate managed source session, validate and integrate that session, then
+continue the original task. Preserve pending sessions and dirty launch files;
+never bypass the pre-push ancestry guard.
+
 Keep the pinned coordinator for unfinished self-development sessions. Compatible upgrades may be installed for new sessions; incompatible contracts are rejected before lifecycle mutation. Finish sessions with their retained coordinator before adopting incompatible runtime schemas. Install a new validated snapshot, explicitly refresh installed
 workflows with its `scripts/install-skill.sh --installed`, and use its path for
 new sessions. Retain old snapshots for recovery. Neither merge hooks nor health
