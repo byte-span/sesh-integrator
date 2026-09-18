@@ -32,8 +32,8 @@ Real signing checks are optional and documented in the README.
 Read [AGENTS.md](AGENTS.md), [SPEC.md](SPEC.md), [TASKS.md](TASKS.md),
 [LEGACY_MIGRATION.md](LEGACY_MIGRATION.md), [README.md](README.md), and the
 [workflow skill](skill/sesh-integrator-workflow/SKILL.md) before implementing.
-When using sesh-integrator to develop itself, follow the README's
-[stable coordinator workflow](README.md#developing-sesh-integrator-concurrently).
+When using sesh-integrator to develop itself, follow the
+[stable coordinator workflow](docs/development.md#developing-sesh-integrator-concurrently).
 Keep the coordinator outside source worktrees, pin its path, and target local
 `dev`. Never use the candidate build to coordinate its own integration.
 Maintainer machine safeguards are optional and are not required to run tests.
