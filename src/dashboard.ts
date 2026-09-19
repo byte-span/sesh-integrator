@@ -965,7 +965,7 @@ export function colorDashboardLine(
     )
   ) {
     const shortcut = rich ? "38;2;255;255;255" : "97";
-    const label = rich ? "38;2;150;150;150" : "90";
+    const label = rich ? "38;2;170;170;170" : "37";
     const content = safe.replace(
       /(^| {2,})(\S+)(?= \S)/g,
       (_match, spacing: string, key: string) =>
