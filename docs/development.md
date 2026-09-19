@@ -65,6 +65,64 @@ and stages the reported integration worktree, then runs
 must handle every lifecycle command; candidate `dist` builds are only for tests.
 Dirty files in the launch checkout are preserved and may defer promotion.
 
+#### Focused dashboard validation
+
+For this repository, add a `dashboard` entry to `validationTiers` in the
+effective runtime's `config.json`, after the docs tier and before broad test
+tiers. Limit its `paths` to `src/dashboard.ts`, `test/dashboard*.test.ts`, and
+`docs/development.md`. In both `sourceValidationCommands` and
+`integrationValidationCommands`, use these argument arrays in order:
+
+```json
+[
+  ["corepack", "pnpm", "run", "format:check"],
+  ["corepack", "pnpm", "run", "typecheck"],
+  ["corepack", "pnpm", "run", "build"],
+  [
+    "corepack",
+    "pnpm",
+    "exec",
+    "vitest",
+    "run",
+    "test/dashboard.test.ts",
+    "test/dashboard-clock.test.ts",
+    "test/dashboard-watch.test.ts"
+  ]
+]
+```
+
+Build before the dashboard tests because they invoke `dist/cli.js`. Keep
+`validationCache: "session"` so integration can reuse checks for the exact same
+tree. Changes outside those paths fall back to the other tiers or full checks;
+do not extend the dashboard tier to shared lifecycle code or package files.
+Finish an existing validation process before starting another full suite,
+including after a parallel validation command reports a failure. This avoids
+overlapping leftover tests and resource-related timeouts.
+
+#### Updating the installed dashboard
+
+Source promotion and executable installation are separate completion steps.
+`seshx` points to a stable release copy, so rebuilding the checkout does not
+update the installed dashboard. After successful integration, use the clean
+validated source worktree whose tree matches the promoted `dev` tree:
+
+```bash
+pnpm build
+./scripts/install-cli.sh --stable
+```
+
+Keep existing sessions on their pinned coordinator and retain its release;
+never overwrite that snapshot. The installer checks compatibility and publishes
+a new snapshot for future invocations. Do not install from merge or validation
+hooks. Quit and reopen `seshx dashboard` to load the new executable. On a host
+without the POSIX installer, perform the equivalent validated snapshot install
+using that host's installation procedure.
+
+When a task requests a visible local dashboard change, include installation and
+a check of the installed renderer in its completion checklist. Report whether
+the executable was updated, and record any deferred installation as an explicit
+follow-up. Do not describe source promotion alone as an installed UI update.
+
 Before PR promotion, fetch `origin/main` and verify it is an ancestor of `dev`.
 After a shared PR is merged, synchronize the exact fetched merge commit in a
 separate managed source session, validate and integrate that session, then
