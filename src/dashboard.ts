@@ -958,6 +958,18 @@ export function colorDashboardLine(
       "\x1b[0m"
     );
   }
+  // Shortcut-only rows have no saved session text. Accent the keys while
+  // keeping command titles in the normal foreground, including framed rows.
+  if (
+    /^(v validate|Tab(?:\/Enter)? |Up\/Down move|Esc cancel)/.test(safe.trimStart())
+  ) {
+    const content = safe.replace(
+      /(^| {2,})(\S+)(?= \S)/g,
+      (_match, spacing: string, key: string) =>
+        spacing + `\x1b[1;${accent}m${key}\x1b[22;${base}m`,
+    );
+    return `\x1b[${base}m${content}\x1b[0m`;
+  }
   const split = Math.floor(safe.length * 0.68);
   const divider =
     safe.length >= 110 && safe.slice(split, split + 3) === " | " ? split : -1;
