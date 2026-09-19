@@ -961,7 +961,9 @@ export function colorDashboardLine(
   // Shortcut-only rows have no saved session text. Accent the keys while
   // keeping command titles in the normal foreground, including framed rows.
   if (
-    /^(v validate|Tab(?:\/Enter)? |Up\/Down move|Esc cancel)/.test(safe.trimStart())
+    /^(v validate|Tab(?:\/Enter)? |Up\/Down move|Esc cancel)/.test(
+      safe.trimStart(),
+    )
   ) {
     const content = safe.replace(
       /(^| {2,})(\S+)(?= \S)/g,
