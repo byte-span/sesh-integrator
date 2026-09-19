@@ -958,20 +958,20 @@ export function colorDashboardLine(
       "\x1b[0m"
     );
   }
-  // Shortcut-only rows have no saved session text. Dark keys on light keycaps
-  // contrast with the light command titles, including in framed rows.
+  // Shortcut-only rows use white keys and gray labels on the same background.
   if (
     /^(v validate|Tab(?:\/Enter)? |Up\/Down move|Esc cancel)/.test(
       safe.trimStart(),
     )
   ) {
-    const shortcut = rich ? "38;2;10;34;48;48;2;135;215;205" : "30;106";
+    const shortcut = rich ? "38;2;255;255;255" : "97";
+    const label = rich ? "38;2;160;160;160" : "37";
     const content = safe.replace(
       /(^| {2,})(\S+)(?= \S)/g,
       (_match, spacing: string, key: string) =>
-        spacing + `\x1b[1;${shortcut}m${key}\x1b[22;${base}m`,
+        spacing + `\x1b[${shortcut}m${key}\x1b[${label}m`,
     );
-    return `\x1b[${base}m${content}\x1b[0m`;
+    return `\x1b[${base};${label}m${content}\x1b[0m`;
   }
   const split = Math.floor(safe.length * 0.68);
   const divider =
