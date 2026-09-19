@@ -11,11 +11,6 @@ checks, and promotes the result to your target branch.
 
 Works with **Codex CLI · Claude Code · Antigravity CLI · Grok Build**.
 
-![Illustrative terminal animation: one task is validated and integrated while other agents keep working.](docs/media/workflow.gif)
-
-_Illustrative workflow with scripted output and condensed timing._
-[Static view](docs/media/workflow.png) · [Animation source and regeneration](docs/media/README.md)
-
 ## Why use it?
 
 Working in parallel is easy until several agents finish at once. `seshx` handles
