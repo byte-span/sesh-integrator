@@ -1,6 +1,6 @@
 # sesh-integrator (`seshx`)
 
-**Run coding agents in parallel. Bring their work together with checks and recovery.**
+**Run coding agents in parallel. Automatically integrate their changes and resolve conflicts.**
 
 [![CI](https://github.com/byte-span/sesh-integrator/actions/workflows/ci.yml/badge.svg)](https://github.com/byte-span/sesh-integrator/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
