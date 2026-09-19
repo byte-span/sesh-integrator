@@ -9,7 +9,14 @@
 one session at a time. It merges the exact committed changes, runs your configured
 checks, and promotes the result to your target branch.
 
-Works with **Codex CLI · Claude Code · Antigravity CLI · Grok Build**.
+Works with:
+
+<p>
+  <img src="docs/assets/harnesses/codex-color.svg" width="24" height="24" alt="" /> <strong>Codex CLI</strong> &nbsp;·&nbsp;
+  <img src="docs/assets/harnesses/claude-color.svg" width="24" height="24" alt="" /> <strong>Claude Code</strong> &nbsp;·&nbsp;
+  <img src="docs/assets/harnesses/antigravity-color.svg" width="24" height="24" alt="" /> <strong>Antigravity CLI</strong> &nbsp;·&nbsp;
+  <img src="docs/assets/harnesses/grok.svg" width="24" height="24" alt="" /> <strong>Grok Build</strong>
+</p>
 
 ## Why use it?
 
