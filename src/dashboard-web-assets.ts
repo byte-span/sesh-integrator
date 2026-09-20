@@ -352,7 +352,7 @@ header {
 #connection.connected .signal-far {
   animation-delay: 0.44s;
 }
-html.page-hidden .signal {
+html.page-hidden #connection.connected .signal {
   animation-play-state: paused;
 }
 #connection.connected #connection-label {
