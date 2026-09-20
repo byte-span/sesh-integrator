@@ -59,7 +59,10 @@ list/detail split with independently scrolling panes. Session rows use 18px
 padding; details use 24px. At 1600px and above, increase main and row spacing.
 
 The sidebar divider supports pointer dragging, arrow keys (10px; Shift: 40px),
-Home/End, and double-click reset. Its width is 170–440px, further clamped to
+Home/End, and double-click reset. Hover, drag, and keyboard focus subtly thicken
+and tint the divider line itself; do not outline the full-height hit area.
+Pointer focus uses `preventScroll` so grabbing the divider preserves the page
+position and header visibility. Its width is 170–440px, further clamped to
 leave 600px for the main content, and remembered in browser storage per origin.
 At 1100px and below, default the sidebar to 170px and place search above filters.
 At 800px and below, hide the resize divider; repository navigation becomes a horizontal strip and the
