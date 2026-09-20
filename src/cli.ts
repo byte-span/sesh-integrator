@@ -25,6 +25,7 @@ import type { RolloutDisposition } from "./types.js";
 import { incidentCommand } from "./incident.js";
 import { cleanupGuidanceCommand } from "./cleanup-guidance.js";
 import { dashboardCommand } from "./dashboard.js";
+import { webDashboardCommand } from "./dashboard-web.js";
 import { tasksCommand } from "./tasks.js";
 
 export async function main(argv = process.argv.slice(2)): Promise<void> {
@@ -119,8 +120,8 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
         await tasksCommand(args);
         break;
       case "dashboard":
-        rejectArguments(args);
-        await dashboardCommand();
+        if (args.length) await webDashboardCommand(args);
+        else await dashboardCommand();
         break;
       case "init":
         rejectArguments(args);
@@ -455,7 +456,7 @@ Usage:
   seshx integrate --summary "..." --rollout <none|applied|automated|manual> [--follow-up "<action, destination, exact configuration names; no secret values>"]... [--session <session-id>]
   seshx resume [--session <session-id>]
   seshx status [--session <session-id>]
-  seshx dashboard
+  seshx dashboard [--web [--no-open] [--port <port>]]
   seshx finish --no-changes --summary "..." [--session <session-id>] [--satisfied-by <session-id>]
   seshx tasks list [--session <session-id>]
   seshx tasks add --title "..." [--title "..."]... [--description "..."] [--session <session-id>]
