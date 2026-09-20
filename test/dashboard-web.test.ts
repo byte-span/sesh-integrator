@@ -192,7 +192,7 @@ it("rechecks action gating and stale session/configuration revisions", () => {
     }),
   ).toThrow("already integrated");
 });
-it("validates integration rollout and task inputs without accepting arbitrary commands", () => {
+it("validates integration rollout without accepting arbitrary commands", () => {
   const sample = row();
   sample.session!.sourceValidatedCommit = "commit";
   const base = { session: "session_web", revision: webRevision(sample) };
@@ -220,20 +220,6 @@ it("validates integration rollout and task inputs without accepting arbitrary co
   ]);
   expect(() =>
     webActionArguments(sample, { ...base, action: "shell" }),
-  ).toThrow();
-  expect(
-    webActionArguments(sample, {
-      ...base,
-      action: "task-add",
-      task: { title: "One task" },
-    }),
-  ).toContain("One task");
-  expect(() =>
-    webActionArguments(sample, {
-      ...base,
-      action: "task-update",
-      task: { id: 99, status: "completed" },
-    }),
   ).toThrow();
 });
 it("serializes commands and waits for completion before closing", async () => {
@@ -309,7 +295,7 @@ it("streams change notifications and releases its watcher and sockets on close",
   expect(stop).toHaveBeenCalledOnce();
   expect((await reader.read()).done).toBe(true);
 });
-it("runs checklist edits through the actual CLI in a disposable Git repository", async () => {
+it("runs the retained coordinator in a disposable Git repository", async () => {
   const root = await mkdtemp(join(tmpdir(), "web-command-"));
   roots.push(root);
   const repo = join(root, "repo"),
@@ -365,11 +351,12 @@ it("runs checklist edits through the actual CLI in a disposable Git repository",
   const output: string[] = [];
   const code = await runWebCommand(
     sample,
-    ["tasks", "add", "--session", "session_web", "--title", "Browser task"],
+    ["status", "--session", "session_web"],
     (s) => output.push(s),
   );
   expect(code, output.join("")).toBe(0);
-  expect(output.join("")).toContain("Browser task");
+  expect(output.join("")).toContain("session_web  active");
+  expect(output.join("")).toContain(`Current repository: ${repo}/.git`);
 });
 it("starts without a terminal and exits cleanly on SIGTERM", async () => {
   const root = await mkdtemp(join(tmpdir(), "web-cli-"));
@@ -410,14 +397,16 @@ it("starts without a terminal and exits cleanly on SIGTERM", async () => {
 
 it("preserves UTF-8 characters split across HTTP request chunks", async () => {
   const run = vi.fn(async () => 0);
-  const server = await start({ run });
-  const title = "日本語 task";
+  const sample = row();
+  sample.session!.sourceValidatedCommit = "commit";
+  const server = await start({ run, load: async () => [sample] });
+  const title = "日本語 summary";
   const body = Buffer.from(
     JSON.stringify({
       session: "session_web",
-      revision: webRevision(row()),
-      action: "task-add",
-      task: { title },
+      revision: webRevision(sample),
+      action: "integrate",
+      input: { summary: title, rollout: "none", followUps: [] },
     }),
   );
   const boundary = body.indexOf(Buffer.from("日")) + 1;
@@ -443,4 +432,25 @@ it("preserves UTF-8 characters split across HTTP request chunks", async () => {
   });
   expect(code).toBe(202);
   expect(run.mock.calls[0]![1]).toContain(title);
+});
+
+it("rejects removed checklist actions even when sent directly to the web API", async () => {
+  const run = vi.fn(async () => 0);
+  const server = await start({ run });
+  for (const action of ["task-add", "task-update"]) {
+    const response = await post(server, {
+      session: "session_web",
+      revision: webRevision(row()),
+      action,
+      task: { id: 1, title: "Manual task", status: "completed" },
+    });
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toBe("Unknown dashboard action");
+  }
+  expect(run).not.toHaveBeenCalled();
+  const script = await (await fetch(server.url + "/app.js")).text();
+  expect(script).not.toContain("Add task");
+  expect(script).not.toContain("Edit status");
+  expect(script).not.toContain("taskForm");
+  expect(script).toContain("task.reason");
 });

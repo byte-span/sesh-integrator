@@ -123,7 +123,6 @@ export function webRow(row: DashboardRow) {
         actionReason(row, a) ?? null,
       ]),
     ),
-    editable: !!s && !!row.repository,
     rollout: s?.rolloutDisposition ?? "none",
     summary: s?.completionSummary ?? "",
   };
@@ -134,7 +133,6 @@ interface ActionRequest {
   revision: string;
   action: string;
   input?: IntegrationInput;
-  task?: { id?: number; title?: string; status?: string; reason?: string };
 }
 
 export function webActionArguments(
@@ -164,46 +162,7 @@ export function webActionArguments(
       request.input,
     );
   }
-  const task = request.task;
-  if (
-    request.action === "task-add" &&
-    typeof task?.title === "string" &&
-    task.title.trim()
-  )
-    return [
-      "tasks",
-      "add",
-      "--session",
-      row.session.id,
-      "--title",
-      task.title.trim(),
-    ];
-  if (
-    request.action === "task-update" &&
-    Number.isSafeInteger(task?.id) &&
-    row.session.tasks?.some((t) => t.id === task!.id)
-  ) {
-    if (
-      !["pending", "in_progress", "completed", "blocked", "skipped"].includes(
-        task?.status ?? "",
-      )
-    )
-      throw new Error("Choose a valid task status");
-    const args = [
-      "tasks",
-      "update",
-      String(task!.id),
-      "--session",
-      row.session.id,
-      "--status",
-      task!.status!,
-    ];
-    if (["blocked", "skipped"].includes(task!.status!) && !task?.reason?.trim())
-      throw new Error("Blocked or skipped tasks require a reason");
-    if (task?.reason) args.push("--reason", task.reason);
-    return args;
-  }
-  throw new Error("Unknown dashboard action or invalid task");
+  throw new Error("Unknown dashboard action");
 }
 
 export type WebRunner = (

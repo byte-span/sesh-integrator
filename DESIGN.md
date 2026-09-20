@@ -79,8 +79,8 @@ panel radius. Rows remain rectangular and share horizontal dividers.
   status, title, current task, checklist progress, and update time.
 - Detail orders status and title before next action, lifecycle controls,
   follow-ups, checklist, saved milestones, and expandable recovery records.
-- Native labelled inputs and selects support search, filtering, sorting, and
-  task editing. Lifecycle actions open an explicit confirmation dialog; blocked
+- Native labelled inputs and selects support search, filtering, and sorting.
+  Checklist items and statuses are read-only in the web interface. Lifecycle actions open an explicit confirmation dialog; blocked
   actions remain disabled with visible reasons.
 - Keep the skip link, semantic buttons, selected-state attributes, status/error
   announcements, and 2px accent focus outline with 3px offset. `/` focuses search
