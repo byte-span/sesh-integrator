@@ -1,3 +1,4 @@
+import { requireCapabilities } from "./capabilities.js";
 import { withCleanup } from "./file-lock.js";
 import {
   retainCoordinator,
@@ -98,6 +99,7 @@ import {
 import { recordIncident, writeIncidentSummary } from "./incident.js";
 
 export async function initCommand(): Promise<void> {
+  await requireCapabilities();
   const paths = await ensureRuntime();
   process.stdout.write(
     `Initialized sesh-integrator runtime at ${paths.root}\n`,
@@ -110,6 +112,14 @@ export async function registerCommand(
   autoConfig = false,
   setupCommands: Command[] = [],
 ): Promise<RepositoryConfig> {
+  const registrationCwd = pathArgument ?? process.cwd();
+  if (
+    !isRepositoryDisabled(
+      await readConfig(true),
+      await repositoryCommonDir(registrationCwd),
+    )
+  )
+    await requireCapabilities(registrationCwd, true);
   return withConfigLock(() =>
     registerRepository(pathArgument, autoConfig, setupCommands),
   );
@@ -287,6 +297,7 @@ export async function beginCommand(
   createWorktree = false,
   harness: Harness = "codex",
 ): Promise<Session> {
+  await requireCapabilities();
   return withConfigLock(() =>
     beginUnlocked(summary, dependsOn, autoBranch, createWorktree, harness),
   );
@@ -485,7 +496,7 @@ export async function resolveSourceSession(
   repository: RepositoryConfig;
   session: Session;
 }> {
-  const config = await readConfig();
+  const config = await readConfig(true);
   if (requireEnabled)
     assertRepositoryEnabled(config, await repositoryCommonDir(process.cwd()));
   const current = await inspectGit(process.cwd());
@@ -542,6 +553,7 @@ export async function commitCommand(
     ["active"],
     sessionId,
   );
+  await requireCapabilities(source.worktreePath);
   bindPerformanceSession(session.id);
   if (source.branch !== session.branch) {
     throw new Error(
@@ -623,11 +635,12 @@ export async function integrateCommand(
   if (rolloutDisposition !== "manual" && rolloutFollowUps.length > 0) {
     throw new Error("--follow-up is valid only with --rollout manual");
   }
-  const config = await readConfig();
+  const config = await readConfig(true);
   const { source, repository, session } = await resolveSourceSession(
     ["active", "ready"],
     sessionId,
   );
+  await requireCapabilities(source.worktreePath);
   bindPerformanceSession(session.id);
   if (!source.branch || source.branch !== session.branch) {
     throw new Error(
@@ -818,6 +831,7 @@ export async function finishCommand(
     writeCompletionSummary(session);
     return session;
   }
+  await requireCapabilities(session.worktreePath);
   const lock = await acquireRepoLock(
     session.repositoryId,
     session.id,
@@ -904,6 +918,7 @@ export async function validateCommand(sessionId?: string): Promise<Session> {
     ["active"],
     sessionId,
   );
+  await requireCapabilities(source.worktreePath);
   bindPerformanceSession(session.id);
   if (source.branch !== session.branch) {
     throw new Error(
@@ -983,6 +998,7 @@ export async function validateCommand(sessionId?: string): Promise<Session> {
 }
 
 export async function resumeCommand(sessionId?: string): Promise<Session> {
+  await requireCapabilities();
   const config = await readConfig();
   assertRepositoryEnabled(config, await repositoryCommonDir(process.cwd()));
   const current = await inspectGit(process.cwd());

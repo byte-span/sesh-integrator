@@ -220,3 +220,12 @@ Licensed under [MIT](LICENSE).
 
 <sub>`sesh-integrator`, `pintx`, `parallel-integrator`, and `codex-handoff` remain
 supported CLI aliases. Existing runtime directories and recovery records are preserved.</sub>
+
+## Execution capability checks
+
+Use `seshx capabilities --recheck` in the agent or shell that will run the task.
+`setup`, `doctor`, and lifecycle commands check disposable filesystem and Git
+operations. Persist restricted operation with `seshx capabilities --mode manual`;
+restore it explicitly with `--mode automatic` and recheck. Repository disablement
+remains independent. See [execution readiness and recovery](docs/execution-capabilities.md)
+for evidence limits, context changes, cleanup artifacts, and existing sessions.

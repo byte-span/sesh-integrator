@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { capabilitiesCommand, reportExecutionFailure } from "./capabilities.js";
 import { preflightRuntimeCompatibility } from "./coordinator.js";
 import { setupCommand } from "./setup.js";
 import { parseHarness, type Harness } from "./harness.js";
@@ -74,6 +75,11 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
       );
     }
     switch (command) {
+      case "capabilities": {
+        const report = await capabilitiesCommand(args);
+        if (report?.failures.length) process.exitCode = 1;
+        break;
+      }
       case "installation-check":
         rejectArguments(args);
         await preflightRuntimeCompatibility();
@@ -226,7 +232,16 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     }
     if (instrument) await finishPerformance("succeeded");
   } catch (error) {
-    if (instrument) await finishPerformance("failed", error);
+    try {
+      if (instrument) await finishPerformance("failed", error);
+    } catch (cleanup) {
+      error = new AggregateError(
+        [error, cleanup],
+        `${error instanceof Error ? error.message : String(error)}\nPerformance cleanup also failed: ${String(cleanup)}`,
+        { cause: error },
+      );
+    }
+    await reportExecutionFailure(error, command ?? "unknown");
     throw error;
   }
 }
@@ -446,6 +461,7 @@ Usage:
   seshx setup [--detected | --harness <name>...] [--yes]
   seshx uninstall [--harness <name>...] [--yes]
   seshx installation-check
+  seshx capabilities [--recheck | --mode manual|automatic]
   seshx init
   seshx disable [repo-path]
   seshx enable [repo-path]

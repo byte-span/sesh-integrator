@@ -37,6 +37,21 @@ or compatibility `CODEX_HANDOFF_HOME` is set, use that directory instead.
 Otherwise reuse `~/.codex-handoff/` first, then `~/.parallel-integrator/` if present;
 fresh installations use `~/.sesh-integrator/`. Do not move existing session or worktree data.
 
+## Execution capability stops
+
+Honor persisted manual-handoff mode and capability failures. Do not repeatedly
+retry lifecycle commands or run `capabilities --recheck` automatically to clear
+a stop. Inspect the reported operation, location, preserved state and recovery
+choices. `capabilities --mode manual` stops automatic lifecycle work in that
+repository/execution context; it does not complete an existing session.
+Restore `--mode automatic` only when the user chooses it. After an approved
+scoped environment repair or a move to an authorized execution context, run
+`seshx capabilities --recheck` before continuing the same session with its
+pinned coordinator. Older coordinators may require the compatible new CLI for
+the check, while retaining the recorded CLI for lifecycle recovery. Never
+relax secret protections, delete unknown locks, or replace pinned releases to
+bypass a failure. Integrator configuration cannot grant host permissions.
+
 ## Adoption and installation continuity
 
 Repository-scoped registration/begin reports existing dirty work and managed

@@ -92,6 +92,7 @@ export class LockCleanupError extends Error {
 export async function withCleanup<T>(
   action: () => Promise<T>,
   cleanup: () => Promise<void>,
+  label = "Lock cleanup",
 ): Promise<T> {
   let value: T;
   try {
@@ -102,7 +103,7 @@ export async function withCleanup<T>(
     } catch (cleanupError) {
       throw new AggregateError(
         [error, cleanupError],
-        `${message(error)}\nLock cleanup also failed: ${message(cleanupError)}`,
+        `${message(error)}\n${label} also failed: ${message(cleanupError)}`,
         { cause: error },
       );
     }
@@ -111,7 +112,8 @@ export async function withCleanup<T>(
   try {
     await cleanup();
   } catch (error) {
-    throw new LockCleanupError(error);
+    if (label === "Lock cleanup") throw new LockCleanupError(error);
+    throw new Error(`${label} failed: ${message(error)}`, { cause: error });
   }
   return value;
 }
