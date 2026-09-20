@@ -52,13 +52,17 @@ tabular numerals. Long titles and paths wrap rather than widen the workspace.
 
 ## Layout
 
-Desktop uses a 70px header, 210px repository sidebar, and main content with 32px
+Desktop uses a 70px header, a resizable repository sidebar (210px by default),
+and main content with 32px
 padding and a maximum width of 1800px. Search and filters precede a bordered
 list/detail split with independently scrolling panes. Session rows use 18px
 padding; details use 24px. At 1600px and above, increase main and row spacing.
 
-At 1100px and below, narrow the sidebar to 170px and place search above filters.
-At 800px and below, repository navigation becomes a horizontal strip and the
+The sidebar divider supports pointer dragging, arrow keys (10px; Shift: 40px),
+Home/End, and double-click reset. Its width is 170–440px, further clamped to
+leave 600px for the main content, and remembered in browser storage per origin.
+At 1100px and below, default the sidebar to 170px and place search above filters.
+At 800px and below, hide the resize divider; repository navigation becomes a horizontal strip and the
 session detail replaces the list, with “Back to sessions” restoring selection
 and focus. Mobile uses 16px horizontal main padding and a 26px page title.
 
