@@ -275,7 +275,7 @@ export async function installLocal(sessionId, cwd = project) {
     .map((part) => part.slice(9));
   for (const worktree of worktrees)
     for (const destination of [bin, releases]) {
-      const rel = relative(await realpath(worktree), destination);
+      const rel = relative(await physicalDestination(worktree), destination);
       if (
         !rel ||
         (!rel.startsWith(`..${sep}`) && rel !== ".." && !isAbsolute(rel))

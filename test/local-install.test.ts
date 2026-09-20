@@ -181,6 +181,20 @@ it("installs the exact promoted tree, excludes ignored build contamination, refr
     expect(await realpath(join(f.bin, name))).toBe(first.cliPath);
 });
 
+it("preserves missing registered worktrees while still excluding their paths as installation destinations", async () => {
+  const f = await fixture();
+  await f.promote();
+  const missing = join(f.root, "missing-worktree");
+  f.git("worktree", "add", "--detach", missing, "HEAD");
+  await rm(missing, { recursive: true });
+  const before = f.git("worktree", "list", "--porcelain");
+  f.env.SESH_INTEGRATOR_RELEASE_DIR = join(missing, "releases");
+  expect(f.install(1)).toContain("outside all repository worktrees");
+  f.env.SESH_INTEGRATOR_RELEASE_DIR = f.releases;
+  expect(f.install()).toContain("Local installation: verified");
+  expect(f.git("worktree", "list", "--porcelain")).toBe(before);
+});
+
 it("rejects unpromoted sessions, dirty source, and newer target commits before publication", async () => {
   const f = await fixture();
   expect(f.install(1)).toContain("requires validated local promotion");
