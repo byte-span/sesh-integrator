@@ -92,6 +92,9 @@ seshx setup
 
 [Unattended setup, upgrades, and uninstall →](docs/installation.md)
 
+Versioned packages are available from [GitHub Releases](https://github.com/byte-span/sesh-integrator/releases)
+once published. Maintainers can [publish a release with one workflow run](docs/releases.md).
+
 ### Connect a repository
 
 From the project you want agents to work on:

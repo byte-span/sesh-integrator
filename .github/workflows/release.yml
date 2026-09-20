@@ -1,0 +1,106 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version increment (from the highest stable release or package version)
+        required: true
+        default: patch
+        type: choice
+        options: [patch, minor, major]
+
+permissions:
+  contents: read
+
+# Never interrupt publication or let two runs allocate the same version.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the exact selected main revision
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prepare release version
+        id: version
+        env:
+          RELEASE_BUMP: ${{ inputs.bump }}
+        run: node scripts/release.mjs
+
+      - name: Install pnpm from package.json
+        uses: pnpm/action-setup@a8198c4bff370c8506180b035930dea56dbd5288 # v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check formatting and types
+        run: |
+          pnpm format:check
+          pnpm exec prettier --check .github/workflows/release.yml scripts/release.mjs
+          pnpm typecheck
+
+      - name: Build and test (including package installation smoke test)
+        run: pnpm test
+
+      - name: Check performance budgets
+        run: pnpm benchmark:check
+
+      - name: Package the validated build
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          test -z "$(git status --porcelain)"
+          mkdir -p "$RUNNER_TEMP/release"
+          npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP/release"
+          cd "$RUNNER_TEMP/release"
+          sha256sum "sesh-integrator-$VERSION.tgz" > SHA256SUMS
+
+      # The token is exposed only to publication, after all checks pass.
+      # Keep publication in this run: GITHUB_TOKEN-created tags don't trigger workflows.
+      - name: Publish tag and GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ steps.version.outputs.tag }}
+          COMMIT: ${{ steps.version.outputs.commit }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          gh auth setup-git
+          remote_commit=$(git ls-remote --refs origin "refs/tags/$TAG" | cut -f1)
+          if [ -n "$remote_commit" ] && [ "$remote_commit" != "$COMMIT" ]; then
+            echo "Tag already exists at a different commit; refusing to replace it."
+            exit 1
+          fi
+          git push origin "$COMMIT:refs/tags/$TAG"
+          if gh release view "$TAG" --json isDraft > "$RUNNER_TEMP/release-state.json"; then
+            if [ "$(jq -r .isDraft "$RUNNER_TEMP/release-state.json")" = false ]; then
+              echo "Release is already published; leaving it unchanged."
+              gh release view "$TAG" --json url --jq .url >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+          else
+            gh release create "$TAG" --verify-tag --draft --title "$TAG" --generate-notes
+          fi
+          gh release upload "$TAG" "$RUNNER_TEMP/release/sesh-integrator-$VERSION.tgz" \
+            "$RUNNER_TEMP/release/SHA256SUMS" --clobber
+          gh release edit "$TAG" --draft=false --latest
+          gh release view "$TAG" --json url --jq .url >> "$GITHUB_STEP_SUMMARY"
