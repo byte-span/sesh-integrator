@@ -151,6 +151,11 @@ Finished, or All sessions. Select a session for its checklist, saved milestones,
 source/validation/promotion details, and follow-ups. On smaller screens, use
 Back to sessions to return from details. `/` focuses search. The theme follows
 your system initially; Light theme / Dark theme saves your browser preference.
+Drag the repository panel’s right edge to resize it. The divider also supports
+Left/Right arrows (Shift for larger steps), Home/End for its limits, and a
+double-click to reset. Width is remembered in the browser for this address;
+`--port` keeps that address consistent between launches. On small screens the
+repository list remains a horizontal strip.
 Updates preserve selection and detail scroll position. Disconnection and refresh
 errors are shown with retry guidance. Status reflects saved records, not agent
 process liveness.

@@ -20,12 +20,24 @@ export const webHtml = String.raw`<!doctype html>
     </header>
     <div id="error" role="alert" hidden></div>
     <div class="workspace">
-      <aside class="repositories">
+      <aside id="repository-panel" class="repositories">
         <h2>Repositories</h2>
         <nav id="repositories" aria-label="Repositories"></nav>
         <p class="aside-note">
           Saved session progress.<br />Updates while you work.
         </p>
+        <div
+          id="repository-resizer"
+          role="separator"
+          tabindex="0"
+          aria-label="Repository panel width"
+          aria-controls="repository-panel"
+          aria-orientation="vertical"
+          aria-valuemin="170"
+          aria-valuemax="440"
+          aria-valuenow="210"
+          title="Drag to resize. Arrow keys adjust width; double-click to reset."
+        ></div>
       </aside>
       <main id="sessions" tabindex="-1">
         <div class="page-heading">
@@ -296,13 +308,43 @@ header {
 }
 .workspace {
   display: grid;
-  grid-template-columns: 210px minmax(0, 1fr);
+  grid-template-columns: var(--repository-width, 210px) minmax(0, 1fr);
   min-height: calc(100vh - 70px);
 }
 .repositories {
+  position: relative;
+  min-width: 0;
   padding: 32px 16px;
   background: var(--surface);
   border-right: 1px solid var(--line);
+}
+#repository-resizer {
+  position: absolute;
+  inset: 0 -6px 0 auto;
+  width: 12px;
+  z-index: 2;
+  cursor: col-resize;
+  touch-action: none;
+}
+#repository-resizer::after {
+  content: "";
+  position: absolute;
+  top: 140px;
+  left: 5px;
+  width: 2px;
+  height: 32px;
+  border-radius: 2px;
+  background: var(--line);
+}
+#repository-resizer:hover::after,
+#repository-resizer:focus-visible::after,
+.resizing-repository #repository-resizer::after {
+  background: var(--accent);
+}
+.resizing-repository,
+.resizing-repository * {
+  cursor: col-resize !important;
+  user-select: none;
 }
 .repositories h2 {
   padding-left: 12px;
@@ -743,7 +785,7 @@ dialog p {
 }
 @media (max-width: 1100px) {
   .workspace {
-    grid-template-columns: 170px minmax(0, 1fr);
+    grid-template-columns: var(--repository-width, 170px) minmax(0, 1fr);
   }
   main {
     padding: 24px 20px;
@@ -769,6 +811,9 @@ dialog p {
   }
 }
 @media (max-width: 800px) {
+  #repository-resizer {
+    display: none;
+  }
   header {
     padding: 0 16px;
     gap: 12px;
@@ -927,6 +972,123 @@ $("theme").onclick = () => {
     localStorage.setItem("sesh-theme", theme);
   } catch {}
 };
+const repositoryResizer = $("repository-resizer");
+const repositoryWidthKey = "sesh-repository-width";
+let preferredRepositoryWidth;
+let repositoryDrag;
+try {
+  const saved = Number(localStorage.getItem(repositoryWidthKey));
+  if (Number.isFinite(saved) && saved >= 170 && saved <= 440)
+    preferredRepositoryWidth = saved;
+} catch {}
+function repositoryWidthLimit() {
+  // Leave enough room for both session panes at intermediate window sizes.
+  return Math.max(170, Math.min(440, window.innerWidth - 600));
+}
+function applyRepositoryWidth() {
+  const fallback = window.innerWidth <= 1100 ? 170 : 210;
+  const width = Math.round(
+    Math.max(
+      170,
+      Math.min(repositoryWidthLimit(), preferredRepositoryWidth ?? fallback),
+    ),
+  );
+  document.documentElement.style.setProperty(
+    "--repository-width",
+    width + "px",
+  );
+  repositoryResizer.setAttribute("aria-valuenow", String(width));
+  repositoryResizer.setAttribute(
+    "aria-valuemax",
+    String(repositoryWidthLimit()),
+  );
+  repositoryResizer.setAttribute("aria-valuetext", width + " pixels");
+  return width;
+}
+function saveRepositoryWidth() {
+  try {
+    if (preferredRepositoryWidth === undefined)
+      localStorage.removeItem(repositoryWidthKey);
+    else
+      localStorage.setItem(
+        repositoryWidthKey,
+        String(preferredRepositoryWidth),
+      );
+  } catch {}
+}
+function finishRepositoryDrag(cancel = false) {
+  if (!repositoryDrag) return;
+  const drag = repositoryDrag;
+  repositoryDrag = undefined;
+  if (cancel) preferredRepositoryWidth = drag.previous;
+  document.documentElement.classList.remove("resizing-repository");
+  if (repositoryResizer.hasPointerCapture(drag.id))
+    repositoryResizer.releasePointerCapture(drag.id);
+  applyRepositoryWidth();
+  saveRepositoryWidth();
+}
+repositoryResizer.addEventListener("pointerdown", (event) => {
+  if (event.button !== 0 || window.innerWidth <= 800 || repositoryDrag) return;
+  event.preventDefault();
+  repositoryResizer.focus();
+  repositoryDrag = {
+    id: event.pointerId,
+    x: event.clientX,
+    width: applyRepositoryWidth(),
+    previous: preferredRepositoryWidth,
+  };
+  repositoryResizer.setPointerCapture(event.pointerId);
+  document.documentElement.classList.add("resizing-repository");
+});
+repositoryResizer.addEventListener("pointermove", (event) => {
+  if (event.pointerId !== repositoryDrag?.id) return;
+  preferredRepositoryWidth = Math.max(
+    170,
+    Math.min(
+      repositoryWidthLimit(),
+      repositoryDrag.width + event.clientX - repositoryDrag.x,
+    ),
+  );
+  applyRepositoryWidth();
+});
+repositoryResizer.addEventListener("pointerup", (event) => {
+  if (event.pointerId === repositoryDrag?.id) finishRepositoryDrag();
+});
+repositoryResizer.addEventListener("pointercancel", () =>
+  finishRepositoryDrag(true),
+);
+repositoryResizer.addEventListener("lostpointercapture", () =>
+  finishRepositoryDrag(true),
+);
+repositoryResizer.addEventListener("dblclick", () => {
+  finishRepositoryDrag(true);
+  preferredRepositoryWidth = undefined;
+  applyRepositoryWidth();
+  saveRepositoryWidth();
+});
+repositoryResizer.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    finishRepositoryDrag(true);
+    return;
+  }
+  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+  event.preventDefault();
+  finishRepositoryDrag();
+  const step = event.shiftKey ? 40 : 10;
+  preferredRepositoryWidth =
+    event.key === "Home"
+      ? 170
+      : event.key === "End"
+        ? repositoryWidthLimit()
+        : applyRepositoryWidth() + (event.key === "ArrowLeft" ? -step : step);
+  preferredRepositoryWidth = applyRepositoryWidth();
+  saveRepositoryWidth();
+});
+window.addEventListener("resize", () => {
+  finishRepositoryDrag(true);
+  applyRepositoryWidth();
+});
+applyRepositoryWidth();
 function visible() {
   const q = $("search").value.toLocaleLowerCase(),
     filter = $("filter").value;
