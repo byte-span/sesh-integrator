@@ -11,12 +11,38 @@ checks, and promotes the result to your target branch.
 
 Works with:
 
-<p>
-  <img src="docs/assets/harnesses/codex-color.svg" width="24" height="24" alt="" /> <strong>Codex</strong> &nbsp;·&nbsp;
-  <img src="docs/assets/harnesses/claude-color.svg" width="24" height="24" alt="" /> <strong>Claude Code</strong> &nbsp;·&nbsp;
-  <img src="docs/assets/harnesses/antigravity-color.svg" width="24" height="24" alt="" /> <strong>Antigravity</strong> &nbsp;·&nbsp;
-  <img src="docs/assets/harnesses/grok.svg" width="24" height="24" alt="" /> <strong>Grok</strong>
-</p>
+<table>
+  <tr>
+    <td align="center" width="180">
+      <br />
+      <img src="docs/assets/harnesses/codex-color.svg" width="40" height="40" alt="" />
+      <br /><br />
+      <strong>Codex</strong>
+      <br /><br />
+    </td>
+    <td align="center" width="180">
+      <br />
+      <img src="docs/assets/harnesses/claude-color.svg" width="40" height="40" alt="" />
+      <br /><br />
+      <strong>Claude Code</strong>
+      <br /><br />
+    </td>
+    <td align="center" width="180">
+      <br />
+      <img src="docs/assets/harnesses/antigravity-color.svg" width="40" height="40" alt="" />
+      <br /><br />
+      <strong>Antigravity</strong>
+      <br /><br />
+    </td>
+    <td align="center" width="180">
+      <br />
+      <img src="docs/assets/harnesses/grok.svg" width="40" height="40" alt="" />
+      <br /><br />
+      <strong>Grok</strong>
+      <br /><br />
+    </td>
+  </tr>
+</table>
 
 ## Why use it?
 
@@ -194,3 +220,12 @@ Licensed under [MIT](LICENSE).
 
 <sub>`sesh-integrator`, `pintx`, `parallel-integrator`, and `codex-handoff` remain
 supported CLI aliases. Existing runtime directories and recovery records are preserved.</sub>
+
+## Execution capability checks
+
+Use `seshx capabilities --recheck` in the agent or shell that will run the task.
+`setup`, `doctor`, and lifecycle commands check disposable filesystem and Git
+operations. Persist restricted operation with `seshx capabilities --mode manual`;
+restore it explicitly with `--mode automatic` and recheck. Repository disablement
+remains independent. See [execution readiness and recovery](docs/execution-capabilities.md)
+for evidence limits, context changes, cleanup artifacts, and existing sessions.

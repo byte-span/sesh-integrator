@@ -1,3 +1,5 @@
+import { requireCapabilities } from "./capabilities.js";
+import { withCleanup } from "./file-lock.js";
 import {
   retainCoordinator,
   enrollmentStopped,
@@ -97,6 +99,7 @@ import {
 import { recordIncident, writeIncidentSummary } from "./incident.js";
 
 export async function initCommand(): Promise<void> {
+  await requireCapabilities();
   const paths = await ensureRuntime();
   process.stdout.write(
     `Initialized sesh-integrator runtime at ${paths.root}\n`,
@@ -109,6 +112,14 @@ export async function registerCommand(
   autoConfig = false,
   setupCommands: Command[] = [],
 ): Promise<RepositoryConfig> {
+  const registrationCwd = pathArgument ?? process.cwd();
+  if (
+    !isRepositoryDisabled(
+      await readConfig(true),
+      await repositoryCommonDir(registrationCwd),
+    )
+  )
+    await requireCapabilities(registrationCwd, true);
   return withConfigLock(() =>
     registerRepository(pathArgument, autoConfig, setupCommands),
   );
@@ -286,6 +297,7 @@ export async function beginCommand(
   createWorktree = false,
   harness: Harness = "codex",
 ): Promise<Session> {
+  await requireCapabilities();
   return withConfigLock(() =>
     beginUnlocked(summary, dependsOn, autoBranch, createWorktree, harness),
   );
@@ -484,7 +496,7 @@ export async function resolveSourceSession(
   repository: RepositoryConfig;
   session: Session;
 }> {
-  const config = await readConfig();
+  const config = await readConfig(true);
   if (requireEnabled)
     assertRepositoryEnabled(config, await repositoryCommonDir(process.cwd()));
   const current = await inspectGit(process.cwd());
@@ -541,6 +553,7 @@ export async function commitCommand(
     ["active"],
     sessionId,
   );
+  await requireCapabilities(source.worktreePath);
   bindPerformanceSession(session.id);
   if (source.branch !== session.branch) {
     throw new Error(
@@ -622,11 +635,12 @@ export async function integrateCommand(
   if (rolloutDisposition !== "manual" && rolloutFollowUps.length > 0) {
     throw new Error("--follow-up is valid only with --rollout manual");
   }
-  const config = await readConfig();
+  const config = await readConfig(true);
   const { source, repository, session } = await resolveSourceSession(
     ["active", "ready"],
     sessionId,
   );
+  await requireCapabilities(source.worktreePath);
   bindPerformanceSession(session.id);
   if (!source.branch || source.branch !== session.branch) {
     throw new Error(
@@ -778,13 +792,26 @@ export async function integrateCommand(
       session.status = "needs_review";
     }
     await writeSession(session);
+    let failure = error;
     if (lock) {
-      await releaseRepoLock(lock);
+      const owned = lock;
       lock = undefined;
+      try {
+        await withCleanup(
+          async () => {
+            throw error;
+          },
+          () => releaseRepoLock(owned),
+        );
+      } catch (combined) {
+        failure = combined;
+      }
     }
-    await safelyRecordIncident(session, error);
+    session.latestError = errorMessage(failure);
+    await writeSession(session);
+    await safelyRecordIncident(session, failure);
     writeCompletionSummary(session);
-    throw error;
+    throw failure;
   } finally {
     if (lock) await releaseRepoLock(lock);
   }
@@ -804,6 +831,7 @@ export async function finishCommand(
     writeCompletionSummary(session);
     return session;
   }
+  await requireCapabilities(session.worktreePath);
   const lock = await acquireRepoLock(
     session.repositoryId,
     session.id,
@@ -812,76 +840,77 @@ export async function finishCommand(
     true,
     "finish a session",
   );
-  try {
-    assertRepositoryEnabled(await readConfig(), repository.gitCommonDir);
-    const finished = await finishNoChangesSession(
-      session.id,
-      async (latest) => {
-        const source = await inspectGit(latest.worktreePath);
-        if (
-          source.branch !== latest.branch ||
-          source.head !== latest.startCommit
-        )
-          throw new Error(
-            "Source branch or commit changed since begin; cannot finish without changes.",
-          );
-        if (await hasMergeInProgress(source.worktreePath))
-          throw new Error(
-            "Source has an unfinished merge; cannot finish without changes.",
-          );
-        await assertSourceHandoffState(
-          latest,
-          source.worktreePath,
-          [],
-          "no-change completion",
-        );
-        if (satisfiedBy) {
-          const previous = await readSession(satisfiedBy);
+  return withCleanup(
+    async () => {
+      assertRepositoryEnabled(await readConfig(), repository.gitCommonDir);
+      const finished = await finishNoChangesSession(
+        session.id,
+        async (latest) => {
+          const source = await inspectGit(latest.worktreePath);
           if (
-            !previous ||
-            previous.id === latest.id ||
-            previous.repositoryId !== latest.repositoryId ||
-            previous.status !== "succeeded" ||
-            !previous.readyCommit ||
-            !previous.promotedCommit
+            source.branch !== latest.branch ||
+            source.head !== latest.startCommit
           )
             throw new Error(
-              "--satisfied-by must name a successfully promoted session in this repository.",
+              "Source branch or commit changed since begin; cannot finish without changes.",
             );
-          try {
-            await git(
-              [
-                "merge-base",
-                "--is-ancestor",
-                previous.readyCommit,
-                source.head,
-              ],
-              source.worktreePath,
-            );
-          } catch {
+          if (await hasMergeInProgress(source.worktreePath))
             throw new Error(
-              "The referenced session's source commit is not present in this checkout.",
+              "Source has an unfinished merge; cannot finish without changes.",
             );
-          }
-          latest.satisfiedBySessionId = previous.id;
-          // Preserve outstanding rollout/review obligations without claiming this
-          // no-change session created or promoted any commit itself.
-          if (previous.pullRequestUrl)
-            latest.pullRequestUrl = previous.pullRequestUrl;
-          if (previous.rolloutDisposition)
-            latest.rolloutDisposition = previous.rolloutDisposition;
-          if (previous.rolloutFollowUps)
-            latest.rolloutFollowUps = [...previous.rolloutFollowUps];
-        } else latest.rolloutDisposition = "none";
-        latest.completionSummary = summary.trim();
-        delete latest.latestError;
-      },
-    );
-    writeCompletionSummary(finished);
-    return finished;
-  } finally {
-    await releaseRepoLock(lock);
-  }
+          await assertSourceHandoffState(
+            latest,
+            source.worktreePath,
+            [],
+            "no-change completion",
+          );
+          if (satisfiedBy) {
+            const previous = await readSession(satisfiedBy);
+            if (
+              !previous ||
+              previous.id === latest.id ||
+              previous.repositoryId !== latest.repositoryId ||
+              previous.status !== "succeeded" ||
+              !previous.readyCommit ||
+              !previous.promotedCommit
+            )
+              throw new Error(
+                "--satisfied-by must name a successfully promoted session in this repository.",
+              );
+            try {
+              await git(
+                [
+                  "merge-base",
+                  "--is-ancestor",
+                  previous.readyCommit,
+                  source.head,
+                ],
+                source.worktreePath,
+              );
+            } catch {
+              throw new Error(
+                "The referenced session's source commit is not present in this checkout.",
+              );
+            }
+            latest.satisfiedBySessionId = previous.id;
+            // Preserve outstanding rollout/review obligations without claiming this
+            // no-change session created or promoted any commit itself.
+            if (previous.pullRequestUrl)
+              latest.pullRequestUrl = previous.pullRequestUrl;
+            if (previous.rolloutDisposition)
+              latest.rolloutDisposition = previous.rolloutDisposition;
+            if (previous.rolloutFollowUps)
+              latest.rolloutFollowUps = [...previous.rolloutFollowUps];
+          } else latest.rolloutDisposition = "none";
+          latest.completionSummary = summary.trim();
+          delete latest.latestError;
+        },
+      );
+      writeCompletionSummary(finished);
+      return finished;
+    },
+    () => releaseRepoLock(lock),
+  );
 }
 
 export async function validateCommand(sessionId?: string): Promise<Session> {
@@ -889,6 +918,7 @@ export async function validateCommand(sessionId?: string): Promise<Session> {
     ["active"],
     sessionId,
   );
+  await requireCapabilities(source.worktreePath);
   bindPerformanceSession(session.id);
   if (source.branch !== session.branch) {
     throw new Error(
@@ -968,6 +998,7 @@ export async function validateCommand(sessionId?: string): Promise<Session> {
 }
 
 export async function resumeCommand(sessionId?: string): Promise<Session> {
+  await requireCapabilities();
   const config = await readConfig();
   assertRepositoryEnabled(config, await repositoryCommonDir(process.cwd()));
   const current = await inspectGit(process.cwd());
@@ -1207,13 +1238,26 @@ export async function resumeCommand(sessionId?: string): Promise<Session> {
     }
     session.latestError = errorMessage(error);
     await writeSession(session);
+    let failure = error;
     if (lock) {
-      await releaseRepoLock(lock);
+      const owned = lock;
       lock = undefined;
+      try {
+        await withCleanup(
+          async () => {
+            throw error;
+          },
+          () => releaseRepoLock(owned),
+        );
+      } catch (combined) {
+        failure = combined;
+      }
     }
-    await safelyRecordIncident(session, error);
+    session.latestError = errorMessage(failure);
+    await writeSession(session);
+    await safelyRecordIncident(session, failure);
     writeCompletionSummary(session);
-    throw error;
+    throw failure;
   } finally {
     if (lock) await releaseRepoLock(lock);
   }

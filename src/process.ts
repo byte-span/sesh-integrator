@@ -1,3 +1,4 @@
+import { withCleanup, LockCleanupError } from "./file-lock.js";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { recordSubprocess } from "./performance.js";
@@ -180,25 +181,36 @@ async function runValidationCommand(
         options.sessionId ?? `process-${process.pid}`,
         options.resourceWaitSeconds ?? 900,
       );
-      const result = await run(command[0], command.slice(1), {
-        cwd,
-        echo: true,
-      });
-      if (result.code === 0) return;
-      const message = `Validation failed (${result.code}): ${command.join(" ")}`;
-      if (classification !== "transient" || attempt === maxAttempts) {
-        throw failure(message, attempt);
-      }
+      const owned = handle;
+      const succeeded = await withCleanup(
+        async () => {
+          const result = await run(command[0], command.slice(1), {
+            cwd,
+            echo: true,
+          });
+          if (result.code === 0) return true;
+          const message = `Validation failed (${result.code}): ${command.join(" ")}`;
+          if (classification !== "transient" || attempt === maxAttempts) {
+            throw failure(message, attempt);
+          }
+          throw new Error(message);
+        },
+        () => releaseValidationResources(owned),
+      );
+      if (succeeded) return;
     } catch (error) {
-      if (error instanceof ValidationFailure) throw error;
+      if (
+        error instanceof ValidationFailure ||
+        error instanceof AggregateError ||
+        error instanceof LockCleanupError
+      )
+        throw error;
       if (classification !== "transient" || attempt === maxAttempts) {
         throw failure(
           error instanceof Error ? error.message : String(error),
           attempt,
         );
       }
-    } finally {
-      if (handle) await releaseValidationResources(handle);
     }
     const backoff = Math.min(
       maxBackoffMs,

@@ -1,13 +1,15 @@
-import { mkdir, readFile, rm } from "node:fs/promises";
+import { tryFileLock, releaseFileLock, type FileLock } from "./file-lock.js";
+import { lstat, readFile } from "node:fs/promises";
 import { hostname } from "node:os";
 import { join } from "node:path";
 import { hasMergeInProgress, inspectGit, isClean } from "./git.js";
-import { isNodeError, runtimePaths, writeJsonAtomic } from "./runtime.js";
+import { isNodeError, runtimePaths } from "./runtime.js";
 import type { LockMetadata } from "./types.js";
 
 export interface LockHandle {
   path: string;
   metadata: LockMetadata;
+  file: FileLock;
 }
 
 export async function acquireRepoLock(
@@ -23,21 +25,16 @@ export async function acquireRepoLock(
   let announcedOwner = "";
 
   for (;;) {
-    try {
-      await mkdir(lockPath);
-      const acquiredAt = new Date().toISOString();
-      const metadata: LockMetadata = {
-        pid: process.pid,
-        hostname: hostname(),
-        sessionId,
-        acquiredAt,
-        startedAt: acquiredAt,
-      };
-      await writeJsonAtomic(join(lockPath, "owner.json"), metadata);
-      return { path: lockPath, metadata };
-    } catch (error) {
-      if (!isNodeError(error) || error.code !== "EEXIST") throw error;
-    }
+    const acquiredAt = new Date().toISOString();
+    const metadata: LockMetadata = {
+      pid: process.pid,
+      hostname: hostname(),
+      sessionId,
+      acquiredAt,
+      startedAt: acquiredAt,
+    };
+    const file = await tryFileLock(lockPath, { ...metadata });
+    if (file) return { path: lockPath, metadata, file };
 
     if (rejectExisting) {
       throw new Error(
@@ -63,11 +60,9 @@ export async function acquireRepoLock(
             `Inspect ${integrationWorktree} and ${lockPath} manually.`,
         );
       }
-      process.stdout.write(
-        `Removing verified stale lock for dead pid ${owner.pid}; integration worktree is clean.\n`,
+      throw new Error(
+        `Stale lock for ${owner.sessionId} has a dead PID and a clean integration worktree, but was not removed automatically: ${lockPath}. Inspect the lock and preserved session before removing it manually; concurrent stale-lock reclamation is unsafe.`,
       );
-      await rm(lockPath, { recursive: true });
-      continue;
     }
 
     if (Date.now() >= deadline) {
@@ -90,16 +85,31 @@ export async function releaseRepoLock(handle: LockHandle): Promise<void> {
       `Refusing to release lock no longer owned by this process: ${handle.path}`,
     );
   }
-  await rm(handle.path, { recursive: true });
+  await releaseFileLock(handle.file);
 }
 
 export async function readLockMetadata(
   lockPath: string,
 ): Promise<LockMetadata | null> {
   try {
-    return JSON.parse(
-      await readFile(join(lockPath, "owner.json"), "utf8"),
-    ) as LockMetadata;
+    const entry = await lstat(lockPath);
+    if (!entry.isFile() && !entry.isDirectory()) return null;
+    const owner: unknown = JSON.parse(
+      await readFile(
+        entry.isDirectory() ? join(lockPath, "owner.json") : lockPath,
+        "utf8",
+      ),
+    );
+    if (!owner || typeof owner !== "object") return null;
+    const record = owner as Partial<LockMetadata>;
+    return Number.isSafeInteger(record.pid) &&
+      (record.pid ?? 0) > 0 &&
+      typeof record.hostname === "string" &&
+      typeof record.sessionId === "string" &&
+      typeof record.acquiredAt === "string" &&
+      typeof record.startedAt === "string"
+      ? (record as LockMetadata)
+      : null;
   } catch {
     return null;
   }
