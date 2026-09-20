@@ -546,13 +546,7 @@ main {
 .section-heading h3 {
   margin: 0;
 }
-.text-button {
-  border: 0;
-  background: transparent;
-  color: var(--accent);
-  padding: 5px;
-  font-size: 12px;
-}
+
 .tasks {
   list-style: none;
   padding: 0;
@@ -578,9 +572,7 @@ main {
   font-size: 12px;
   margin: 6px 0 0;
 }
-.task button {
-  white-space: nowrap;
-}
+
 .task-state {
   font-size: 11px;
   color: var(--muted);
@@ -1133,12 +1125,6 @@ function renderDetail(r) {
   }
   const heading = el("div", undefined, "section-heading");
   heading.append(el("h3", "Checklist · " + r.progress));
-  if (r.editable) {
-    const add = button("Add task", () => taskForm(r), "text-button");
-    add.dataset.control = "add";
-    add.disabled = !!state.job?.running;
-    heading.append(add);
-  }
   pane.append(heading);
   const tasks = el("ol", undefined, "tasks");
   for (const task of r.tasks) {
@@ -1148,16 +1134,6 @@ function renderDetail(r) {
     );
     const head = el("div", undefined, "task-head");
     head.append(el("span", task.title, "task-title"));
-    if (r.editable) {
-      const edit = button(
-        "Edit status",
-        () => taskForm(r, task),
-        "text-button",
-      );
-      edit.dataset.control = "task-" + task.id;
-      edit.disabled = !!state.job?.running;
-      head.append(edit);
-    }
     li.append(head);
     if (task.description) li.append(el("p", task.description));
     if (task.reason) li.append(el("p", "Reason: " + task.reason));
@@ -1274,40 +1250,6 @@ function actionForm(r, action) {
   }
   showForm();
 }
-function taskForm(r, task) {
-  startForm(
-    r,
-    task ? "Update task status" : "Add task",
-    task?.title || r.title,
-  );
-  pending.action = task ? "task-update" : "task-add";
-  pending.task = {};
-  $("submit").textContent = "Save task";
-  if (task) {
-    pending.task.id = task.id;
-    const select = field("Status", "select", "", "task-status");
-    for (const value of [
-      "pending",
-      "in_progress",
-      "completed",
-      "blocked",
-      "skipped",
-    ]) {
-      const option = el("option", value.replaceAll("_", " "));
-      option.value = value;
-      select.append(option);
-    }
-    select.value = task.status;
-    const reason = field("Reason", "textarea", task.reason, "task-reason");
-    const update = () => {
-      reason.required = ["blocked", "skipped"].includes(select.value);
-      reason.parentElement.hidden = !reason.required;
-    };
-    select.onchange = update;
-    update();
-  } else field("Task title", "input", "", "task-title").required = true;
-  showForm();
-}
 $("cancel").onclick = () => {
   $("confirm").close();
 };
@@ -1330,13 +1272,6 @@ $("action-form").onsubmit = async (event) => {
               .filter(Boolean)
           : [],
     };
-  if (request.action === "task-add") request.task.title = $("task-title").value;
-  if (request.action === "task-update") {
-    request.task.status = $("task-status").value;
-    request.task.reason = ["blocked", "skipped"].includes(request.task.status)
-      ? $("task-reason").value
-      : "";
-  }
   $("submit").disabled = true;
   try {
     const res = await fetch("/api/action", {

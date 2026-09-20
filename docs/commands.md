@@ -155,7 +155,8 @@ Updates preserve selection and detail scroll position. Disconnection and refresh
 errors are shown with retry guidance. Status reflects saved records, not agent
 process liveness.
 
-Validate, Integrate, Resume, Add task, and Edit status run the existing CLI in
+The web checklist is read-only: agents maintain its items and statuses through
+the CLI. Validate, Integrate, and Resume run the existing CLI in
 the selected session's source worktree, using its retained coordinator when
 available. Actions require an explicit form submission. Integration collects the
 completion summary, rollout classification, and manual follow-ups; the CLI keeps
