@@ -211,6 +211,9 @@ worktree to force progress. [Recovery details →](docs/commands.md#resume)
 When using this tool to develop itself, use an isolated source worktree and a
 stable coordinator installed outside development checkouts. Pin its CLI path
 for the entire session and target local `dev`.
+After locally promoting installed-code or guidance changes, run
+`node scripts/install-local.mjs --session <session-id>` to install and verify
+the new snapshot while retaining old pinned coordinators.
 [Full self-hosting workflow →](docs/development.md#developing-sesh-integrator-concurrently)
 
 ## Contributing
