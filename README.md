@@ -132,6 +132,7 @@ can push and open or update a PR after checks pass. It never merges the PR for y
 
 ```bash
 seshx dashboard                     # Browse sessions and task checklists
+seshx dashboard --web               # Open the local browser dashboard
 seshx status --session <session-id>  # Inspect commits, state, and next steps
 ```
 
