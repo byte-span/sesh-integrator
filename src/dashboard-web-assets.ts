@@ -15,12 +15,21 @@ export const webHtml = String.raw`<!doctype html>
       ><span class="local">Local dashboard</span>
       <div class="header-actions">
         <span id="connection" role="status" tabindex="0" title="Connecting…">
-          <svg class="satellite" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M5 8a7.78 7.78 0 0 0 11 11Z" />
-            <path d="m10.5 13.5 4-4M9 19l-1 3m-2 0h8" />
-            <circle cx="15" cy="9" r="1" fill="currentColor" stroke="none" />
-            <path class="signal signal-near" d="M16 5a4 4 0 0 1 4 4" />
-            <path class="signal signal-far" d="M16 2a7 7 0 0 1 7 7" />
+          <svg class="satellite" viewBox="0 -1 42 42" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <g class="satellite-mount">
+              <path d="M17 27h4l3 9H14Z" fill="currentColor" stroke="none" />
+              <path d="M10 37h18M19 26v7" />
+              <circle cx="19" cy="27" r="2.5" fill="var(--surface)" />
+            </g>
+            <path d="M7 13C4 26 14 36 27 33Z" fill="currentColor" />
+            <path d="M7 13 27 33" stroke="var(--surface)" stroke-width="1" />
+            <path d="m16 24 9-9M9 17l16-2-2 16" />
+            <path d="m23 13 4 4 2-4-2-2Z" fill="currentColor" stroke="none" />
+            <g class="satellite-signals">
+              <path class="signal signal-near" d="M27 8a5 5 0 0 1 5 5" />
+              <path class="signal signal-mid" d="M27 4a9 9 0 0 1 9 9" />
+              <path class="signal signal-far" d="M27 0.8A12.2 12.2 0 0 1 39.2 13" />
+            </g>
           </svg>
           <span id="connection-label">Connecting…</span>
         </span
@@ -319,18 +328,32 @@ header {
   color: var(--success);
 }
 .satellite {
-  width: 24px;
-  height: 24px;
+  width: 36px;
+  height: 36px;
   flex-shrink: 0;
+  color: var(--muted);
+}
+.satellite-signals {
+  color: var(--success);
 }
 .signal {
-  opacity: 0.2;
+  opacity: 0.16;
+  transform-origin: 27px 13px;
+}
+#connection:not(.connected) .satellite-signals {
+  color: var(--muted);
 }
 #connection.connected .signal {
-  animation: satellite-signal 2.4s ease-in-out infinite;
+  animation: satellite-signal 2.8s ease-out infinite;
+}
+#connection.connected .signal-mid {
+  animation-delay: 0.22s;
 }
 #connection.connected .signal-far {
-  animation-delay: 0.35s;
+  animation-delay: 0.44s;
+}
+html.page-hidden .signal {
+  animation-play-state: paused;
 }
 #connection.connected #connection-label {
   position: absolute;
@@ -342,12 +365,12 @@ header {
   white-space: nowrap;
 }
 @keyframes satellite-signal {
-  0%, 100% { opacity: 0.2; }
-  30% { opacity: 1; }
+  0%, 70%, 100% { opacity: 0.16; transform: scale(0.94); }
+  18% { opacity: 1; transform: scale(1); }
+  48% { opacity: 0.16; transform: scale(1.06); }
 }
 @media (prefers-reduced-motion: reduce) {
-  #connection.connected .signal { animation: none; }
-  #connection.connected .signal { opacity: 1; }
+  #connection.connected .signal { animation: none; opacity: 1; }
 }
 .workspace {
   display: grid;
@@ -968,6 +991,11 @@ dialog p {
 `;
 
 export const webScript = String.raw`"use strict";
+function syncPageVisibility() {
+  document.documentElement.classList.toggle("page-hidden", document.hidden);
+}
+document.addEventListener("visibilitychange", syncPageVisibility);
+syncPageVisibility();
 const $ = (id) => document.getElementById(id);
 let state = { rows: [], job: null },
   selected = "",
