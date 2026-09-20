@@ -42,8 +42,8 @@ colors into components.
 
 Theme defaults to the system preference and remembers an explicit choice locally.
 Session status always has a text label alongside its color. The header connection
-indicator uses a satellite SVG with an accessible status label and tooltip; signal
-arcs pulse on incoming updates and stay still with reduced motion. Disconnection
+indicator uses a ground satellite dish SVG with an accessible status label and tooltip; signal
+arcs pulse continuously while connected and stay still with reduced motion. Disconnection
 shows visible retry text.
 
 ## Typography

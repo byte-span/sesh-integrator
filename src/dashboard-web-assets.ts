@@ -16,8 +16,8 @@ export const webHtml = String.raw`<!doctype html>
       <div class="header-actions">
         <span id="connection" role="status" tabindex="0" title="Connecting…">
           <svg class="satellite" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="m11 13 8 8-5 5-8-8zM7 9l4 4-5 5-4-4zM19 21l4 4-5 5-4-4zM5 12l4 4m8 8 4 4M15 17l3-3" />
-            <path d="M16 10a6 6 0 0 0 6 6zM20 12l2-2" />
+            <path d="M6 10a10 10 0 0 0 14 14ZM13 17l7-7M12 24l-2 5h13l-4-5" />
+            <circle cx="20" cy="10" r="1" />
             <path class="signal signal-near" d="M23 7a4 4 0 0 1 4 4" />
             <path class="signal signal-far" d="M23 3a8 8 0 0 1 8 8" />
           </svg>
@@ -325,11 +325,11 @@ header {
 .signal {
   opacity: 0.2;
 }
-#connection.receiving .signal {
-  animation: satellite-signal 1.8s ease-out;
+#connection.connected .signal {
+  animation: satellite-signal 2.4s ease-in-out infinite;
 }
-#connection.receiving .signal-far {
-  animation-delay: 0.2s;
+#connection.connected .signal-far {
+  animation-delay: 0.35s;
 }
 #connection.connected #connection-label {
   position: absolute;
@@ -345,7 +345,7 @@ header {
   30% { opacity: 1; }
 }
 @media (prefers-reduced-motion: reduce) {
-  #connection.receiving .signal { animation: none; }
+  #connection.connected .signal { animation: none; }
   #connection.connected .signal { opacity: 1; }
 }
 .workspace {
@@ -1551,28 +1551,13 @@ document.addEventListener("keydown", (event) => {
   }
 });
 const events = new EventSource("/api/events");
-let signalTimer;
-function pulseSignal() {
-  const connection = $("connection");
-  if (!connection.classList.contains("connected")) return;
-  clearTimeout(signalTimer);
-  connection.classList.remove("receiving");
-  void connection.offsetWidth;
-  connection.classList.add("receiving");
-  signalTimer = setTimeout(() => connection.classList.remove("receiving"), 2100);
-}
-events.addEventListener("change", () => {
-  pulseSignal();
-  void refresh();
-});
+events.addEventListener("change", refresh);
 events.onopen = () => {
   $("connection-label").textContent = "Receiving live updates";
   $("connection").title = "Receiving live updates";
   $("connection").className = "connected";
-  pulseSignal();
 };
 events.onerror = () => {
-  clearTimeout(signalTimer);
   $("connection-label").textContent = "Disconnected · retrying";
   $("connection").title = "Disconnected · retrying";
   $("connection").className = "";
