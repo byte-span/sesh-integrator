@@ -162,7 +162,7 @@ completion summary, rollout classification, and manual follow-ups; the CLI keeps
 its normal validation, locking, Git, and PR-promotion safeguards. The web server
 rejects stale session/configuration confirmations and permits only one dashboard
 command at a time. Resolve and stage conflicts outside the dashboard before
-Resume. Browser output shows the most recent 128 KiB of command output; normal
+Resume. Browser output shows the most recent 128K characters of command output; normal
 CLI evidence remains in the runtime. Closing a tab does not cancel a command.
 
 The server rejects foreign Host/Origin headers and cross-site requests. It has

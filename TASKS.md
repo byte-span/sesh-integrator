@@ -96,6 +96,8 @@ Complete personal MVP implementation checklist.
 
 ## Session checklists and dashboard
 
+- [x] Add a local web dashboard with browser launch, live updates, responsive session details, and confirmed CLI actions
+
 - [x] Verify and record no-change session completion, retain referenced integration follow-ups, and display skipped progress explicitly
 
 - [x] Persist ordered tasks with stable IDs, default pending status, and timestamps
