@@ -14,7 +14,15 @@ export const webHtml = String.raw`<!doctype html>
       <a class="brand" href="/">sesh<span> / </span>integrator</a
       ><span class="local">Local dashboard</span>
       <div class="header-actions">
-        <span id="connection" role="status">Connecting…</span
+        <span id="connection" role="status" tabindex="0" title="Connecting…">
+          <svg class="satellite" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="m11 13 8 8-5 5-8-8zM7 9l4 4-5 5-4-4zM19 21l4 4-5 5-4-4zM5 12l4 4m8 8 4 4M15 17l3-3" />
+            <path d="M16 10a6 6 0 0 0 6 6zM20 12l2-2" />
+            <path class="signal signal-near" d="M23 7a4 4 0 0 1 4 4" />
+            <path class="signal signal-far" d="M23 3a8 8 0 0 1 8 8" />
+          </svg>
+          <span id="connection-label">Connecting…</span>
+        </span
         ><button id="theme" type="button">Dark theme</button>
       </div>
     </header>
@@ -300,11 +308,45 @@ header {
   align-items: center;
 }
 #connection {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   font-size: 12px;
   color: var(--muted);
 }
 #connection.connected {
   color: var(--success);
+}
+.satellite {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+}
+.signal {
+  opacity: 0.2;
+}
+#connection.receiving .signal {
+  animation: satellite-signal 1.8s ease-out;
+}
+#connection.receiving .signal-far {
+  animation-delay: 0.2s;
+}
+#connection.connected #connection-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+@keyframes satellite-signal {
+  0%, 100% { opacity: 0.2; }
+  30% { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #connection.receiving .signal { animation: none; }
+  #connection.connected .signal { opacity: 1; }
 }
 .workspace {
   display: grid;
@@ -312,7 +354,12 @@ header {
   min-height: calc(100vh - 70px);
 }
 .repositories {
-  position: relative;
+  position: sticky;
+  top: 70px;
+  align-self: start;
+  display: flex;
+  flex-direction: column;
+  height: calc(100dvh - 70px);
   min-width: 0;
   padding: 32px 16px;
   background: var(--surface);
@@ -357,6 +404,8 @@ header {
   font-weight: 600;
 }
 .repositories nav {
+  min-height: 0;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 5px;
@@ -387,7 +436,9 @@ header {
 .aside-note {
   font-size: 12px;
   color: var(--muted);
-  margin: 32px 12px;
+  margin: auto 12px 0;
+  padding-top: 32px;
+  flex-shrink: 0;
 }
 main {
   padding: 32px;
@@ -837,6 +888,10 @@ dialog p {
     display: block;
   }
   .repositories {
+    position: relative;
+    top: auto;
+    height: auto;
+    display: block;
     padding: 14px 16px;
     border-right: 0;
     border-bottom: 1px solid var(--line);
@@ -1496,13 +1551,30 @@ document.addEventListener("keydown", (event) => {
   }
 });
 const events = new EventSource("/api/events");
-events.addEventListener("change", refresh);
+let signalTimer;
+function pulseSignal() {
+  const connection = $("connection");
+  if (!connection.classList.contains("connected")) return;
+  clearTimeout(signalTimer);
+  connection.classList.remove("receiving");
+  void connection.offsetWidth;
+  connection.classList.add("receiving");
+  signalTimer = setTimeout(() => connection.classList.remove("receiving"), 2100);
+}
+events.addEventListener("change", () => {
+  pulseSignal();
+  void refresh();
+});
 events.onopen = () => {
-  $("connection").textContent = "Live updates";
+  $("connection-label").textContent = "Receiving live updates";
+  $("connection").title = "Receiving live updates";
   $("connection").className = "connected";
+  pulseSignal();
 };
 events.onerror = () => {
-  $("connection").textContent = "Disconnected · retrying";
+  clearTimeout(signalTimer);
+  $("connection-label").textContent = "Disconnected · retrying";
+  $("connection").title = "Disconnected · retrying";
   $("connection").className = "";
 };
 void refresh();
