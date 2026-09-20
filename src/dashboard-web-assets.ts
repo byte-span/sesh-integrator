@@ -15,20 +15,12 @@ export const webHtml = String.raw`<!doctype html>
       ><span class="local">Local dashboard</span>
       <div class="header-actions">
         <span id="connection" role="status" tabindex="0" title="Connecting…">
-          <svg class="satellite" viewBox="0 -1 42 42" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <g class="satellite-mount">
-              <path d="M17 27h4l3 9H14Z" fill="currentColor" stroke="none" />
-              <path d="M10 37h18M19 26v7" />
-              <circle cx="19" cy="27" r="2.5" fill="var(--surface)" />
-            </g>
-            <path d="M7 13C4 26 14 36 27 33Z" fill="currentColor" />
-            <path d="M7 13 27 33" stroke="var(--surface)" stroke-width="1" />
-            <path d="m16 24 9-9M9 17l16-2-2 16" />
-            <path d="m23 13 4 4 2-4-2-2Z" fill="currentColor" stroke="none" />
+          <!-- Artwork: user-supplied satellite-radar-svgrepo-com.svg (SVG Repo). -->
+          <svg class="satellite" viewBox="0 0 32 32" fill="currentColor" aria-hidden="true">
+            <path d="M16,28V24.96a9.9124,9.9124,0,0,0,7.3179-2.208,1.8482,1.8482,0,0,0,.6777-1.3344,1.8,1.8,0,0,0-.5239-1.36L18.4141,15,21,12.4141,19.5859,11,17,13.5859,11.9419,8.5273a1.8145,1.8145,0,0,0-1.36-.5229,1.845,1.845,0,0,0-1.3339.6782,9.9566,9.9566,0,0,0-.5127,11.95L6.2793,28H2v2H30V28ZM10.68,10.0938,21.9058,21.32A8.0011,8.0011,0,0,1,10.68,10.0938ZM14,28H8.3875l1.8757-5.627A9.9894,9.9894,0,0,0,14,24.5435Z" />
             <g class="satellite-signals">
-              <path class="signal signal-near" d="M27 8a5 5 0 0 1 5 5" />
-              <path class="signal signal-mid" d="M27 4a9 9 0 0 1 9 9" />
-              <path class="signal signal-far" d="M27 0.8A12.2 12.2 0 0 1 39.2 13" />
+              <path class="signal signal-near" d="M26,14H24a6.0067,6.0067,0,0,0-6-6V6A8.0092,8.0092,0,0,1,26,14Z" />
+              <path class="signal signal-far" d="M30,14H28A10.0113,10.0113,0,0,0,18,4V2A12.0137,12.0137,0,0,1,30,14Z" />
             </g>
           </svg>
           <span id="connection-label">Connecting…</span>
@@ -338,7 +330,7 @@ header {
 }
 .signal {
   opacity: 0.16;
-  transform-origin: 27px 13px;
+  transform-origin: 18px 14px;
 }
 #connection:not(.connected) .satellite-signals {
   color: var(--muted);
@@ -346,11 +338,8 @@ header {
 #connection.connected .signal {
   animation: satellite-signal 2.8s ease-out infinite;
 }
-#connection.connected .signal-mid {
-  animation-delay: 0.22s;
-}
 #connection.connected .signal-far {
-  animation-delay: 0.44s;
+  animation-delay: 0.3s;
 }
 html.page-hidden #connection.connected .signal {
   animation-play-state: paused;
