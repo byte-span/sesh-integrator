@@ -43,7 +43,8 @@ colors into components.
 Theme defaults to the system preference and remembers an explicit choice locally.
 Session status always has a text label alongside its color. The header connection
 indicator uses the supplied `satellite-radar-svgrepo-com.svg` artwork from SVG Repo,
-with an accessible status label and tooltip. Its two green signal arcs pulse
+mirrored horizontally to face left, with lighter outlines and an accessible
+status label and tooltip. Its two green signal arcs pulse
 outward in sequence while connected;
 the neutral dish stays still. Pulses pause in hidden tabs and become static with
 reduced motion. Disconnection
