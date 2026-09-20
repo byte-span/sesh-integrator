@@ -6,6 +6,9 @@ project_dir=$(CDPATH= cd -- "$script_dir/.." && pwd -P)
 source_file="$project_dir/dist/cli.js"
 target_dir=${SESH_INTEGRATOR_BIN_DIR:-${PARALLEL_INTEGRATOR_BIN_DIR:-${CODEX_HANDOFF_BIN_DIR:-"${HOME}/.local/bin"}}}
 target_file="$target_dir/seshx"
+release_dir=""
+# Keep the primary exit status and identify partial snapshots; never remove them.
+trap 'install_status=$?; if [ "$install_status" -ne 0 ] && [ -n "$release_dir" ]; then printf "%s\n" "Installation incomplete; preserved release snapshot: $release_dir" >&2; fi; exit "$install_status"' 0
 
 if [ ! -f "$source_file" ]; then
   printf '%s\n' "Missing $source_file; run pnpm build first." >&2

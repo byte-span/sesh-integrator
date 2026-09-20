@@ -129,29 +129,59 @@ This addresses lock cleanup only. A host policy that prevents other directory
 operations can still block Git, dependency setup, worktree creation, or installation;
 those failures require separate diagnosis without weakening secret protection.
 
-#### Updating the installed dashboard
+#### Updating the local installation
 
 Source promotion and executable installation are separate completion steps.
-`seshx` points to a stable release copy, so rebuilding the checkout does not
-update the installed dashboard. After successful integration, use the clean
-validated source worktree whose tree matches the promoted `dev` tree:
+After a task changes installed CLI behavior, installer behavior, packaged assets,
+or managed guidance, install locally as part of completing that task:
 
 ```bash
-pnpm build
-./scripts/install-cli.sh --stable
+node scripts/install-local.mjs --session <session-id>
 ```
 
-Keep existing sessions on their pinned coordinator and retain its release;
-never overwrite that snapshot. The installer checks compatibility and publishes
-a new snapshot for future invocations. Do not install from merge or validation
-hooks. Quit and reopen `seshx dashboard` to load the new executable. On a host
-without the POSIX installer, perform the equivalent validated snapshot install
-using that host's installation procedure.
+Run this explicitly from the clean source worktree after validated local
+promotion and post-integration checks. Keep using the pinned coordinator for
+session commands. Do not add this script to validation, merge, health-check,
+package postinstall, or `postIntegrationCommands` hooks. Documentation-only
+changes outside installed guidance skip installation automatically.
 
-When a task requests a visible local dashboard change, include installation and
-a check of the installed renderer in its completion checklist. Report whether
-the executable was updated, and record any deferred installation as an explicit
-follow-up. Do not describe source promotion alone as an installed UI update.
+The helper verifies repository identity, the current target commit, and the
+source tree against the session's recorded promotion. It permits a remaining
+remote-only PR failure while reporting that publishing remains pending. Dirty
+source work, changed target commits, failed local checks, disabled repositories,
+manual mode, incompatible runtime records and existing locks stop installation.
+A newer target needs its own validated session; never force an old install over it.
+
+Build inputs are copied from tracked files with Git blob-hash verification into
+an independent build directory. Compilation uses the already-installed local
+TypeScript dependency; run the normal frozen-lockfile dependency setup before
+validation. Existing `dist` files and ignored/untracked assets are not copied.
+Build directories and previous releases are retained, including on failures.
+The source and target worktrees are not rebuilt or cleaned by this helper.
+
+The existing stable installer publishes a separate snapshot outside repository
+worktrees. The helper checks all compatibility aliases, packaged asset hashes,
+CLI help and runtime compatibility, refreshes only existing harness workflows
+through receipt-aware setup (preserving stopped enrollment), and checks capabilities without clearing manual
+choices or blocked reports. Repeating it reuses the verified snapshot when its
+assets still match; a guidance failure can be corrected and retried without
+replacing pinned coordinators. Customized guidance is preserved and remains a
+reported blocker until deliberately reconciled.
+
+A separate `local-installations/<repository-id>.json` receipt under the effective
+runtime records source/promoted commits, installed CLI, build directory, phase,
+verification time and any failure. It never rewrites a session's integration or
+external-rollout status. Report installation separately; do not claim success
+from source promotion alone. A failure can occur after aliases were published;
+inspect the receipt and retry the same command after resolving its exact blocker.
+Unknown locks, old releases, and build artifacts are never automatically removed.
+
+The source helper uses the existing POSIX installer and supports Linux, macOS
+and WSL. Native Windows fails before installation; use its native validated
+snapshot procedure. It changes this machine only and never publishes a release
+or restarts running processes. For dashboard changes, separately verify the
+installed renderer and restart the user's dashboard only when authorized, or
+record that restart as an outstanding follow-up.
 
 Before PR promotion, fetch `origin/main` and verify it is an ancestor of `dev`.
 After a shared PR is merged, synchronize the exact fetched merge commit in a
