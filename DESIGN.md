@@ -41,7 +41,10 @@ colors into components.
 | `--code`     | `#edf0f5` | `#111823` | Saved records and output                |
 
 Theme defaults to the system preference and remembers an explicit choice locally.
-Status always has a text label alongside its color.
+Session status always has a text label alongside its color. The header connection
+indicator uses a satellite SVG with an accessible status label and tooltip; signal
+arcs pulse on incoming updates and stay still with reduced motion. Disconnection
+shows visible retry text.
 
 ## Typography
 
@@ -51,6 +54,9 @@ section headings 13–16px; metadata 11–12px. Session titles use 14px semibold
 tabular numerals. Long titles and paths wrap rather than widen the workspace.
 
 ## Layout
+
+Pin the desktop sidebar progress note to the viewport bottom, with repository
+navigation scrolling above it. Keep the existing compact mobile strip.
 
 Desktop uses a 70px header, a resizable repository sidebar (210px by default),
 and main content with 32px
