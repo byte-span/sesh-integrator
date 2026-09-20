@@ -99,6 +99,36 @@ Finish an existing validation process before starting another full suite,
 including after a parallel validation command reports a failure. This avoids
 overlapping leftover tests and resource-related timeouts.
 
+#### Lock files and restricted filesystem permissions
+
+New coordinators acquire configuration, session-record, repository, and validation
+resource gate locks as exclusive files (`open` with `wx`) instead of directories.
+They release only the owned file with `unlink`, so routine lock cleanup does not
+require directory deletion or access to `.env` files. The existing lock paths
+are unchanged: old coordinators' `mkdir` and new coordinators' exclusive file
+creation cannot both acquire the same path. No session schema migration is needed.
+Keep old coordinator releases for their unfinished sessions.
+
+Existing directory locks are not converted or deleted automatically. Both legacy
+and file-based repository owner metadata remain readable. An interrupted, partial,
+or dead-owner lock stays blocked for inspection; do not use age alone to reclaim
+it. Even after a dead PID and clean integration worktree are observed, automatic
+removal races with other waiting coordinators, so recovery requires the operator
+to stop contenders, inspect the owner/session and preserved worktree, and remove
+only that verified lock. Empty legacy locks can be removed with `rmdir` from a
+normal terminal; `rmdir` refuses non-empty directories. Never recursively delete
+a lock just to make a command proceed.
+
+File ownership is checked against the acquired file identity and random token
+before release. If an operation and cleanup both fail, the CLI reports both
+errors, retaining the original as the cause. Validation stops on cleanup failure
+rather than retrying while a resource may still be held. Invalid resource lease
+records block admission instead of being treated as unused resources.
+
+This addresses lock cleanup only. A host policy that prevents other directory
+operations can still block Git, dependency setup, worktree creation, or installation;
+those failures require separate diagnosis without weakening secret protection.
+
 #### Updating the installed dashboard
 
 Source promotion and executable installation are separate completion steps.

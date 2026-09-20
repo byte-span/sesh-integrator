@@ -1,3 +1,9 @@
+import {
+  tryFileLock,
+  releaseFileLock,
+  withCleanup,
+  type FileLock,
+} from "./file-lock.js";
 import { validateHarnessConfig } from "./harness.js";
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
@@ -593,22 +599,14 @@ async function withRecordLock<T>(
   action: () => Promise<T>,
 ): Promise<T> {
   const deadline = Date.now() + 5000;
-  for (;;) {
-    try {
-      await mkdir(lock);
-      break;
-    } catch (error) {
-      if (!isNodeError(error) || error.code !== "EEXIST") throw error;
-      if (Date.now() >= deadline)
-        throw new Error(
-          `${label} is locked: ${lock}. Retry after the other command finishes; inspect a leftover lock manually.`,
-        );
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    }
+  let handle: FileLock | undefined;
+  while (!(handle = await tryFileLock(lock))) {
+    if (Date.now() >= deadline)
+      throw new Error(
+        `${label} is locked: ${lock}. Retry after the other command finishes; inspect a leftover file or legacy directory lock manually.`,
+      );
+    await new Promise((resolve) => setTimeout(resolve, 50));
   }
-  try {
-    return await action();
-  } finally {
-    await rm(lock, { recursive: true });
-  }
+  const owned = handle;
+  return withCleanup(action, () => releaseFileLock(owned));
 }
