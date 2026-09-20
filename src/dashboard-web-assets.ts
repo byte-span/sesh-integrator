@@ -15,11 +15,12 @@ export const webHtml = String.raw`<!doctype html>
       ><span class="local">Local dashboard</span>
       <div class="header-actions">
         <span id="connection" role="status" tabindex="0" title="Connecting…">
-          <svg class="satellite" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M6 10a10 10 0 0 0 14 14ZM13 17l7-7M12 24l-2 5h13l-4-5" />
-            <circle cx="20" cy="10" r="1" />
-            <path class="signal signal-near" d="M23 7a4 4 0 0 1 4 4" />
-            <path class="signal signal-far" d="M23 3a8 8 0 0 1 8 8" />
+          <svg class="satellite" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M5 8a7.78 7.78 0 0 0 11 11Z" />
+            <path d="m10.5 13.5 4-4M9 19l-1 3m-2 0h8" />
+            <circle cx="15" cy="9" r="1" fill="currentColor" stroke="none" />
+            <path class="signal signal-near" d="M16 5a4 4 0 0 1 4 4" />
+            <path class="signal signal-far" d="M16 2a7 7 0 0 1 7 7" />
           </svg>
           <span id="connection-label">Connecting…</span>
         </span
@@ -318,8 +319,8 @@ header {
   color: var(--success);
 }
 .satellite {
-  width: 32px;
-  height: 32px;
+  width: 24px;
+  height: 24px;
   flex-shrink: 0;
 }
 .signal {
