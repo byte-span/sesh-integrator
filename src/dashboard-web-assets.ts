@@ -326,20 +326,24 @@ header {
   cursor: col-resize;
   touch-action: none;
 }
+#repository-resizer:focus {
+  outline: none;
+}
 #repository-resizer::after {
   content: "";
   position: absolute;
-  top: 140px;
+  top: 0;
+  bottom: 0;
   left: 5px;
-  width: 2px;
-  height: 32px;
-  border-radius: 2px;
+  width: 1px;
   background: var(--line);
 }
 #repository-resizer:hover::after,
 #repository-resizer:focus-visible::after,
 .resizing-repository #repository-resizer::after {
-  background: var(--accent);
+  left: 4px;
+  width: 3px;
+  background: color-mix(in srgb, var(--line) 35%, var(--muted));
 }
 .resizing-repository,
 .resizing-repository * {
@@ -1030,7 +1034,7 @@ function finishRepositoryDrag(cancel = false) {
 repositoryResizer.addEventListener("pointerdown", (event) => {
   if (event.button !== 0 || window.innerWidth <= 800 || repositoryDrag) return;
   event.preventDefault();
-  repositoryResizer.focus();
+  repositoryResizer.focus({ preventScroll: true });
   repositoryDrag = {
     id: event.pointerId,
     x: event.clientX,
