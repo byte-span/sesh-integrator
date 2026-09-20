@@ -324,6 +324,13 @@ header {
   height: 36px;
   flex-shrink: 0;
   color: var(--muted);
+  transform: scaleX(-1);
+}
+.satellite path {
+  /* The supplied SVG uses filled outlines; inset their edges to lighten them. */
+  stroke: var(--surface);
+  stroke-width: 0.6;
+  stroke-linejoin: round;
 }
 .satellite-signals {
   color: var(--success);
