@@ -11,8 +11,7 @@ export const webHtml = String.raw`<!doctype html>
   <body>
     <a class="skip" href="#sessions">Skip to sessions</a>
     <header>
-      <a class="brand" href="/">sesh<span> / </span>integrator</a
-      ><span class="local">Local dashboard</span>
+      <a class="brand" href="/">sesh<span> / </span>integrator</a>
       <div class="header-actions">
         <span id="connection" role="status" tabindex="0" title="Connecting…">
           <!-- Artwork: user-supplied satellite-radar-svgrepo-com.svg (SVG Repo). -->
@@ -93,6 +92,18 @@ export const webHtml = String.raw`<!doctype html>
               <p>Choose All sessions to browse your history.</p>
             </div>
           </section>
+          <div
+            id="detail-resizer"
+            role="separator"
+            tabindex="0"
+            aria-label="Session details panel width"
+            aria-controls="detail"
+            aria-orientation="vertical"
+            aria-valuemin="240"
+            aria-valuemax="800"
+            aria-valuenow="320"
+            title="Drag to resize. Arrow keys move divider; double-click to reset."
+          ></div>
           <section id="detail" class="detail" aria-label="Session details">
             <div class="empty">
               <h2>Your work, in view</h2>
@@ -298,12 +309,6 @@ header {
   color: var(--muted);
   font-weight: 400;
 }
-.local {
-  color: var(--muted);
-  font-size: 12px;
-  border-left: 1px solid var(--line);
-  padding-left: 24px;
-}
 .header-actions {
   margin-left: auto;
   display: flex;
@@ -418,9 +423,36 @@ html.page-hidden #connection.connected .signal {
   background: color-mix(in srgb, var(--line) 35%, var(--muted));
 }
 .resizing-repository,
-.resizing-repository * {
+.resizing-repository *,
+.resizing-detail,
+.resizing-detail * {
   cursor: col-resize !important;
   user-select: none;
+}
+#detail-resizer {
+  position: relative;
+  width: 12px;
+  margin-left: -6px;
+  z-index: 2;
+  cursor: col-resize;
+  touch-action: none;
+}
+#detail-resizer:focus {
+  outline: none;
+}
+#detail-resizer::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 6px;
+  width: 1px;
+  background: var(--line);
+}
+#detail-resizer:hover::after,
+#detail-resizer:focus-visible::after,
+.resizing-detail #detail-resizer::after {
+  left: 5px;
+  width: 3px;
+  background: color-mix(in srgb, var(--line) 35%, var(--muted));
 }
 .repositories h2 {
   padding-left: 12px;
@@ -514,7 +546,7 @@ main {
 }
 .split {
   display: grid;
-  grid-template-columns: minmax(280px, 1fr) minmax(320px, 0.95fr);
+  grid-template-columns: minmax(0, 1fr) 0 var(--detail-width, minmax(0, 0.95fr));
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--surface);
@@ -871,7 +903,7 @@ dialog p {
     padding: 24px 20px;
   }
   .split {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: minmax(0, 1fr) 0 var(--detail-width, minmax(0, 1fr));
   }
   .toolbar {
     flex-wrap: wrap;
@@ -886,12 +918,10 @@ dialog p {
   .detail {
     max-height: 65vh;
   }
-  .local {
-    display: none;
-  }
 }
 @media (max-width: 800px) {
-  #repository-resizer {
+  #repository-resizer,
+  #detail-resizer {
     display: none;
   }
   header {
@@ -1178,6 +1208,92 @@ window.addEventListener("resize", () => {
   applyRepositoryWidth();
 });
 applyRepositoryWidth();
+const detailResizer = $("detail-resizer");
+const split = document.querySelector(".split");
+const detailWidthKey = "sesh-detail-width";
+let preferredDetailWidth;
+let detailDrag;
+try {
+  const saved = Number(localStorage.getItem(detailWidthKey));
+  if (Number.isFinite(saved) && saved >= 240)
+    preferredDetailWidth = saved;
+} catch {}
+function detailWidthBounds() {
+  const available = split.clientWidth;
+  const min = Math.min(240, available / 2);
+  return { min, max: Math.max(min, available - 240), available };
+}
+function applyDetailWidth() {
+  if (window.innerWidth <= 800) return 0;
+  const { min, max, available } = detailWidthBounds();
+  const fallback = available * (window.innerWidth <= 1100 ? 0.5 : 0.95 / 1.95);
+  const width = Math.round(Math.max(min, Math.min(max, preferredDetailWidth ?? fallback)));
+  split.style.setProperty("--detail-width", width + "px");
+  detailResizer.setAttribute("aria-valuemin", String(Math.round(min)));
+  detailResizer.setAttribute("aria-valuemax", String(Math.round(max)));
+  detailResizer.setAttribute("aria-valuenow", String(width));
+  detailResizer.setAttribute("aria-valuetext", width + " pixels");
+  return width;
+}
+function saveDetailWidth() {
+  try {
+    if (preferredDetailWidth === undefined) localStorage.removeItem(detailWidthKey);
+    else localStorage.setItem(detailWidthKey, String(preferredDetailWidth));
+  } catch {}
+}
+function finishDetailDrag(cancel = false) {
+  if (!detailDrag) return;
+  const drag = detailDrag;
+  detailDrag = undefined;
+  if (cancel) preferredDetailWidth = drag.previous;
+  document.documentElement.classList.remove("resizing-detail");
+  if (detailResizer.hasPointerCapture(drag.id)) detailResizer.releasePointerCapture(drag.id);
+  applyDetailWidth();
+  saveDetailWidth();
+}
+detailResizer.addEventListener("pointerdown", (event) => {
+  if (event.button !== 0 || window.innerWidth <= 800 || detailDrag) return;
+  event.preventDefault();
+  detailResizer.focus({ preventScroll: true });
+  detailDrag = { id: event.pointerId, x: event.clientX, width: applyDetailWidth(), previous: preferredDetailWidth };
+  detailResizer.setPointerCapture(event.pointerId);
+  document.documentElement.classList.add("resizing-detail");
+});
+detailResizer.addEventListener("pointermove", (event) => {
+  if (event.pointerId !== detailDrag?.id) return;
+  const { min, max } = detailWidthBounds();
+  preferredDetailWidth = Math.max(min, Math.min(max, detailDrag.width + detailDrag.x - event.clientX));
+  applyDetailWidth();
+});
+detailResizer.addEventListener("pointerup", (event) => {
+  if (event.pointerId === detailDrag?.id) finishDetailDrag();
+});
+detailResizer.addEventListener("pointercancel", () => finishDetailDrag(true));
+detailResizer.addEventListener("lostpointercapture", () => finishDetailDrag(true));
+detailResizer.addEventListener("dblclick", () => {
+  finishDetailDrag(true);
+  preferredDetailWidth = undefined;
+  applyDetailWidth();
+  saveDetailWidth();
+});
+detailResizer.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") { finishDetailDrag(true); return; }
+  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+  event.preventDefault();
+  finishDetailDrag();
+  const { min, max } = detailWidthBounds();
+  const step = event.shiftKey ? 40 : 10;
+  preferredDetailWidth = event.key === "Home" ? min : event.key === "End" ? max : applyDetailWidth() + (event.key === "ArrowLeft" ? step : -step);
+  preferredDetailWidth = applyDetailWidth();
+  saveDetailWidth();
+});
+window.addEventListener("resize", () => {
+  finishDetailDrag(true);
+  applyDetailWidth();
+});
+// Sidebar resizing also changes the space available to the session panes.
+new ResizeObserver(() => applyDetailWidth()).observe(split);
+applyDetailWidth();
 function visible() {
   const q = $("search").value.toLocaleLowerCase(),
     filter = $("filter").value;
