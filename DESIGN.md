@@ -47,7 +47,7 @@ mirrored horizontally to face left, with 2px outlines (twice the 1px control
 border width, linked by `--control-border-width`) and an accessible
 status label and tooltip. Its two green signal arcs pulse
 outward in sequence while connected;
-the neutral dish stays still. Pulses pause in hidden tabs and become static with
+the neutral dish stays still at 50% opacity, independently of the signal arcs. Pulses pause in hidden tabs and become static with
 reduced motion. Disconnection
 shows visible retry text.
 
