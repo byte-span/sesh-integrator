@@ -151,6 +151,7 @@ export const webCss = String.raw`:root {
   --ink: #202936;
   --muted: #596579;
   --line: #d9dfe7;
+  --control-border-width: 1px;
   --accent: #2154bd;
   --selected: #edf3ff;
   --hover: #f1f4f8;
@@ -201,7 +202,7 @@ button,
 input,
 select,
 textarea {
-  border: 1px solid var(--line);
+  border: var(--control-border-width) solid var(--line);
   border-radius: var(--radius);
   background: var(--surface);
 }
@@ -327,9 +328,10 @@ header {
   transform: scaleX(-1);
 }
 .satellite path {
-  /* The supplied SVG uses filled outlines; inset their edges to lighten them. */
+  /* Filled outlines are 2 SVG units wide. At 36px / 32 units, trim them
+     to twice the control border width in screen pixels. */
   stroke: var(--surface);
-  stroke-width: 0.6;
+  stroke-width: calc(2px - var(--control-border-width) * 2 * 32 / 36);
   stroke-linejoin: round;
 }
 .satellite-signals {
