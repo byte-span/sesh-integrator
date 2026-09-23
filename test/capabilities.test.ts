@@ -481,3 +481,22 @@ it("rejects metadata, parent, tracked, and symlinked unsafe locations", async ()
     worktreeLocationCommand(["--directory", join(repo, "user-work.txt")], repo),
   ).rejects.toThrow("tracked files");
 });
+
+it("keeps runtime record writes independent of Git and blocked default worktree locations", async () => {
+  const { root } = await fixture();
+  const mkdir = fs.mkdir;
+  vi.spyOn(fs, "mkdir").mockImplementation(async (path, options) => {
+    if (
+      ["worktrees", "source-worktrees", "recovery-worktrees"].some(
+        (name) => String(path) === join(root, "runtime", name),
+      )
+    )
+      throw denied("EACCES");
+    return mkdir(path, options as never);
+  });
+  const git = vi
+    .spyOn(processTools, "run")
+    .mockRejectedValue(denied("EPERM", "spawn git"));
+  await expect(ensureRuntime()).resolves.toBeDefined();
+  expect(git).not.toHaveBeenCalled();
+});

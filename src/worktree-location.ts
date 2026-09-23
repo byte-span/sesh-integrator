@@ -9,7 +9,7 @@ import {
   basename,
 } from "node:path";
 import { run } from "./process.js";
-import { runtimePaths, readSessions, readConfig } from "./runtime.js";
+import { runtimePaths, readSessions, readConfig, repoId } from "./runtime.js";
 import { listWorktrees } from "./git.js";
 import { repositoryCommonDir } from "./enablement.js";
 
@@ -94,7 +94,7 @@ export async function worktreeLocationCommand(
     for (const session of await readSessions(true)) {
       if (
         !["succeeded", "no_changes"].includes(session.status) &&
-        (await repositoryCommonDir(session.repositoryPath)) === common
+        session.repositoryId === repoId(common)
       )
         throw new Error(
           `Preserve unfinished session ${session.id}; finish it before changing worktree locations`,

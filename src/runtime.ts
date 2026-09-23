@@ -1,4 +1,3 @@
-import { worktreePaths } from "./worktree-location.js";
 import {
   tryFileLock,
   releaseFileLock,
@@ -98,22 +97,21 @@ export function applyGlobalTargetPolicy(
 
 export async function ensureRuntime(): Promise<RuntimePaths> {
   const paths = runtimePaths();
-  const trees = await worktreePaths();
+  // Worktree roots are prepared by capability preflight in the repository
+  // being operated on. Runtime records must not depend on the caller's Git
+  // context or recreate a blocked default worktree directory.
   await Promise.all([
     mkdir(paths.codexHome, { recursive: true, mode: 0o700 }),
     mkdir(paths.sessions, { recursive: true }),
     mkdir(paths.locks, { recursive: true }),
     mkdir(join(paths.locks, "validation-resources"), { recursive: true }),
     mkdir(paths.logs, { recursive: true }),
-    mkdir(trees.worktrees, { recursive: true }),
-    mkdir(trees.sourceWorktrees, { recursive: true }),
     mkdir(join(paths.indexes, "worktrees"), { recursive: true }),
     mkdir(join(paths.indexes, "repositories"), { recursive: true }),
     mkdir(paths.performance, { recursive: true }),
     mkdir(join(paths.cache, "setup"), { recursive: true }),
     mkdir(join(paths.cache, "validation"), { recursive: true }),
     mkdir(paths.recoveryBundles, { recursive: true }),
-    mkdir(trees.recoveryWorktrees, { recursive: true }),
     mkdir(paths.incidents, { recursive: true }),
   ]);
   await chmod(paths.codexHome, 0o700);
