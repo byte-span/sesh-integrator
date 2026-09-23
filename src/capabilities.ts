@@ -1,3 +1,4 @@
+import { worktreePaths } from "./worktree-location.js";
 import { createHash } from "node:crypto";
 import * as fs from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
@@ -151,7 +152,16 @@ export async function probeCapabilities(
     cwd,
   });
   if (discovery.code === 0) common = report.scope;
-  const paths = runtimePaths();
+  const paths = await worktreePaths(cwd);
+  const destinations = [
+    paths.sourceWorktrees,
+    paths.worktrees,
+    paths.recoveryWorktrees,
+  ];
+  for (const destination of destinations)
+    await attempt("prepare worktree directory", destination, () =>
+      fs.mkdir(destination, { recursive: true }),
+    );
   const locations = [
     paths.root,
     join(paths.root, "coordinators"),
@@ -161,7 +171,7 @@ export async function probeCapabilities(
     paths.worktrees,
     paths.recoveryWorktrees,
     paths.recoveryBundles,
-    ...(common ? [common, cwd] : []),
+    ...(common ? [common, join(common, "worktrees"), cwd] : []),
     ...additionalLocations,
   ];
   if (common) {
@@ -231,7 +241,6 @@ export async function probeCapabilities(
     return report;
   const fixture = root!;
   const repo = join(fixture, "repo");
-  const worktree = join(fixture, "worktree");
   // Isolate only disposable Git operations. Real commits keep their signing policy.
   const env = Object.fromEntries(
     Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")),
@@ -278,16 +287,43 @@ export async function probeCapabilities(
           ],
           repo,
         ),
-      )) &&
-      (await attempt("git worktree add (disposable repository)", worktree, () =>
-        git(["worktree", "add", "--detach", worktree, "HEAD"], repo),
       ))
-    )
-      await attempt(
-        "git worktree remove (owned disposable fixture)",
-        worktree,
-        () => git(["worktree", "remove", worktree], repo),
-      );
+    ) {
+      for (const destination of destinations) {
+        let owned: string | undefined;
+        if (
+          !(await attempt(
+            "create worktree probe parent",
+            destination,
+            async () => {
+              owned = await fs.mkdtemp(
+                join(destination, ".sesh-worktree-probe-"),
+              );
+            },
+          ))
+        )
+          continue;
+        const worktree = join(owned!, "tree");
+        if (
+          await attempt(
+            "git worktree add (disposable repository)",
+            worktree,
+            () => git(["worktree", "add", "--detach", worktree, "HEAD"], repo),
+          )
+        )
+          await attempt(
+            "git worktree remove (owned disposable fixture)",
+            worktree,
+            () => git(["worktree", "remove", worktree], repo),
+          );
+        if (
+          !(await attempt("cleanup owned worktree probe", owned!, () =>
+            fs.rm(owned!, { recursive: true, force: true }),
+          ))
+        )
+          report.artifacts.push(owned!);
+      }
+    }
   } finally {
     if (
       !(await attempt("cleanup disposable Git fixture", fixture, () =>
@@ -304,6 +340,7 @@ export function recoveryChoices(): string {
     "Recovery choices:\n" +
     "  1. Review the named path and operation with the host administrator; repair only the proven path/ACL/mount or execution policy. Preserve .env/secret restrictions. No blanket chmod, sandbox relaxation, or lock deletion is authorized. Recheck in the repaired context with seshx capabilities --recheck.\n" +
     "  2. Persist manual handoff here: seshx capabilities --mode manual. Inspect seshx status --session <id>; continue the same session from its recorded source checkout using its pinned coordinator in an authorized environment. Run capabilities --recheck there before retrying the original command (resume only for resumable sessions).\n" +
+    "  Optional location: from the main checkout, select seshx worktree-location --repo-local (recommended .worktrees directory), or --directory <absolute-path>, then explicitly recheck in the intended agent environment. Git metadata and runtime writes must still be permitted; existing sessions are never moved.\n" +
     "  3. Opt this repository out: seshx disable. This preserves sessions and Git state; it also needs runtime write permission.\n" +
     "To restore automation in this context, run seshx capabilities --mode automatic, then --recheck. Configuration cannot grant host permissions."
   );
@@ -319,6 +356,7 @@ export function formatCapabilityReport(report: CapabilityReport): string {
     (report.artifacts.length
       ? `Unremoved probe artifacts (inspect before manual removal):\n${report.artifacts.join("\n")}\n`
       : "") +
+    "Installer-shell access does not establish agent-sandbox access. Recheck from the intended agent environment; registration and lifecycle commands check again.\n" +
     "Probes use disposable resources; user refs, index, worktrees and existing sessions are preserved. A pass is not a guarantee of later operations, signing, network or service access.\n" +
     (report.failures.length ? recoveryChoices() + "\n" : "")
   );
@@ -427,6 +465,30 @@ export async function requireCapabilities(
     await saveReport(report);
     throw new CapabilityBlockedError(formatCapabilityReport(report));
   }
+}
+
+/** Installer diagnostics do not clear stops or prevent installing the recovery CLI. */
+export async function installationReadiness(
+  cwd = process.cwd(),
+): Promise<void> {
+  const scope = await scopeFor(cwd);
+  const paths = recordPaths(scope, executionContext());
+  const choice = await readOptional<{ mode: string }>(paths.choice);
+  const previous = await readOptional<CapabilityReport>(paths.report);
+  if (choice?.mode === "manual") {
+    process.stdout.write(
+      "Manual handoff selected; automatic worktree readiness probes skipped. CLI installation may continue.\n",
+    );
+    return;
+  }
+  const report = previous?.failures.length
+    ? previous
+    : await probeCapabilities(cwd);
+  process.stdout.write(formatCapabilityReport(report));
+  if (report.failures.length)
+    process.stdout.write(
+      "Automatic integration is unavailable in this context; CLI installation may continue for configuration or manual handoff. Permissions were not changed.\n",
+    );
 }
 
 /** Supplement late failures without replacing the primary exception or touching recovery state. */

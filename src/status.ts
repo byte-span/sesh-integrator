@@ -1,3 +1,4 @@
+import { worktreePaths } from "./worktree-location.js";
 import { coordinatorDescription } from "./coordinator.js";
 import { isRepositoryDisabled, repositoryCommonDir } from "./enablement.js";
 import { writeCompletionSummary } from "./completion.js";
@@ -107,7 +108,7 @@ export async function statusCommand(sessionId?: string): Promise<void> {
     if (session.recoveryPhase)
       process.stdout.write(`  recovery phase: ${session.recoveryPhase}\n`);
     process.stdout.write(
-      `  integration worktree: ${session.integrationWorktreePath ?? join(paths.worktrees, session.repositoryId)}\n`,
+      `  integration worktree: ${session.integrationWorktreePath ?? join((await worktreePaths(session.repositoryPath)).worktrees, session.repositoryId)}\n`,
     );
     process.stdout.write(
       `  recovery bundle: ${session.recoveryBundle ? `${session.recoveryBundle.state} ${session.recoveryBundle.path} (${session.recoveryBundle.manifestHash})` : "legacy/not yet created"}\n`,
