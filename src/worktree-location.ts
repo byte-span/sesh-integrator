@@ -1,3 +1,4 @@
+import { ExecutionOperationError } from "./execution-error.js";
 import * as fs from "node:fs/promises";
 import {
   dirname,
@@ -33,6 +34,15 @@ function within(parent: string, child: string): boolean {
 }
 
 export async function worktreePaths(cwd = process.cwd()) {
+  try {
+    return await inspectWorktreePaths(cwd);
+  } catch (error) {
+    if (error instanceof ExecutionOperationError) throw error;
+    throw new ExecutionOperationError("inspect worktree location", cwd, error);
+  }
+}
+
+async function inspectWorktreePaths(cwd: string) {
   const defaults = runtimePaths();
   const discovery = await run("git", ["rev-parse", "--git-common-dir"], {
     cwd,

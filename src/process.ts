@@ -1,3 +1,4 @@
+import { ExecutionOperationError, spawnFailure } from "./execution-error.js";
 import { withCleanup, LockCleanupError } from "./file-lock.js";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -37,6 +38,7 @@ export async function run(
     timeoutMs?: number;
   } = {},
 ): Promise<CommandResult> {
+  const cwd = options.cwd ?? process.cwd();
   const started = process.hrtime.bigint();
   return await new Promise((resolve, reject) => {
     let recorded = false;
@@ -45,11 +47,24 @@ export async function run(
       recorded = true;
       recordSubprocess(elapsedMs(started));
     };
-    const child = spawn(command, args, {
-      cwd: options.cwd,
-      env: options.env ?? process.env,
-      stdio: [options.input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
-    });
+    let child;
+    try {
+      child = spawn(command, args, {
+        cwd,
+        env: options.env ?? process.env,
+        stdio: [
+          options.input === undefined ? "ignore" : "pipe",
+          "pipe",
+          "pipe",
+        ],
+      });
+    } catch (error) {
+      recordOnce();
+      reject(
+        error instanceof Error ? spawnFailure(command, cwd, error) : error,
+      );
+      return;
+    }
     let stdout = "";
     let stderr = "";
     const timeout = options.timeoutMs
@@ -71,7 +86,7 @@ export async function run(
     child.once("error", (error) => {
       if (timeout) clearTimeout(timeout);
       recordOnce();
-      reject(error);
+      reject(spawnFailure(command, cwd, error));
     });
     child.stdin?.on("error", (error: NodeJS.ErrnoException) => {
       if (error.code !== "EPIPE") reject(error);
@@ -93,8 +108,12 @@ export async function runChecked(
   const result = await run(command, args, cwd === undefined ? {} : { cwd });
   if (result.code !== 0) {
     const details = (result.stderr || result.stdout).trim();
-    throw new Error(
-      `${command} ${args.join(" ")} failed${details ? `: ${details}` : ""}`,
+    throw new ExecutionOperationError(
+      command,
+      cwd ?? process.cwd(),
+      new Error(
+        `${command} ${args.join(" ")} failed${details ? `: ${details}` : ""}`,
+      ),
     );
   }
   return result.stdout.trim();
