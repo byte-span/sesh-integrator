@@ -1,3 +1,4 @@
+import { worktreePaths } from "./worktree-location.js";
 import { probeCapabilities, formatCapabilityReport } from "./capabilities.js";
 import {
   harnessInfo,
@@ -67,7 +68,7 @@ export async function doctorCommand(
     paths.sessions,
     paths.locks,
     paths.logs,
-    paths.worktrees,
+    (await worktreePaths()).worktrees,
   ];
   const missingPaths: string[] = [];
   for (const path of requiredPaths) {

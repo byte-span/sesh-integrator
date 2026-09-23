@@ -18,6 +18,7 @@ fi
 # Check candidate compatibility before publishing any executable links. npm removal
 # can bypass this; every lifecycle command also checks persisted contracts.
 node "$source_file" installation-check
+node "$source_file" installation-readiness
 
 case "${1:-}" in
   "") ;;

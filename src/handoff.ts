@@ -1,3 +1,4 @@
+import { worktreePaths } from "./worktree-location.js";
 import { requireCapabilities } from "./capabilities.js";
 import { withCleanup } from "./file-lock.js";
 import {
@@ -358,9 +359,9 @@ async function beginUnlocked(
   let managedSourceWorktree = false;
   let branch = context.branch;
   if (createWorktree && !launchContext.linkedWorktree) {
-    const paths = await ensureRuntime();
+    await ensureRuntime();
     const worktree = join(
-      paths.sourceWorktrees,
+      (await worktreePaths(repository.path)).sourceWorktrees,
       repoId(repository.gitCommonDir),
       sessionId,
     );
@@ -712,7 +713,7 @@ export async function integrateCommand(
   );
 
   let integrationWorktree = join(
-    runtimePaths().worktrees,
+    (await worktreePaths(repository.path)).worktrees,
     session.repositoryId,
   );
   session.waitingForLock = true;
@@ -836,7 +837,10 @@ export async function finishCommand(
     session.repositoryId,
     session.id,
     0,
-    join(runtimePaths().worktrees, session.repositoryId),
+    join(
+      (await worktreePaths(repository.path)).worktrees,
+      session.repositoryId,
+    ),
     true,
     "finish a session",
   );
@@ -1060,7 +1064,7 @@ export async function resumeCommand(sessionId?: string): Promise<Session> {
       ]));
     if (orphaned) {
       const integrationWorktree = join(
-        runtimePaths().worktrees,
+        (await worktreePaths(repository.path)).worktrees,
         orphaned.repositoryId,
       );
       if (await pathExists(integrationWorktree)) {
@@ -1144,7 +1148,10 @@ export async function resumeCommand(sessionId?: string): Promise<Session> {
 
   let integrationWorktree =
     session.integrationWorktreePath ??
-    join(runtimePaths().worktrees, session.repositoryId);
+    join(
+      (await worktreePaths(repository.path)).worktrees,
+      session.repositoryId,
+    );
   session.waitingForLock = true;
   await writeSession(session);
   let lock: LockHandle | undefined;
@@ -1168,7 +1175,10 @@ export async function resumeCommand(sessionId?: string): Promise<Session> {
     }
     const legacyIntegrationWorktree =
       session.integrationWorktreePath ??
-      join(runtimePaths().worktrees, session.repositoryId);
+      join(
+        (await worktreePaths(repository.path)).worktrees,
+        session.repositoryId,
+      );
     await verifyRecoveryBundle(session);
     const localTarget = await refCommit(
       repository.path,
@@ -1292,7 +1302,7 @@ async function selectIntegrationWorktree(
         !(await isClean(canonicalPath)))
     ) {
       const isolatedPath = join(
-        runtimePaths().worktrees,
+        (await worktreePaths(repository.path)).worktrees,
         `${session.repositoryId}-${session.id}`,
       );
       session.integrationWorktreePath = isolatedPath;
@@ -2005,7 +2015,10 @@ async function recoverMovedRemoteTarget(
   session: Session,
   remoteCommit: string,
 ): Promise<void> {
-  const worktree = join(runtimePaths().worktrees, session.repositoryId);
+  const worktree = join(
+    (await worktreePaths(repository.path)).worktrees,
+    session.repositoryId,
+  );
   if (!(await pathExists(worktree))) {
     await git(
       ["worktree", "add", worktree, repository.integrationBranch],
@@ -2501,7 +2514,7 @@ async function reconcileLocalTarget(
       );
     // Include later staging results too, preserving the exact earlier result as a parent.
     const worktree = join(
-      runtimePaths().recoveryWorktrees,
+      (await worktreePaths(repository.path)).recoveryWorktrees,
       session.id,
       `local-${Date.now()}-${(session.localTargetRecoveryHistory?.length ?? 0) + 1}`,
     );

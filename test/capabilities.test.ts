@@ -242,6 +242,7 @@ it("blocks an existing session before mutation and recovers the same session aft
     expect(result.code, result.stdout + result.stderr).toBe(expected);
     return result.stdout + result.stderr;
   }
+  await command(["worktree-location", "--repo-local"]);
   await command(["register"]);
   await command([
     "begin",
@@ -259,6 +260,23 @@ it("blocks an existing session before mutation and recovers the same session aft
   );
   const before = await fs.readFile(sessionPath, "utf8");
   const session = JSON.parse(before);
+  expect(session.worktreePath).toContain(
+    join(repo, ".worktrees", "source-worktrees"),
+  );
+  expect(
+    await command(
+      ["worktree-location", "--directory", join(root, "other")],
+      repo,
+      1,
+    ),
+  ).toContain("finish it before changing");
+  expect(
+    await command(
+      ["worktree-location", "--repo-local"],
+      session.worktreePath,
+      1,
+    ),
+  ).toContain("main checkout");
   await command(["capabilities", "--mode", "manual"]);
   expect(await command(["validate"], session.worktreePath, 1)).toContain(
     "Manual handoff mode",
@@ -305,6 +323,9 @@ it("blocks an existing session before mutation and recovers the same session aft
   const finished = JSON.parse(await fs.readFile(sessionPath, "utf8"));
   expect(finished.id).toBe(session.id);
   expect(finished.status).toBe("succeeded");
+  expect(finished.integrationWorktreePath).toContain(
+    join(repo, ".worktrees", "recovery-worktrees"),
+  );
   expect(finished.coordinator).toEqual(session.coordinator);
   expect(finished.readyCommit).toBe(JSON.parse(pending).readyCommit);
   expect(await fs.readFile(join(repo, "task.txt"), "utf8")).toBe("task\n");
@@ -348,4 +369,115 @@ it("checks planned installation locations before writing guidance", async () => 
     }),
   ]);
   expect(await fs.readdir(guidance)).toEqual([]);
+});
+
+it("uses an explicitly selected repository-local root and preserves exclusions and manual mode", async () => {
+  const { root, repo } = await fixture();
+  const { worktreeLocationCommand, worktreePaths } =
+    await import("../src/worktree-location.js");
+  const exclude = join(repo, ".git", "info", "exclude");
+  await fs.writeFile(exclude, "# user rule\nprivate.txt\n");
+  await capabilitiesCommand(["--mode", "manual"], repo);
+  await worktreeLocationCommand(["--repo-local"], repo);
+  await worktreeLocationCommand(["--repo-local"], repo);
+  expect(await fs.readFile(exclude, "utf8")).toBe(
+    "# user rule\nprivate.txt\n/.worktrees/\n",
+  );
+  const paths = await worktreePaths(repo);
+  expect(paths.sourceWorktrees).toBe(
+    join(repo, ".worktrees", "source-worktrees"),
+  );
+  const make = fs.mkdtemp;
+  vi.spyOn(fs, "mkdtemp").mockImplementation(async (prefix, options) => {
+    if (String(prefix).startsWith(join(root, "runtime", "worktrees")))
+      throw denied();
+    return make(prefix, options as never);
+  });
+  expect((await probeCapabilities(repo)).failures).toEqual([]);
+  await expect(requireCapabilities(repo)).rejects.toThrow(
+    "Manual handoff mode",
+  );
+  for (const directory of [
+    paths.sourceWorktrees,
+    paths.worktrees,
+    paths.recoveryWorktrees,
+  ])
+    expect(await fs.readdir(directory)).toEqual([]);
+});
+
+it("does not mistake a writable alternative for writable shared Git metadata", async () => {
+  const { repo } = await fixture();
+  const { worktreeLocationCommand } =
+    await import("../src/worktree-location.js");
+  await worktreeLocationCommand(["--repo-local"], repo);
+  const make = fs.mkdtemp;
+  vi.spyOn(fs, "mkdtemp").mockImplementation(async (prefix, options) => {
+    if (String(prefix).startsWith(join(repo, ".git"))) throw denied("EACCES");
+    return make(prefix, options as never);
+  });
+  const report = await probeCapabilities(repo);
+  expect(report.failures).toContainEqual(
+    expect.objectContaining({ location: join(repo, ".git") }),
+  );
+});
+
+it("installer readiness respects saved stops without repeating probes", async () => {
+  const { repo } = await fixture();
+  const { installationReadiness } = await import("../src/capabilities.js");
+  await capabilitiesCommand(["--mode", "manual"], repo);
+  const make = vi.spyOn(fs, "mkdtemp");
+  await installationReadiness(repo);
+  expect(make).not.toHaveBeenCalled();
+});
+
+it("reports a denied selected destination without silently choosing another", async () => {
+  const { repo } = await fixture();
+  const { worktreeLocationCommand } =
+    await import("../src/worktree-location.js");
+  await worktreeLocationCommand(["--repo-local"], repo);
+  const destination = join(repo, ".worktrees", "source-worktrees");
+  const mkdir = fs.mkdir;
+  vi.spyOn(fs, "mkdir").mockImplementation(async (path, options) => {
+    if (String(path) === destination) throw denied("EACCES");
+    return mkdir(path, options as never);
+  });
+  const report = await probeCapabilities(repo);
+  expect(report.failures).toContainEqual(
+    expect.objectContaining({
+      operation: "prepare worktree directory",
+      location: destination,
+    }),
+  );
+  const selected = await processTools.run(
+    "git",
+    ["config", "--local", "--get", "sesh.worktreeRoot"],
+    { cwd: repo },
+  );
+  expect(selected.stdout.trim()).toBe(join(repo, ".worktrees"));
+});
+
+it("rejects metadata, parent, tracked, and symlinked unsafe locations", async () => {
+  const { root, repo } = await fixture();
+  const { worktreeLocationCommand } =
+    await import("../src/worktree-location.js");
+  for (const path of [
+    root,
+    repo,
+    join(repo, ".git", "nested"),
+    join(repo, "..", "repo", ".git", "nested"),
+  ])
+    await expect(
+      worktreeLocationCommand(["--directory", path], repo),
+    ).rejects.toThrow("dedicated worktree directory");
+  await fs.symlink(join(repo, ".git"), join(repo, "metadata-link"), "dir");
+  await expect(
+    worktreeLocationCommand(
+      ["--directory", join(repo, "metadata-link", "nested")],
+      repo,
+    ),
+  ).rejects.toThrow("outside Git metadata");
+  await processTools.run("git", ["add", "user-work.txt"], { cwd: repo });
+  await expect(
+    worktreeLocationCommand(["--directory", join(repo, "user-work.txt")], repo),
+  ).rejects.toThrow("tracked files");
 });

@@ -1,5 +1,10 @@
 #!/usr/bin/env node
-import { capabilitiesCommand, reportExecutionFailure } from "./capabilities.js";
+import { worktreeLocationCommand } from "./worktree-location.js";
+import {
+  capabilitiesCommand,
+  reportExecutionFailure,
+  installationReadiness,
+} from "./capabilities.js";
 import { preflightRuntimeCompatibility } from "./coordinator.js";
 import { setupCommand } from "./setup.js";
 import { parseHarness, type Harness } from "./harness.js";
@@ -75,11 +80,18 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
       );
     }
     switch (command) {
+      case "worktree-location":
+        await worktreeLocationCommand(args);
+        break;
       case "capabilities": {
         const report = await capabilitiesCommand(args);
         if (report?.failures.length) process.exitCode = 1;
         break;
       }
+      case "installation-readiness":
+        rejectArguments(args);
+        await installationReadiness();
+        break;
       case "installation-check":
         rejectArguments(args);
         await preflightRuntimeCompatibility();
@@ -461,6 +473,8 @@ Usage:
   seshx setup [--detected | --harness <name>...] [--yes]
   seshx uninstall [--harness <name>...] [--yes]
   seshx installation-check
+  seshx installation-readiness
+  seshx worktree-location [--directory <absolute-path> | --repo-local]
   seshx capabilities [--recheck | --mode manual|automatic]
   seshx init
   seshx disable [repo-path]
