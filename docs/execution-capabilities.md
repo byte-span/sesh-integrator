@@ -95,3 +95,27 @@ promotion separately from installation, PR review/merge, and external rollout.
 
 The application can improve readiness and recovery handling. It cannot resolve
 host restrictions through its own configuration.
+
+## Unavailable historical checkouts
+
+Status retains every session record when an old repository checkout is missing.
+If no integration-worktree path was saved, it warns with the session ID and
+missing working directory, prints the path as unavailable, and continues reporting
+other sessions and locks. A saved integration path is displayed without probing
+that historical checkout. This applies to both broad and selected-session status.
+
+A missing process working directory is distinct from an unavailable executable
+or interpreter. Permission, execution-policy, and Git ownership failures still
+stop inspection and retain capability evidence for the inspected repository,
+not an unrelated repository that invoked status. No session, lock, or recovery
+record is removed to make status succeed.
+
+Installing this fix does not clear previously retained capability stops. For an
+old `spawn git ENOENT` report, first verify the reported historical checkout is
+missing and Git works in the blocked repository. After installing the fix, run
+`seshx capabilities --recheck` from the blocked repository in the same execution
+context that recorded the failure. Check that it reports PASS and the intended
+scope/context, then inspect `seshx status --session <id>` and continue that same
+session with its pinned coordinator. If begin never created a session, begin the
+original task normally. A recheck in another context does not clear the original
+stop. Do not change manual-handoff mode or delete reports to bypass a failure.

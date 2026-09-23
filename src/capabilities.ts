@@ -1,3 +1,7 @@
+import {
+  ExecutionOperationError,
+  MissingWorkingDirectoryError,
+} from "./execution-error.js";
 import { worktreePaths } from "./worktree-location.js";
 import { createHash } from "node:crypto";
 import * as fs from "node:fs/promises";
@@ -497,8 +501,25 @@ export async function reportExecutionFailure(
   operation: string,
 ): Promise<void> {
   if (error instanceof CapabilityBlockedError) return;
-  const failures: CapabilityFailure[] = [];
-  const visit = (value: unknown) => {
+  const groups = new Map<string, CapabilityFailure[]>();
+  const visit = (
+    value: unknown,
+    cwd = process.cwd(),
+    scope?: string,
+    inspectedOperation?: string,
+  ) => {
+    // Only a confirmed missing cwd is non-capability evidence. The operation
+    // still throws outside optional historical reporting.
+    if (value instanceof MissingWorkingDirectoryError) return;
+    if (value instanceof ExecutionOperationError) {
+      visit(
+        value.cause,
+        value.cwd,
+        value.capabilityScope ?? scope,
+        inspectedOperation ?? value.operation,
+      );
+      return;
+    }
     if (!(value instanceof Error)) return;
     const e = value as NodeJS.ErrnoException;
     if (
@@ -507,30 +528,53 @@ export async function reportExecutionFailure(
         e.message,
       ) ||
       (e.code === "ENOENT" && e.syscall?.startsWith("spawn"))
-    )
+    ) {
+      const key = JSON.stringify({ cwd, scope });
+      const failures = groups.get(key) ?? [];
       failures.push({
-        operation: e.syscall ?? operation,
-        location: e.path ?? process.cwd(),
+        operation: inspectedOperation ?? e.syscall ?? operation,
+        location: inspectedOperation ? cwd : (e.path ?? cwd),
         evidence: evidence(e),
       });
-    if (value instanceof AggregateError) value.errors.forEach(visit);
-    else if (value.cause) visit(value.cause);
+      groups.set(key, failures);
+    }
+    if (value instanceof AggregateError)
+      value.errors.forEach((child) =>
+        visit(child, cwd, scope, inspectedOperation),
+      );
+    else if (value.cause) visit(value.cause, cwd, scope, inspectedOperation);
   };
   visit(error);
-  if (!failures.length) return;
+  if (!groups.size) return;
   try {
-    const scope = await scopeFor(process.cwd()).catch(() =>
-      resolve(process.cwd()),
-    );
-    const report: CapabilityReport = {
-      version: 1,
-      scope,
-      context: executionContext(),
-      checkedAt: new Date().toISOString(),
-      failures,
-      artifacts: [],
-    };
-    await saveReport(report);
+    const byScope = new Map<string, CapabilityFailure[]>();
+    for (const [key, failures] of groups) {
+      const context = JSON.parse(key) as { cwd: string; scope?: string };
+      const scope =
+        context.scope ??
+        (await scopeFor(context.cwd).catch(async () => {
+          // Git itself may be unavailable. Use known repository metadata when
+          // present, never substitute the caller's repository for this cwd.
+          const config = await readConfig(true);
+          return (
+            config.repositories.find(
+              (repo) => resolve(repo.path) === resolve(context.cwd),
+            )?.gitCommonDir ?? resolve(context.cwd)
+          );
+        }));
+      byScope.set(scope, [...(byScope.get(scope) ?? []), ...failures]);
+    }
+    for (const [scope, failures] of byScope) {
+      const report: CapabilityReport = {
+        version: 1,
+        scope,
+        context: executionContext(),
+        checkedAt: new Date().toISOString(),
+        failures,
+        artifacts: [],
+      };
+      await saveReport(report);
+    }
     process.stderr.write(
       "Execution operation failed after preflight. State may already have advanced; inspect seshx status and the original error's preserved paths before retrying. Existing recovery records have not been removed.\n" +
         recoveryChoices() +
