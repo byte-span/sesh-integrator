@@ -288,6 +288,15 @@ modify `AGENTS.md` in registered repositories, and guidance synchronization does
 not require a runtime config. The global policy and installed skill coordinate
 the workflow; repository configuration controls validation and promotion.
 
+The managed workflow does not own general security, Production isolation, or
+secret-registry policies. Maintain them in shared agent instructions outside its
+markers. Before upgrading an older installation that bundled those policies,
+verify their requirements are retained in the independently managed shared
+layer; upgrading the workflow replaces the old managed copy. For installations
+using `agent-instructions`, reconcile its shared layer first, then refresh this
+workflow and run the instruction comparison again. Machine-specific registry
+checkout paths belong in the private local layer.
+
 Project-specific `AGENTS.md` files remain optional and are read during conflict
 resolution. Doctor does not require a repository managed block or compare
 project instructions with a bundled template. To remove the old generated blocks
