@@ -958,6 +958,22 @@ export function colorDashboardLine(
       "\x1b[0m"
     );
   }
+  // Shortcut-only rows use white keys and gray labels on the same background.
+  if (
+    /^(v validate|Tab(?:\/Enter)? |Up\/Down move|Esc cancel)/.test(
+      safe.trimStart(),
+    )
+  ) {
+    const shortcut = rich ? "38;2;255;255;255" : "97";
+    // Use the grayscale ramp instead of theme-dependent ANSI gray/white slots.
+    const label = rich ? "38;2;158;158;158" : "38;5;247";
+    const content = safe.replace(
+      /(^| {2,})(\S+)(?= \S)/g,
+      (_match, spacing: string, key: string) =>
+        spacing + `\x1b[${shortcut}m${key}\x1b[${label}m`,
+    );
+    return `\x1b[${base};${label}m${content}\x1b[0m`;
+  }
   const split = Math.floor(safe.length * 0.68);
   const divider =
     safe.length >= 110 && safe.slice(split, split + 3) === " | " ? split : -1;
