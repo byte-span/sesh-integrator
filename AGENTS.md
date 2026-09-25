@@ -83,6 +83,38 @@ state; never disable the pre-push hook or force-push to satisfy this prerequisit
 
 Do not run parallel code-changing sessions directly on `dev` in this repository.
 
+## Install local changes after promotion
+
+For changes to installed CLI behavior, installer behavior, packaged runtime
+assets, or managed workflow guidance, include local installation and verification
+in the task checklist. After validated local target promotion and successful
+post-integration checks, run from the clean source worktree:
+
+```bash
+node scripts/install-local.mjs --session <session-id>
+```
+
+This is an explicit completion step, never a validation, merge, health-check,
+or post-integration hook. It is authorized as part of this repository's normal
+local development workflow; do not defer it merely because a separate request
+to reinstall was not made. Documentation-only changes that do not affect
+installed guidance do not require installation.
+
+Keep lifecycle commands on their pinned coordinator. The helper installs a new
+snapshot for future invocations, retains previous releases, refreshes only
+already-installed harnesses while preserving customized guidance, and verifies
+installed aliases and assets. It checks the exact recorded local promotion;
+a remote-only PR publishing failure does not invalidate validated local work.
+Do not install when validation, local promotion, or post-integration checks are
+pending. Do not bypass manual mode, repository disablement, incompatible state,
+or host permission restrictions. Never replace a pinned release in place.
+
+Report source integration and local installation separately, including the
+installed CLI path and receipt. If installation is blocked, preserve the
+receipt/artifacts and report the exact remaining action. Successful local
+installation does not publish a release, complete remote promotion, update other
+machines, restart dashboards, or resolve recorded external follow-ups.
+
 ## Read First
 
 Before implementing, read:

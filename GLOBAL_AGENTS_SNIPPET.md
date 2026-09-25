@@ -37,6 +37,21 @@ or compatibility `CODEX_HANDOFF_HOME` is set, use that directory instead.
 Otherwise reuse `~/.codex-handoff/` first, then `~/.parallel-integrator/` if present;
 fresh installations use `~/.sesh-integrator/`. Do not move existing session or worktree data.
 
+## Execution capability stops
+
+Honor persisted manual-handoff mode and capability failures. Do not repeatedly
+retry lifecycle commands or run `capabilities --recheck` automatically to clear
+a stop. Inspect the reported operation, location, preserved state and recovery
+choices. `capabilities --mode manual` stops automatic lifecycle work in that
+repository/execution context; it does not complete an existing session.
+Restore `--mode automatic` only when the user chooses it. After an approved
+scoped environment repair or a move to an authorized execution context, run
+`seshx capabilities --recheck` before continuing the same session with its
+pinned coordinator. Older coordinators may require the compatible new CLI for
+the check, while retaining the recorded CLI for lifecycle recovery. Never
+relax secret protections, delete unknown locks, or replace pinned releases to
+bypass a failure. Integrator configuration cannot grant host permissions.
+
 ## Adoption and installation continuity
 
 Repository-scoped registration/begin reports existing dirty work and managed
@@ -59,50 +74,9 @@ uninstall, so preserve runtime data, recovery bundles and Git refs. Reinstall wi
 the same runtime home and a compatible build. Never remove an ambiguous lock to
 make installation or recovery proceed.
 
-## External services and production isolation
-
-- This is an agent-accessible development VM, not a Production administration
-  environment. Never retrieve, store, or request Production secrets,
-  provider-administration credentials, deployment tokens, or Production log
-  access here or through agent-accessible tools and connectors.
-- Projects may use normal external-service SDKs and HTTPS APIs in server-side
-  code. Implement Production integrations against environment-variable names
-  and deployment-provider configuration without obtaining the secret values.
-- Keep privileged integration code out of client bundles. Use publishable keys
-  client-side only when the provider explicitly designs them for public use.
-- Fake, local, or vendor-sandbox credentials may be used when needed. Keep them
-  outside repositories, scope and cap them where possible, and assume agents
-  can read and use them.
-- Never provide Production secrets to tests, previews, or CI jobs that run
-  unreviewed code. Production code must pass trusted review on the protected
-  Production branch before the deployment environment supplies its secrets.
-- Do not print or persist credentials, authorization headers, signed URLs, full
-  environment objects, or sensitive vendor responses. If Production access is
-  required, finish safe code and sandbox work and report the trusted manual
-  follow-up instead of weakening this boundary.
-- A credential gateway is optional. Prefer it only for unusually powerful or
-  shared credentials, or tightly limited access from less-trusted Production
-  workloads.
-
-## Central secret requirements
-
-- The reviewed, non-secret registry is
-  `~/code/secret-sync/secret-configs/apps/<app-id>.json`. When application code
-  adds, renames, or removes a server-side Production secret requirement, inspect
-  and update that app's registry entry as part of the task.
-- Registry files may contain only the schema version, app ID, provider name,
-  optional non-secret Vercel project name, and exact environment-variable
-  names. The project name defaults to the app ID. Never place values, tokens,
-  ciphertext, credentials, Vercel project/organization IDs, or copied
-  Production data there. Druidia uses one encrypted global Vercel token/team
-  default with optional encrypted per-app overrides and resolves only the
-  declared project name.
-- Use normal environment-variable names without app/proxy prefixes. Keep names
-  sorted and run `npm run validate:configs` in `secret-sync` after changes.
-- Make cross-repository registry edits through their own `sesh-integrator`
-  session. If the app ID cannot be established from existing non-secret project
-  metadata, do not guess; finish safe application work and report the missing
-  registry metadata for trusted follow-up.
+General security, Production isolation, and secret-registry policies belong to
+independently maintained shared agent instructions, outside this managed block.
+Keep following those policies; this workflow does not replace or weaken them.
 
 Check `seshx status` for the current repository's enablement before registration
 or session recovery. If it reports `Enablement: disabled`, skip this workflow

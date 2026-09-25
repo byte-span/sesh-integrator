@@ -74,18 +74,21 @@ describe("bundled workflow trigger policy", () => {
     }
   });
 
-  it("keeps the optional central secret registry metadata-only", async () => {
+  it("leaves general security and registry policy ownership to shared instructions", async () => {
     const guidance = await readFile(
       join(process.cwd(), "GLOBAL_AGENTS_SNIPPET.md"),
       "utf8",
     );
 
-    expect(guidance).toContain("secret-sync/secret-configs/apps/");
-    expect(guidance).toMatch(/Never (?:store|place) values, tokens,/);
-    expect(guidance).toContain("Vercel project/organization IDs");
-    expect(guidance).toContain("Druidia");
-    expect(guidance).toContain("npm run validate:configs");
-    expect(guidance).toContain("do not guess");
+    expect(guidance).toContain(
+      "independently maintained shared agent instructions",
+    );
+    expect(guidance).toContain("does not replace or weaken them");
+    expect(guidance).not.toContain(
+      "## External services and production isolation",
+    );
+    expect(guidance).not.toContain("## Central secret requirements");
+    expect(guidance).not.toContain("secret-sync/secret-configs/apps/");
   });
 
   it("ships managed guidance and bounded self-hosting automation", async () => {

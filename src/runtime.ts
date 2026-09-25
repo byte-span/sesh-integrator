@@ -1,3 +1,9 @@
+import {
+  tryFileLock,
+  releaseFileLock,
+  withCleanup,
+  type FileLock,
+} from "./file-lock.js";
 import { validateHarnessConfig } from "./harness.js";
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
@@ -91,21 +97,21 @@ export function applyGlobalTargetPolicy(
 
 export async function ensureRuntime(): Promise<RuntimePaths> {
   const paths = runtimePaths();
+  // Worktree roots are prepared by capability preflight in the repository
+  // being operated on. Runtime records must not depend on the caller's Git
+  // context or recreate a blocked default worktree directory.
   await Promise.all([
     mkdir(paths.codexHome, { recursive: true, mode: 0o700 }),
     mkdir(paths.sessions, { recursive: true }),
     mkdir(paths.locks, { recursive: true }),
     mkdir(join(paths.locks, "validation-resources"), { recursive: true }),
     mkdir(paths.logs, { recursive: true }),
-    mkdir(paths.worktrees, { recursive: true }),
-    mkdir(paths.sourceWorktrees, { recursive: true }),
     mkdir(join(paths.indexes, "worktrees"), { recursive: true }),
     mkdir(join(paths.indexes, "repositories"), { recursive: true }),
     mkdir(paths.performance, { recursive: true }),
     mkdir(join(paths.cache, "setup"), { recursive: true }),
     mkdir(join(paths.cache, "validation"), { recursive: true }),
     mkdir(paths.recoveryBundles, { recursive: true }),
-    mkdir(paths.recoveryWorktrees, { recursive: true }),
     mkdir(paths.incidents, { recursive: true }),
   ]);
   await chmod(paths.codexHome, 0o700);
@@ -593,22 +599,14 @@ async function withRecordLock<T>(
   action: () => Promise<T>,
 ): Promise<T> {
   const deadline = Date.now() + 5000;
-  for (;;) {
-    try {
-      await mkdir(lock);
-      break;
-    } catch (error) {
-      if (!isNodeError(error) || error.code !== "EEXIST") throw error;
-      if (Date.now() >= deadline)
-        throw new Error(
-          `${label} is locked: ${lock}. Retry after the other command finishes; inspect a leftover lock manually.`,
-        );
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    }
+  let handle: FileLock | undefined;
+  while (!(handle = await tryFileLock(lock))) {
+    if (Date.now() >= deadline)
+      throw new Error(
+        `${label} is locked: ${lock}. Retry after the other command finishes; inspect a leftover file or legacy directory lock manually.`,
+      );
+    await new Promise((resolve) => setTimeout(resolve, 50));
   }
-  try {
-    return await action();
-  } finally {
-    await rm(lock, { recursive: true });
-  }
+  const owned = handle;
+  return withCleanup(action, () => releaseFileLock(owned));
 }

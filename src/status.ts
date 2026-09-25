@@ -1,3 +1,8 @@
+import {
+  ExecutionOperationError,
+  MissingWorkingDirectoryError,
+} from "./execution-error.js";
+import { worktreePaths } from "./worktree-location.js";
 import { coordinatorDescription } from "./coordinator.js";
 import { isRepositoryDisabled, repositoryCommonDir } from "./enablement.js";
 import { writeCompletionSummary } from "./completion.js";
@@ -28,8 +33,14 @@ export async function statusCommand(sessionId?: string): Promise<void> {
   let currentCommonDir: string | undefined;
   try {
     currentCommonDir = await repositoryCommonDir(process.cwd());
-  } catch {
-    /* Global status outside Git remains available. */
+  } catch (error) {
+    // Only the expected non-repository case is optional; execution failures
+    // must still reach capability reporting.
+    if (
+      !(error instanceof Error) ||
+      !error.message.includes("not a git repository")
+    )
+      throw error;
   }
   if (currentCommonDir) {
     const registered = config.repositories.some(
@@ -106,8 +117,33 @@ export async function statusCommand(sessionId?: string): Promise<void> {
       process.stdout.write(`  rollout follow-up: ${followUp}\n`);
     if (session.recoveryPhase)
       process.stdout.write(`  recovery phase: ${session.recoveryPhase}\n`);
+    let integrationWorktree = session.integrationWorktreePath;
+    if (!integrationWorktree) {
+      try {
+        integrationWorktree = join(
+          (await worktreePaths(session.repositoryPath)).worktrees,
+          session.repositoryId,
+        );
+      } catch (error) {
+        if (error instanceof MissingWorkingDirectoryError) {
+          process.stderr.write(
+            `Warning: session ${session.id}: ${error.message}; session record preserved.\n`,
+          );
+        } else {
+          const repository = config.repositories.find(
+            (repo) => repo.path === session.repositoryPath,
+          );
+          throw new ExecutionOperationError(
+            "inspect session worktree location",
+            session.repositoryPath,
+            error,
+            repository?.gitCommonDir,
+          );
+        }
+      }
+    }
     process.stdout.write(
-      `  integration worktree: ${session.integrationWorktreePath ?? join(paths.worktrees, session.repositoryId)}\n`,
+      `  integration worktree: ${integrationWorktree ?? "unavailable (historical checkout missing)"}\n`,
     );
     process.stdout.write(
       `  recovery bundle: ${session.recoveryBundle ? `${session.recoveryBundle.state} ${session.recoveryBundle.path} (${session.recoveryBundle.manifestHash})` : "legacy/not yet created"}\n`,

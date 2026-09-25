@@ -1,4 +1,10 @@
 #!/usr/bin/env node
+import { worktreeLocationCommand } from "./worktree-location.js";
+import {
+  capabilitiesCommand,
+  reportExecutionFailure,
+  installationReadiness,
+} from "./capabilities.js";
 import { preflightRuntimeCompatibility } from "./coordinator.js";
 import { setupCommand } from "./setup.js";
 import { parseHarness, type Harness } from "./harness.js";
@@ -25,6 +31,7 @@ import type { RolloutDisposition } from "./types.js";
 import { incidentCommand } from "./incident.js";
 import { cleanupGuidanceCommand } from "./cleanup-guidance.js";
 import { dashboardCommand } from "./dashboard.js";
+import { webDashboardCommand } from "./dashboard-web.js";
 import { tasksCommand } from "./tasks.js";
 
 export async function main(argv = process.argv.slice(2)): Promise<void> {
@@ -73,6 +80,18 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
       );
     }
     switch (command) {
+      case "worktree-location":
+        await worktreeLocationCommand(args);
+        break;
+      case "capabilities": {
+        const report = await capabilitiesCommand(args);
+        if (report?.failures.length) process.exitCode = 1;
+        break;
+      }
+      case "installation-readiness":
+        rejectArguments(args);
+        await installationReadiness();
+        break;
       case "installation-check":
         rejectArguments(args);
         await preflightRuntimeCompatibility();
@@ -119,8 +138,8 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
         await tasksCommand(args);
         break;
       case "dashboard":
-        rejectArguments(args);
-        await dashboardCommand();
+        if (args.length) await webDashboardCommand(args);
+        else await dashboardCommand();
         break;
       case "init":
         rejectArguments(args);
@@ -225,7 +244,16 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     }
     if (instrument) await finishPerformance("succeeded");
   } catch (error) {
-    if (instrument) await finishPerformance("failed", error);
+    try {
+      if (instrument) await finishPerformance("failed", error);
+    } catch (cleanup) {
+      error = new AggregateError(
+        [error, cleanup],
+        `${error instanceof Error ? error.message : String(error)}\nPerformance cleanup also failed: ${String(cleanup)}`,
+        { cause: error },
+      );
+    }
+    await reportExecutionFailure(error, command ?? "unknown");
     throw error;
   }
 }
@@ -445,6 +473,9 @@ Usage:
   seshx setup [--detected | --harness <name>...] [--yes]
   seshx uninstall [--harness <name>...] [--yes]
   seshx installation-check
+  seshx installation-readiness
+  seshx worktree-location [--directory <absolute-path> | --repo-local]
+  seshx capabilities [--recheck | --mode manual|automatic]
   seshx init
   seshx disable [repo-path]
   seshx enable [repo-path]
@@ -455,7 +486,7 @@ Usage:
   seshx integrate --summary "..." --rollout <none|applied|automated|manual> [--follow-up "<action, destination, exact configuration names; no secret values>"]... [--session <session-id>]
   seshx resume [--session <session-id>]
   seshx status [--session <session-id>]
-  seshx dashboard
+  seshx dashboard [--web [--no-open] [--port <port>]]
   seshx finish --no-changes --summary "..." [--session <session-id>] [--satisfied-by <session-id>]
   seshx tasks list [--session <session-id>]
   seshx tasks add --title "..." [--title "..."]... [--description "..."] [--session <session-id>]
