@@ -193,3 +193,41 @@ codex-integrator daemon uninstall
 Run those only after the disposable test passes. Then review and disable the old `~/.agents/skills/codex-integrator-workflow`, remove only legacy `codex-integrator` guidance from `~/.codex/AGENTS.md`, and inspect each repository's `core.hooksPath` and hook files. Do not delete the old source, state, worktrees, or `codex/integration` branch during the initial trial.
 
 For rollback, stop invoking the new skill, restore the previous global guidance, re-enable the old skill, and restart the old daemon using its own documented command. The separate state directories and integration branches make that reversible.
+
+### Restricted worktree locations
+
+The source CLI installer runs `seshx installation-readiness`: it checks filesystem
+operations, Git metadata access, and disposable worktree creation/removal in each
+selected worktree directory. A blocked check reports the operation and path;
+it does not change permissions or prevent installing the CLI for recovery.
+Persisted manual mode and previous failures are respected. `installation-check`
+remains the separate read-only runtime compatibility check.
+
+From the repository's main checkout, explicitly select the recommended optional
+location inside its existing writable workspace:
+
+```sh
+seshx worktree-location --repo-local
+seshx capabilities --recheck
+```
+
+This selects `<repo>/.worktrees/` and adds its exclusion to `.git/info/exclude`,
+without changing tracked ignore rules. Or use
+`seshx worktree-location --directory <absolute-path>` for a dedicated alternative.
+Run `seshx worktree-location` to inspect the selection. It is stored in the
+repository's local Git configuration as `sesh.worktreeRoot`, shared by its linked
+worktrees; source, integration, and recovery worktrees all use that root.
+Unfinished sessions must finish before changing it. If an integration branch is
+already checked out, the command reports its retained path and requires manual
+relocation review before changing roots. Prefer selecting the location before
+the first session. Existing worktrees and
+runtime data are never moved, and manual mode/failure evidence are not cleared.
+
+Run the recheck **inside the intended agent environment**: an installer running
+in a terminal cannot establish access inside an agent sandbox. Registration and
+lifecycle commands repeat the checks. The runtime and shared Git metadata must
+still be writable; changing only the worktree directory cannot fix those
+restrictions. Keep permissions unchanged and select
+`seshx capabilities --mode manual` when automatic integration is not desired.
+Empty worktree directories may be created by readiness checks; temporary probe
+resources are removed, or reported if cleanup fails.

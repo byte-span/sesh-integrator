@@ -65,9 +65,23 @@ There is **no integration daemon or background watcher**.
 The interactive dashboard watches saved session/configuration files only while
 open, with a 30-second fallback refresh; it never triggers integration automatically.
 
+`seshx dashboard --web` provides a foreground, loopback-only browser interface
+using the same saved session data and CLI actions. It opens the system browser
+unless `--no-open` is set; `--port` optionally selects a port. Live updates use
+server-sent events fed by the existing file watcher. It serves bundled assets
+without external dependencies, rejects cross-origin requests, and rechecks
+session/configuration revisions before actions. Ctrl+C closes the server after
+any dashboard-triggered command finishes. No persistent service is installed.
+
 Each finished session starts its own one-shot integration process.
 
 A per-repository lock serializes simultaneous completions.
+Locks use exclusive files at the existing directory-lock paths. File and legacy
+directory acquisition remain mutually exclusive, and legacy owner records remain
+readable. Release verifies file identity and ownership and unlinks only the owned
+file. Interrupted or stale locks require conservative manual inspection; no
+automatic stale-lock deletion occurs. Cleanup failures retain the original action
+error when both fail. No secret-file access is required for locking.
 
 If an earlier integration preserves conflicts or failed validation in the
 canonical integration worktree, later sessions use detached session-owned

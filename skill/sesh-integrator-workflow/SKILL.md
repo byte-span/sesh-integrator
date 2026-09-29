@@ -38,6 +38,21 @@ or compatibility `CODEX_HANDOFF_HOME` is set, use that directory instead.
 Otherwise reuse `~/.codex-handoff/` first, then `~/.parallel-integrator/` if present;
 fresh installations use `~/.sesh-integrator/`. Do not move existing session or worktree data.
 
+## Execution capability stops
+
+Honor persisted manual-handoff mode and capability failures. Do not repeatedly
+retry lifecycle commands or run `capabilities --recheck` automatically to clear
+a stop. Inspect the reported operation, location, preserved state and recovery
+choices. `capabilities --mode manual` stops automatic lifecycle work in that
+repository/execution context; it does not complete an existing session.
+Restore `--mode automatic` only when the user chooses it. After an approved
+scoped environment repair or a move to an authorized execution context, run
+`seshx capabilities --recheck` before continuing the same session with its
+pinned coordinator. Older coordinators may require the compatible new CLI for
+the check, while retaining the recorded CLI for lifecycle recovery. Never
+relax secret protections, delete unknown locks, or replace pinned releases to
+bypass a failure. Integrator configuration cannot grant host permissions.
+
 ## Adoption and installation continuity
 
 Repository-scoped registration/begin reports existing dirty work and managed
@@ -175,6 +190,50 @@ the CLI verifies its source commit is present and retains its outstanding PR
 review and rollout obligations. Report the current no-change session and the
 referenced integration separately. Inspect `seshx status --session <id>` before
 reporting completion. A terminal response does not update stored session status.
+
+## Validation scope
+
+This workflow owns the general policy. Repository instructions should retain
+only concrete validation commands, path lists and genuine project exceptions;
+do not copy this policy into each project or independently maintained global
+instruction sources. The installer distributes this policy with the skill.
+
+Before an expensive validation run, inspect the complete change and the
+repository's configured `validationTiers`, source and integration commands.
+Use checks that exercise the affected behavior. Documentation and task-register
+data normally need formatting/link checks and any existing schema/dependency
+validator, rather than unrelated runtime builds and native tests. Executable
+examples, generated inputs, packaged guidance and documentation used by the
+application can need additional focused checks; an extension alone is not proof
+that a file is inert.
+
+Keep repository-specific selection in the integrator configuration. A lightweight
+tier should allow only reviewed paths and supply their meaningful checks. The
+CLI selects it only when every changed path matches. Mixed runtime, test,
+build/validation tooling, dependency, migration or executable configuration
+changes must retain appropriate code checks, using an explicitly configured code
+tier or the full fallback. Do not broaden a docs tier to all JSON, all files in
+a documentation folder, or executable examples merely to make it match.
+
+When the configured checks are disproportionate and policy adjustment is within
+the user's authorization, correct the configuration before running them. Inspect
+existing project scripts and path usage, preserve custom tiers and explicit
+stricter requirements, and explain the intended change. Use existing tier support;
+coordinator code is needed only for a demonstrated missing capability. Keep the
+full fallback intact. Verify positive lightweight cases and negative mixed-code
+cases with the installed selection logic, then let `seshx validate` and integration
+select and run the configured plan on the exact committed trees.
+
+If changing policy is outside the authorized scope or its safety is unclear,
+report the mismatch and proposed correction; do not silently weaken checks.
+A policy correction is separate from a failed check: never hide a runtime failure
+by relabeling its paths, deleting checks, substituting a smaller command manually,
+or treating an interrupted run as successful. Record a changed configuration and
+rerun validation through the CLI; preserve all existing session/recovery state.
+
+Once the required selected checks pass, do not run unrelated full suites solely
+because source promotion is next. Honor the integration selection, combined-tree
+validation and any broader checks explicitly required by repository policy.
 
 ## Completion
 

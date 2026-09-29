@@ -21,6 +21,8 @@ Complete personal MVP implementation checklist.
 
 ## Runtime data and registration
 
+- [x] Centralize proportionate validation policy in the bundled workflow reference, with managed-global routing and repository-specific configuration.
+
 - [x] Add persistent repository disable/enable commands, lifecycle enforcement, lock safety, separate status, and workflow opt-out guidance
 
 - [x] Add an optional global `defaultTargetBranch` with per-repository override precedence
@@ -95,6 +97,8 @@ Complete personal MVP implementation checklist.
 - [x] Retain nested Codex resolution as an explicit compatibility mode
 
 ## Session checklists and dashboard
+
+- [x] Add a local web dashboard with browser launch, live updates, responsive session details, and confirmed CLI actions
 
 - [x] Verify and record no-change session completion, retain referenced integration follow-ups, and display skipped progress explicitly
 

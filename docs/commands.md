@@ -127,6 +127,56 @@ inspection session. Old sessions are never silently closed based on task status.
 
 ### `dashboard`
 
+#### Local web dashboard
+
+Run `seshx dashboard --web` to start a local web server and open your browser.
+It binds to `127.0.0.1` on an available port and prints the URL. No account,
+external service, database, or internet connection is required. It shows the
+sessions stored on this machine; it does not connect to another computer.
+
+```bash
+seshx dashboard --web
+seshx dashboard --web --no-open       # Print the URL without opening a browser
+seshx dashboard --web --port 4317     # Choose a consistent local port
+```
+
+The command stays in the foreground. Ctrl+C or SIGTERM stops it and releases
+its file watchers and browser connections. A command started by the dashboard
+finishes before shutdown; the terminal explains when it is waiting. Closing a
+browser tab leaves the server running until you stop the CLI. Each invocation
+starts its own server; a port already in use is reported rather than replaced.
+
+Choose a repository, search sessions, and filter by Active, Needs attention,
+Finished, or All sessions. Select a session for its checklist, saved milestones,
+source/validation/promotion details, and follow-ups. On smaller screens, use
+Back to sessions to return from details. `/` focuses search. The theme follows
+your system initially; Light theme / Dark theme saves your browser preference.
+Drag the repository panel’s right edge to resize it. The divider also supports
+Left/Right arrows (Shift for larger steps), Home/End for its limits, and a
+double-click to reset. Width is remembered in the browser for this address;
+`--port` keeps that address consistent between launches. On small screens the
+repository list remains a horizontal strip.
+Updates preserve selection and detail scroll position. Disconnection and refresh
+errors are shown with retry guidance. Status reflects saved records, not agent
+process liveness.
+
+The web checklist is read-only: agents maintain its items and statuses through
+the CLI. Validate, Integrate, and Resume run the existing CLI in
+the selected session's source worktree, using its retained coordinator when
+available. Actions require an explicit form submission. Integration collects the
+completion summary, rollout classification, and manual follow-ups; the CLI keeps
+its normal validation, locking, Git, and PR-promotion safeguards. The web server
+rejects stale session/configuration confirmations and permits only one dashboard
+command at a time. Resolve and stage conflicts outside the dashboard before
+Resume. Browser output shows the most recent 128K characters of command output; normal
+CLI evidence remains in the runtime. Closing a tab does not cancel a command.
+
+The server rejects foreign Host/Origin headers and cross-site requests. It has
+no remote-listening or tunnel option. If a browser cannot be opened, use the
+printed URL on the same machine. Existing terminal dashboard behavior is unchanged.
+
+#### Terminal dashboard
+
 Run `seshx dashboard` in an interactive terminal to browse all
 registered repositories and their sessions. The dashboard shows a compact session
 table with separate Repository, Session description, Current task, Progress, and

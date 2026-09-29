@@ -1,3 +1,4 @@
+import { worktreePaths } from "./worktree-location.js";
 import { createHash } from "node:crypto";
 import {
   copyFile,
@@ -288,7 +289,7 @@ export async function reconstructRecoveryWorktree(
     session.targetCommitBeforeIntegration = currentTarget;
   }
   const path = join(
-    runtimePaths().recoveryWorktrees,
+    (await worktreePaths(repository.path)).recoveryWorktrees,
     session.id,
     session.recoveryBundle!.attemptId,
   );

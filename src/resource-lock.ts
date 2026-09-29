@@ -1,3 +1,4 @@
+import { tryFileLock, releaseFileLock, withCleanup } from "./file-lock.js";
 import { createHash, randomBytes } from "node:crypto";
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { hostname } from "node:os";
@@ -37,15 +38,31 @@ export async function acquireValidationResources(
     }
     return { leases };
   } catch (error) {
-    await releaseValidationResources({ leases });
-    throw error;
+    return withCleanup(
+      async () => {
+        throw error;
+      },
+      () => releaseValidationResources({ leases }),
+    );
   }
 }
 
 export async function releaseValidationResources(
   handle: ResourceLockHandle,
 ): Promise<void> {
-  await Promise.all(handle.leases.map((path) => rm(path, { force: true })));
+  const releases = await Promise.allSettled(
+    handle.leases.map((path) => rm(path, { force: true })),
+  );
+  const failures = releases
+    .filter(
+      (result): result is PromiseRejectedResult => result.status === "rejected",
+    )
+    .map((result) => result.reason as unknown);
+  if (failures.length)
+    throw new AggregateError(
+      failures,
+      `Could not release validation resource leases: ${failures.map((error) => (error instanceof Error ? error.message : String(error))).join("; ")}`,
+    );
 }
 
 async function acquireOne(
@@ -69,36 +86,40 @@ async function acquireOne(
   );
   let announced = false;
   for (;;) {
-    if (await tryGate(gate)) {
-      try {
-        await removeDeadLocalLeases(holders);
-        const active = await readLeases(holders);
-        const conflicts = active.filter(
-          (lease) => mode === "exclusive" || lease.mode === "exclusive",
-        );
-        if (conflicts.length === 0) {
-          const lease: ResourceLease = {
-            key,
-            mode,
-            sessionId,
-            pid: process.pid,
-            hostname: hostname(),
-            acquiredAt: new Date().toISOString(),
-          };
-          await writeFile(leasePath, `${JSON.stringify(lease, null, 2)}\n`, {
-            flag: "wx",
-          });
-          return leasePath;
-        }
-        if (!announced) {
-          process.stdout.write(
-            `Validation resource ${JSON.stringify(key)} (${mode}) is busy; waiting...\n`,
+    const gateLock = await tryFileLock(gate, { sessionId });
+    if (gateLock) {
+      const acquired = await withCleanup(
+        async () => {
+          await removeDeadLocalLeases(holders);
+          const active = await readLeases(holders);
+          const conflicts = active.filter(
+            (lease) => mode === "exclusive" || lease.mode === "exclusive",
           );
-          announced = true;
-        }
-      } finally {
-        await rm(gate, { recursive: true, force: true });
-      }
+          if (conflicts.length === 0) {
+            const lease: ResourceLease = {
+              key,
+              mode,
+              sessionId,
+              pid: process.pid,
+              hostname: hostname(),
+              acquiredAt: new Date().toISOString(),
+            };
+            await writeFile(leasePath, `${JSON.stringify(lease, null, 2)}\n`, {
+              flag: "wx",
+            });
+            return leasePath;
+          }
+          if (!announced) {
+            process.stdout.write(
+              `Validation resource ${JSON.stringify(key)} (${mode}) is busy; waiting...\n`,
+            );
+            announced = true;
+          }
+          return undefined;
+        },
+        () => releaseFileLock(gateLock),
+      );
+      if (acquired) return acquired;
     }
     if (Date.now() >= deadline) {
       throw new Error(
@@ -109,26 +130,22 @@ async function acquireOne(
   }
 }
 
-async function tryGate(path: string): Promise<boolean> {
-  try {
-    await mkdir(path);
-    return true;
-  } catch (error) {
-    if (isNodeError(error) && error.code === "EEXIST") return false;
-    throw error;
-  }
-}
-
 async function readLeases(directory: string): Promise<ResourceLease[]> {
   const names = await readdir(directory);
   const leases = await Promise.all(
     names.map(async (name) => {
       try {
-        return JSON.parse(
+        const lease: unknown = JSON.parse(
           await readFile(join(directory, name), "utf8"),
-        ) as ResourceLease;
-      } catch {
-        return null;
+        );
+        if (!validLease(lease)) throw new Error("invalid owner record");
+        return lease;
+      } catch (error) {
+        if (isNodeError(error) && error.code === "ENOENT") return null;
+        throw new Error(
+          `Validation resource lease is unreadable or invalid: ${join(directory, name)}. Preserve it for inspection.`,
+          { cause: error },
+        );
       }
     }),
   );
@@ -140,7 +157,11 @@ async function removeDeadLocalLeases(directory: string): Promise<void> {
     const path = join(directory, name);
     try {
       const lease = JSON.parse(await readFile(path, "utf8")) as ResourceLease;
-      if (lease.hostname === hostname() && !isAlive(lease.pid)) {
+      if (
+        validLease(lease) &&
+        lease.hostname === hostname() &&
+        !isAlive(lease.pid)
+      ) {
         await rm(path, { force: true });
       }
     } catch {
@@ -160,4 +181,18 @@ function isAlive(pid: number): boolean {
 
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function validLease(value: unknown): value is ResourceLease {
+  if (!value || typeof value !== "object") return false;
+  const lease = value as Partial<ResourceLease>;
+  return (
+    Number.isSafeInteger(lease.pid) &&
+    (lease.pid ?? 0) > 0 &&
+    typeof lease.hostname === "string" &&
+    typeof lease.sessionId === "string" &&
+    typeof lease.key === "string" &&
+    typeof lease.acquiredAt === "string" &&
+    (lease.mode === "shared" || lease.mode === "exclusive")
+  );
 }

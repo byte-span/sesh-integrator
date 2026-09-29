@@ -1,3 +1,4 @@
+import { withCleanup } from "./file-lock.js";
 import { createHash, randomBytes } from "node:crypto";
 import {
   cp,
@@ -131,28 +132,39 @@ export async function retainCoordinator(): Promise<CoordinatorIdentity> {
       if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
     }
     const temp = await mkdtemp(join(root, ".install-"));
-    try {
-      for (const name of assets)
-        await cp(join(project, name), join(temp, name), { recursive: true });
-      if ((await digest(temp)) !== buildId)
-        throw new Error(
-          "Coordinator changed during snapshot; retry with a stable build",
-        );
-      try {
-        await rename(temp, destination);
-      } catch (e) {
-        if (
-          !["EEXIST", "ENOTEMPTY"].includes(
-            (e as NodeJS.ErrnoException).code ?? "",
+    await withCleanup(
+      async () => {
+        for (const name of assets)
+          await cp(join(project, name), join(temp, name), { recursive: true });
+        if ((await digest(temp)) !== buildId)
+          throw new Error(
+            "Coordinator changed during snapshot; retry with a stable build",
+          );
+        try {
+          await rename(temp, destination);
+        } catch (e) {
+          if (
+            !["EEXIST", "ENOTEMPTY"].includes(
+              (e as NodeJS.ErrnoException).code ?? "",
+            )
           )
-        )
-          throw e;
-        if ((await digest(destination)) !== buildId)
-          throw new Error("Concurrent coordinator snapshot mismatch");
-      }
-    } finally {
-      await rm(temp, { recursive: true, force: true });
-    }
+            throw e;
+          if ((await digest(destination)) !== buildId)
+            throw new Error("Concurrent coordinator snapshot mismatch");
+        }
+      },
+      async () => {
+        try {
+          await rm(temp, { recursive: true, force: true });
+        } catch (error) {
+          throw new Error(
+            `Coordinator snapshot cleanup at ${temp} failed; preserve this artifact for inspection: ${error instanceof Error ? error.message : String(error)}`,
+            { cause: error },
+          );
+        }
+      },
+      "Coordinator snapshot cleanup",
+    );
   }
   const pkg = JSON.parse(
     await readFile(join(project, "package.json"), "utf8"),

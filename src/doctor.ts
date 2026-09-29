@@ -1,3 +1,5 @@
+import { worktreePaths } from "./worktree-location.js";
+import { probeCapabilities, formatCapabilityReport } from "./capabilities.js";
 import {
   harnessInfo,
   harnessCommand,
@@ -40,8 +42,17 @@ export async function doctorCommand(
   cwd = process.cwd(),
   harness: Harness = "codex",
 ): Promise<void> {
+  const readiness = await probeCapabilities(cwd);
+  process.stdout.write(formatCapabilityReport(readiness));
   const selectedHarness = harnessInfo[harness];
   const checks: Check[] = [];
+  if (readiness?.failures.length)
+    checks.push(
+      fail(
+        "Execution capabilities",
+        "See operation evidence and recovery choices above",
+      ),
+    );
   const major = Number(process.versions.node.split(".")[0]);
   checks.push(
     major >= 20
@@ -57,7 +68,7 @@ export async function doctorCommand(
     paths.sessions,
     paths.locks,
     paths.logs,
-    paths.worktrees,
+    (await worktreePaths()).worktrees,
   ];
   const missingPaths: string[] = [];
   for (const path of requiredPaths) {

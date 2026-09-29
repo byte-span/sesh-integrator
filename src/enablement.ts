@@ -1,3 +1,4 @@
+import { withCleanup } from "./file-lock.js";
 import { readFile, realpath } from "node:fs/promises";
 import { isAbsolute, resolve, join } from "node:path";
 import { git } from "./git.js";
@@ -49,29 +50,30 @@ export async function enablementCommand(
       join(runtimePaths().worktrees, id),
       true,
     );
-    try {
-      const config = await readConfig();
-      const disabled = new Set(config.disabledRepositories ?? []);
-      if (enabled) disabled.delete(commonDir);
-      else disabled.add(commonDir);
-      config.disabledRepositories = [...disabled].sort();
-      const stored = JSON.parse(
-        await readFile(runtimePaths().config, "utf8"),
-      ) as Config;
-      stored.disabledRepositories = config.disabledRepositories;
-      await writeConfig(stored);
-      const registered = config.repositories.some(
-        (repo) => repo.gitCommonDir === commonDir,
-      );
-      process.stdout.write(
-        `Repository ${enabled ? "enabled" : "disabled"}: ${commonDir}\nRegistration: ${registered ? "registered" : "unregistered"}\n`,
-      );
-      if (!enabled)
-        process.stdout.write(
-          "Configuration, sessions, and Git state preserved. Run seshx enable from this repository to re-enable it.\n",
+    await withCleanup(
+      async () => {
+        const config = await readConfig();
+        const disabled = new Set(config.disabledRepositories ?? []);
+        if (enabled) disabled.delete(commonDir);
+        else disabled.add(commonDir);
+        config.disabledRepositories = [...disabled].sort();
+        const stored = JSON.parse(
+          await readFile(runtimePaths().config, "utf8"),
+        ) as Config;
+        stored.disabledRepositories = config.disabledRepositories;
+        await writeConfig(stored);
+        const registered = config.repositories.some(
+          (repo) => repo.gitCommonDir === commonDir,
         );
-    } finally {
-      await releaseRepoLock(lock);
-    }
+        process.stdout.write(
+          `Repository ${enabled ? "enabled" : "disabled"}: ${commonDir}\nRegistration: ${registered ? "registered" : "unregistered"}\n`,
+        );
+        if (!enabled)
+          process.stdout.write(
+            "Configuration, sessions, and Git state preserved. Run seshx enable from this repository to re-enable it.\n",
+          );
+      },
+      () => releaseRepoLock(lock),
+    );
   });
 }

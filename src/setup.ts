@@ -1,3 +1,4 @@
+import { requireCapabilities } from "./capabilities.js";
 import {
   preflightRuntimeCompatibility,
   retainCoordinator,
@@ -89,6 +90,7 @@ export async function setupCommand(
   args: string[],
   uninstall = false,
 ): Promise<void> {
+  if (!uninstall) await requireCapabilities();
   return withConfigLock(() => setupUnlocked(args, uninstall));
 }
 
@@ -267,6 +269,12 @@ async function setupUnlocked(args: string[], uninstall = false): Promise<void> {
         ...(currentBlock ? { previousDigest: hash(currentBlock) } : {}),
       });
     }
+    if (!uninstall)
+      await requireCapabilities(
+        process.cwd(),
+        false,
+        changes.map((change) => dirname(change.path)),
+      );
     console.log(
       `${uninstall ? "Remove" : "Install"} integrations: ${selected.join(", ")}`,
     );

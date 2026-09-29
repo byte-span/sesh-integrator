@@ -1,7 +1,15 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+  symlink,
+} from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, delimiter } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { executableOnPath, managedRange } from "../src/setup.js";
 
@@ -12,9 +20,14 @@ async function fixture() {
   const bin = join(home, "bin");
   await mkdir(bin);
   await writeFile(join(bin, "claude"), "#!/bin/sh\nexit 99\n", { mode: 0o755 });
-  await writeFile(join(bin, "git"), "#!/bin/sh\necho git version test\n", {
-    mode: 0o755,
-  });
+  // Setup now exercises Git operations, so provide real Git while keeping
+  // harness discovery isolated to this fixture.
+  const gitPath = (process.env.PATH ?? "")
+    .split(delimiter)
+    .map((directory) => join(directory, "git"))
+    .find((path) => existsSync(path));
+  if (!gitPath) throw new Error("Git is required for setup capability tests");
+  await symlink(gitPath, join(bin, "git"));
   const env = {
     ...process.env,
     HOME: home,
@@ -24,6 +37,7 @@ async function fixture() {
   const cli = (args: string[]) =>
     spawnSync(process.execPath, [join(process.cwd(), "dist/cli.js"), ...args], {
       env,
+      cwd: home,
       encoding: "utf8",
     });
   return { home, bin, cli };
