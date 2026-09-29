@@ -191,6 +191,13 @@ review and rollout obligations. Report the current no-change session and the
 referenced integration separately. Inspect `seshx status --session <id>` before
 reporting completion. A terminal response does not update stored session status.
 
+## Validation scope
+
+Before an expensive run or a validation-policy change, read
+[proportionate validation](references/validation.md). It owns the general policy;
+repositories supply concrete paths/checks and explicit exceptions. Use the CLI's
+complete-diff tier selection, preserving appropriate checks for mixed changes.
+
 ## Completion
 
 Before saying the task is complete:

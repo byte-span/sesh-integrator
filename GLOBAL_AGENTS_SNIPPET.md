@@ -161,6 +161,16 @@ review and rollout obligations. Report the current no-change session and the
 referenced integration separately. Inspect `seshx status --session <id>` before
 reporting completion. A terminal response does not update stored session status.
 
+### Validation scope
+
+Use validation proportionate to the complete change. Documentation and task data
+normally use narrow configured checks; mixed executable changes retain appropriate
+code validation. Before an expensive run or policy adjustment, follow the bundled
+`sesh-integrator-workflow` skill's `references/validation.md`. That workflow owns
+the general policy; repository instructions retain only concrete paths/checks and
+explicit exceptions. Let the CLI select from the committed diff; never bypass a
+failed check with an ad hoc smaller command.
+
 At completion:
 
 1. Inspect the task diff and Git status. Stage only intended task paths and
