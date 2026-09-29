@@ -166,7 +166,7 @@ reporting completion. A terminal response does not update stored session status.
 Use validation proportionate to the complete change. Documentation and task data
 normally use narrow configured checks; mixed executable changes retain appropriate
 code validation. Before an expensive run or policy adjustment, follow the bundled
-`sesh-integrator-workflow` skill's `references/validation.md`. That workflow owns
+`sesh-integrator-workflow` skill's Validation scope section. That workflow owns
 the general policy; repository instructions retain only concrete paths/checks and
 explicit exceptions. Let the CLI select from the committed diff; never bypass a
 failed check with an ad hoc smaller command.

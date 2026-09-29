@@ -298,7 +298,7 @@ deployment, migration, release, or source-rewriting generators. These defaults
 apply to existing registrations without additional configuration.
 
 The general validation-scope policy is maintained in the
-[bundled workflow reference](../skill/sesh-integrator-workflow/references/validation.md)
+[bundled workflow reference](../skill/sesh-integrator-workflow/SKILL.md#validation-scope)
 and distributed with the installed skill and managed global guidance. Keep
 project-specific path lists and meaningful check commands in each registration;
 do not duplicate the general workflow in repository instructions. No global
