@@ -21,6 +21,8 @@ Complete personal MVP implementation checklist.
 
 ## Runtime data and registration
 
+- [x] Centralize proportionate validation policy in the bundled workflow reference, with managed-global routing and repository-specific configuration.
+
 - [x] Add persistent repository disable/enable commands, lifecycle enforcement, lock safety, separate status, and workflow opt-out guidance
 
 - [x] Add an optional global `defaultTargetBranch` with per-repository override precedence

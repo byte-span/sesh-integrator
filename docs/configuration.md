@@ -297,6 +297,13 @@ skips preparation already present in a package script and does not infer
 deployment, migration, release, or source-rewriting generators. These defaults
 apply to existing registrations without additional configuration.
 
+The general validation-scope policy is maintained in the
+[bundled workflow reference](../skill/sesh-integrator-workflow/SKILL.md#validation-scope)
+and distributed with the installed skill and managed global guidance. Keep
+project-specific path lists and meaningful check commands in each registration;
+do not duplicate the general workflow in repository instructions. No global
+one-size-fits-all path allowlist is imposed on existing registrations.
+
 Validation tiers are evaluated in configuration order. A tier matches only when
 every changed path matches at least one of its glob patterns; otherwise the
 legacy source/integration lists form the `full` tier. `--auto-config` adds a
