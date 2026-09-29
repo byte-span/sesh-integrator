@@ -156,8 +156,8 @@ Example `~/.sesh-integrator/config.json`:
   "conflictResolutionMode": "current-session",
   "defaultTargetBranch": "dev",
   "defaultPromotion": {
-    "reviewers": ["scram-j"],
-    "assignees": ["scram-j"]
+    "reviewers": ["example-user"],
+    "assignees": ["example-user"]
   },
   "repositories": [
     {

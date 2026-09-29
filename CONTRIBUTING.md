@@ -53,9 +53,9 @@ Maintainer machine safeguards are optional and are not required to run tests.
 
 External contributors should fork the repository and submit a focused pull
 request against `dev`; maintainers coordinate promotion from `dev` to `main`.
-Request review from `scram-j` when GitHub permissions allow it; otherwise ask a
-maintainer to add the review request. Maintainer-managed sessions follow the
-local task-branch policy in `AGENTS.md`.
+Request review from the configured reviewers when GitHub permissions allow it;
+otherwise ask a maintainer to add the review requests. Maintainer-managed sessions
+follow the local task-branch policy in `AGENTS.md`.
 
 ## License
 
