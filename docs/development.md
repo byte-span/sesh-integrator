@@ -15,8 +15,8 @@ Commands below run from the repository root unless stated otherwise.
 
 This repository supports the same isolated sessions, serialized integration, and
 agent-assisted conflict recovery as other projects. Use local `dev` as the
-target; keep `main` behind the shared `dev` to `main` PR with `scram-j` review.
-Local task branches are never published for separate PRs.
+target; keep `main` behind the shared `dev` to `main` PR with review from configured
+reviewers. Local task branches are never published for separate PRs.
 
 Install a validated build as a separate coordinator snapshot before starting
 concurrent development. From a clean, validated checkout:

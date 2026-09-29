@@ -70,9 +70,10 @@ pull request or create one if absent. Never push task branches, close or merge
 pull requests, or delete or force-push remote branches without explicit user
 instructions.
 
-Every pull request opened for this repository must request review from
-`scram-j`. Pass `--reviewer scram-j` to `gh pr create`, or immediately add the
-review request with `gh pr edit <pr-url> --add-reviewer scram-j`.
+Every pull request opened for this repository must use the configured reviewers
+and assignees. Inspect applicable global and repository PR configuration before
+creating or updating a pull request, and preserve existing assignments and review
+requests unless configuration explicitly requires their removal.
 
 Before configured PR promotion, verify that `origin/main` is an ancestor of
 `dev`. Authorization to push does not bypass this repository's ancestry guard.

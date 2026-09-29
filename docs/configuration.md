@@ -72,8 +72,8 @@ Edit `~/.sesh-integrator/config.json` to add validation and conflict settings. C
   "codexCommand": "codex",
   "conflictResolutionMode": "current-session",
   "defaultPromotion": {
-    "reviewers": ["scram-j"],
-    "assignees": ["scram-j"]
+    "reviewers": ["example-user"],
+    "assignees": ["example-user"]
   },
   "repositories": [
     {
@@ -209,8 +209,8 @@ promotion, set global defaults once:
 ```json
 {
   "defaultPromotion": {
-    "reviewers": ["scram-j"],
-    "assignees": ["scram-j"]
+    "reviewers": ["example-user"],
+    "assignees": ["example-user"]
   }
 }
 ```
