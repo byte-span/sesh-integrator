@@ -3,11 +3,13 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 describe("bundled workflow trigger policy", () => {
-  it("requires scram-j review for sesh-integrator self-hosting pull requests", async () => {
+  it("uses configured reviewers and assignees for self-hosting pull requests", async () => {
     const policy = await readFile(join(process.cwd(), "AGENTS.md"), "utf8");
 
     expect(policy).toContain("Every pull request opened for this repository");
-    expect(policy).toContain("--reviewer scram-j");
+    expect(policy).toMatch(/configured reviewers\s+and assignees/);
+    expect(policy).toContain("global and repository PR configuration");
+    expect(policy).toContain("preserve existing assignments and review");
   });
 
   it("uses CLI-first managed source worktrees without application mode gates", async () => {
