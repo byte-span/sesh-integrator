@@ -38,10 +38,11 @@ it.each([false, true])(
         );
       }
       const globalPath = join(home, ".codex", "AGENTS.md");
-      await writeFile(
-        globalPath,
-        "# Personal instructions\nPreserve this section.\n",
-      );
+      const sharedPolicies =
+        "## External services and production isolation\nShared protection.\n\n## Central secret requirements\nShared registry policy.\n";
+      const oldPolicyBlock =
+        "<!-- codex-handoff:managed:start -->\n## External services and production isolation\nOld duplicate protection.\n## Central secret requirements\nOld duplicate registry policy.\n<!-- codex-handoff:managed:end -->\n";
+      await writeFile(globalPath, sharedPolicies + oldPolicyBlock);
       const sync = () =>
         execFileSync(
           process.execPath,
@@ -57,9 +58,13 @@ it.each([false, true])(
         );
       expect(sync()).toContain("Synchronized global guidance");
       const first = await readFile(globalPath, "utf8");
-      expect(first).toContain(
-        "# Personal instructions\nPreserve this section.",
-      );
+      expect(first.startsWith(sharedPolicies)).toBe(true);
+      expect(first).not.toContain("Old duplicate protection.");
+      expect(first).not.toContain("Old duplicate registry policy.");
+      expect(first.match(/## Central secret requirements/g)).toHaveLength(1);
+      expect(
+        first.match(/## External services and production isolation/g),
+      ).toHaveLength(1);
       expect(first).toContain(
         (
           await readFile(
