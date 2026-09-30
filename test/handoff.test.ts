@@ -2032,7 +2032,7 @@ process.stdout.write(JSON.stringify({status:"SUCCESS",response:"resolved",text:"
     );
   });
 
-  it.each(["clean", "conflict", "validation"])(
+  it.each(["clean", "conflict", "validation", "correction"])(
     "reconciles a committed dirty target through same-session resume (%s)",
     async (mode) => {
       const fixture = await createFixture();
@@ -2063,6 +2063,16 @@ process.stdout.write(JSON.stringify({status:"SUCCESS",response:"resolved",text:"
       ).toBe(1);
       session = (await sessions(fixture))[0]!;
       expect(session.status).toBe("promotion_pending");
+      if (mode === "correction") {
+        const rejected = await runCli(fixture, worktree, [
+          "resume",
+          "--accept-staged-resolution",
+        ]);
+        expect(rejected.code).toBe(1);
+        expect(rejected.stderr).toContain(
+          "requires a local target resolution with failed validation",
+        );
+      }
       const originalResult = session.integratedCommit;
       const preRecoverySession = structuredClone(session);
       const originalManifest = JSON.parse(
@@ -2082,7 +2092,7 @@ process.stdout.write(JSON.stringify({status:"SUCCESS",response:"resolved",text:"
           [
             process.execPath,
             "-e",
-            `const fs=require('fs');fs.appendFileSync(${JSON.stringify(marker)},'validated\\n');if(${mode === "validation"}&&!fs.existsSync(${JSON.stringify(gate)}))process.exit(1)`,
+            `const fs=require('fs');fs.appendFileSync(${JSON.stringify(marker)},'validated\\n');if(${mode === "validation" || mode === "correction"}&&!fs.existsSync(${JSON.stringify(gate)}))process.exit(1)`,
           ],
         ];
         c.repositories[0].postIntegrationCommands = [
@@ -2108,6 +2118,88 @@ process.stdout.write(JSON.stringify({status:"SUCCESS",response:"resolved",text:"
             "old target\ntask\n",
           );
           git(session.integrationWorktreePath, "add", "shared.txt");
+        } else if (mode === "correction") {
+          const preserved = session.localTargetRecovery.resolvedCommit;
+          const recovery = session.integrationWorktreePath;
+          const correction = join(recovery, "task.txt");
+          await writeFile(correction, "corrected task\n");
+          const unstaged = await runCli(fixture, worktree, [
+            "resume",
+            "--accept-staged-resolution",
+          ]);
+          expect(unstaged.code).toBe(1);
+          expect(
+            (await sessions(fixture))[0]!.localTargetRecovery.resolvedCommit,
+          ).toBe(preserved);
+          git(recovery, "add", "task.txt");
+          const ordinary = await runCli(fixture, worktree, ["resume"]);
+          expect(ordinary.code).toBe(1);
+          expect(ordinary.stderr).toContain("--accept-staged-resolution");
+          await writeFile(
+            correction,
+            "<<<<<<< wrong\ncorrected task\n=======\ntask\n>>>>>>> wrong\n",
+          );
+          git(recovery, "add", "task.txt");
+          const markers = await runCli(fixture, worktree, [
+            "resume",
+            "--accept-staged-resolution",
+          ]);
+          expect(markers.code).toBe(1);
+          expect(markers.stderr).toContain("conflict markers");
+          await writeFile(correction, "corrected task\n");
+          git(recovery, "add", "task.txt");
+          const mergeHead = git(
+            recovery,
+            "rev-parse",
+            "--git-path",
+            "MERGE_HEAD",
+          );
+          await writeFile(mergeHead, ready + "\n");
+          const parents = await runCli(fixture, worktree, [
+            "resume",
+            "--accept-staged-resolution",
+          ]);
+          expect(parents.code).toBe(1);
+          expect(parents.stderr).toContain(
+            "original local recovery HEAD and MERGE_HEAD",
+          );
+          await writeFile(mergeHead, oldWork + "\n");
+          expect(git(fixture.repo, "rev-parse", "HEAD")).toBe(oldWork);
+          expect(
+            (await sessions(fixture))[0]!.localTargetRecovery.resolvedCommit,
+          ).toBe(preserved);
+          await writeFile(gate, "pass");
+          await runCliOk(fixture, worktree, [
+            "resume",
+            "--session",
+            session.id,
+            "--accept-staged-resolution",
+          ]);
+          const corrected = (await sessions(fixture))[0]!;
+          expect(corrected.localTargetRecovery.resolvedCommit).not.toBe(
+            preserved,
+          );
+          expect(await readFile(join(fixture.repo, "task.txt"), "utf8")).toBe(
+            "corrected task\n",
+          );
+          const evidence = JSON.parse(
+            await readFile(
+              join(corrected.recoveryBundle.path, "manifest.json"),
+              "utf8",
+            ),
+          );
+          expect(
+            evidence.snapshots.some(
+              (s: any) => s.localTarget?.resolvedCommit === preserved,
+            ),
+          ).toBe(true);
+          expect(
+            evidence.snapshots.some(
+              (s: any) =>
+                s.localTarget?.resolvedCommit ===
+                corrected.localTargetRecovery.resolvedCommit,
+            ),
+          ).toBe(true);
         } else {
           await writeFile(gate, "pass");
           // Reconstruct the exact resolved tree even if the disposable worktree is gone.
@@ -2118,8 +2210,17 @@ process.stdout.write(JSON.stringify({status:"SUCCESS",response:"resolved",text:"
             "--force",
             session.integrationWorktreePath,
           );
+          const missing = await runCli(fixture, worktree, [
+            "resume",
+            "--accept-staged-resolution",
+          ]);
+          expect(missing.code).toBe(1);
+          expect(missing.stderr).toContain(
+            "without the preserved local recovery worktree",
+          );
         }
-        await runCliOk(fixture, worktree, ["resume"]);
+        if (mode !== "correction")
+          await runCliOk(fixture, worktree, ["resume"]);
       } else expect(resumed.code, resumed.stderr).toBe(0);
       session = (await sessions(fixture))[0]!;
       expect(session.status).toBe("succeeded");
@@ -2138,6 +2239,8 @@ process.stdout.write(JSON.stringify({status:"SUCCESS",response:"resolved",text:"
         "old uncommitted work\n",
       );
       expect(await readFile(marker, "utf8")).toContain("validated");
+      if (mode === "correction")
+        expect(await readFile(marker, "utf8")).toBe("validated\nvalidated\n");
       expect(await readFile(post, "utf8")).toContain("post");
       const manifest = JSON.parse(
         await readFile(

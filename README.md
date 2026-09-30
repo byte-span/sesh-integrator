@@ -235,3 +235,9 @@ operations. Persist restricted operation with `seshx capabilities --mode manual`
 restore it explicitly with `--mode automatic` and recheck. Repository disablement
 remains independent. See [execution readiness and recovery](docs/execution-capabilities.md)
 for evidence limits, context changes, cleanup artifacts, and existing sessions.
+
+If validation fails after resolving a local target merge, correct and stage the
+reported recovery worktree, then run `seshx resume --accept-staged-resolution`
+from the source worktree. This explicit option keeps the failed resolution and
+validation evidence, snapshots the correction, and reruns full validation before
+promotion. Ordinary `resume` still retries only the preserved tree.
