@@ -1001,7 +1001,10 @@ export async function validateCommand(sessionId?: string): Promise<Session> {
   return session;
 }
 
-export async function resumeCommand(sessionId?: string): Promise<Session> {
+export async function resumeCommand(
+  sessionId?: string,
+  acceptStagedResolution = false,
+): Promise<Session> {
   await requireCapabilities();
   const config = await readConfig();
   assertRepositoryEnabled(config, await repositoryCommonDir(process.cwd()));
@@ -1180,6 +1183,16 @@ export async function resumeCommand(sessionId?: string): Promise<Session> {
         session.repositoryId,
       );
     await verifyRecoveryBundle(session);
+    if (
+      acceptStagedResolution &&
+      (session.recoveryPhase !== "local_target" ||
+        !session.validationFailure ||
+        !session.localTargetRecovery?.resolvedCommit ||
+        session.localTargetRecovery.resultCommit)
+    )
+      throw new Error(
+        "--accept-staged-resolution requires a local target resolution with failed validation and no committed result",
+      );
     const localTarget = await refCommit(
       repository.path,
       `refs/heads/${session.targetBranch}`,
@@ -1207,7 +1220,7 @@ export async function resumeCommand(sessionId?: string): Promise<Session> {
             )
           ).code === 1))
     ) {
-      await reconcileLocalTarget(repository, session);
+      await reconcileLocalTarget(repository, session, acceptStagedResolution);
       process.stdout.write(
         `Promoted ${session.id} to ${session.targetBranch} at ${session.promotedCommit}\n`,
       );
@@ -2498,6 +2511,7 @@ async function reportAdoption(
 async function reconcileLocalTarget(
   repository: RepositoryConfig,
   session: Session,
+  acceptStagedResolution = false,
 ): Promise<void> {
   await verifyRecoveryBundle(session);
   let state =
@@ -2578,6 +2592,10 @@ async function reconcileLocalTarget(
     await runPostIntegrationAndPromote(repository, session, worktree);
     return;
   }
+  if (acceptStagedResolution && !(await pathExists(worktree)))
+    throw new Error(
+      "Cannot accept a staged correction without the preserved local recovery worktree",
+    );
   if (!(await pathExists(worktree))) {
     await mkdir(dirname(worktree), { recursive: true });
     await git(
@@ -2711,17 +2729,52 @@ async function reconcileLocalTarget(
     await recordLocalTargetRecovery(repository, session);
     await writeSession(session);
   } else {
-    if (
-      (await git(["write-tree"], worktree)) !==
-      (await git(
-        ["rev-parse", `${state.resolvedCommit}^{tree}`],
-        repository.path,
-      ))
-    )
-      throw new Error(
-        "Resolved local reconciliation tree changed after validation failure; preserved snapshot remains authoritative",
-      );
     await assertNoUnstagedChanges(session, worktree);
+    const tree = await git(["write-tree"], worktree);
+    const preservedTree = await git(
+      ["rev-parse", `${state.resolvedCommit}^{tree}`],
+      repository.path,
+    );
+    if (tree !== preservedTree) {
+      if (!acceptStagedResolution)
+        throw new Error(
+          "Resolved local reconciliation tree changed after validation failure; preserved snapshot remains authoritative. Review and stage the correction, then resume --accept-staged-resolution to preserve a new snapshot and fully revalidate",
+        );
+      if (
+        context.head !== state.baseCommit ||
+        !(await hasMergeInProgress(worktree)) ||
+        (await git(["rev-parse", "MERGE_HEAD"], worktree)) !==
+          state.targetCommit
+      )
+        throw new Error(
+          "Staged correction requires the original local recovery HEAD and MERGE_HEAD; preserved snapshots retained",
+        );
+      const markers = await run("git", ["diff", "--cached", "--check"], {
+        cwd: worktree,
+      });
+      if (
+        (markers.stdout + markers.stderr).includes("leftover conflict marker")
+      )
+        throw new Error("Local reconciliation still has conflict markers");
+      // Prior failed trees and validation evidence stay in immutable bundle refs.
+      // Publish the replacement snapshot before validating, using the same parents.
+      const corrected = await git(
+        [
+          "commit-tree",
+          tree,
+          "-p",
+          state.baseCommit,
+          "-p",
+          state.targetCommit,
+          "-m",
+          `Corrected local reconciliation snapshot ${session.id}`,
+        ],
+        repository.path,
+      );
+      state.resolvedCommit = corrected;
+      await recordLocalTargetRecovery(repository, session);
+      await writeSession(session);
+    }
   }
   session.targetCommitBeforeIntegration = state.targetCommit;
   // One reconciliation per resume: additional target movement stays pending.
