@@ -453,6 +453,165 @@ process.stdout.write(JSON.stringify({status:"SUCCESS",response:"resolved",text:"
     expect(await readFile(validationLog, "utf8")).toBe("validated\n");
   });
 
+  it.each([
+    "clean",
+    "conflict",
+    "validation",
+    "rewritten-target",
+    "rewritten-staging",
+  ])(
+    "recovers isolated staging that omitted the already-recorded shared target (%s)",
+    async (mode) => {
+      const fixture = await createFixture();
+      const remote = await configureSharedTargetPromotion(fixture);
+      const fake = await createFakeGh(fixture);
+      await runCliOkWithEnv(
+        fixture,
+        fixture.repo,
+        ["begin", "--summary", "isolated staging recovery"],
+        fake.env,
+      );
+      const ready = commitFile(
+        fixture.repo,
+        mode === "conflict" ? "shared.txt" : "local.txt",
+        "local\n",
+        "local change",
+      );
+      const session = (await sessions(fixture))[0]!;
+      // Another session owns dirty canonical staging. Integration must isolate
+      // itself and retain that checkout exactly, including across recovery.
+      const canonical = join(
+        fixture.runtime,
+        "worktrees",
+        session.repositoryId,
+      );
+      await mkdir(join(fixture.runtime, "worktrees"), { recursive: true });
+      git(
+        fixture.repo,
+        "worktree",
+        "add",
+        "-b",
+        "sesh-integrator/integration",
+        canonical,
+        "main",
+      );
+      await writeFile(join(canonical, "shared.txt"), "other session work\n");
+      advanceRemote(
+        fixture,
+        remote,
+        mode === "conflict" ? "shared.txt" : "remote.txt",
+        "remote\n",
+      );
+      const target = git(remote, "rev-parse", "dev");
+      const blocked = await runCli(
+        fixture,
+        fixture.repo,
+        ["integrate", "--summary", "isolated staging recovery"],
+        fake.env,
+      );
+      expect(blocked.code, blocked.stderr).toBe(1);
+      const pending = (await sessions(fixture))[0]!;
+      expect(pending.status).toBe("promotion_pending");
+      expect(pending.targetCommitBeforeIntegration).toBe(target);
+      expect(pending.recoveryPhase).toBe("promotion");
+      const originalResult = pending.integratedCommit;
+      const manifestBefore = JSON.parse(
+        await readFile(
+          join(pending.recoveryBundle.path, "manifest.json"),
+          "utf8",
+        ),
+      );
+      const validationLog = join(fixture.root, "recovery-validation");
+      const gate = join(fixture.root, "validation-gate");
+      await updateConfig(fixture, (config) => {
+        config.repositories[0].integrationValidationCommands = [
+          [
+            process.execPath,
+            "-e",
+            `const fs=require('fs');fs.appendFileSync(${JSON.stringify(validationLog)},'validated\\n');if(${mode === "validation"}&&!fs.existsSync(${JSON.stringify(gate)}))process.exit(1)`,
+          ],
+        ];
+      });
+      if (mode.startsWith("rewritten-")) {
+        const branch =
+          mode === "rewritten-target" ? "dev" : "sesh-integrator/integration";
+        const replacement = git(
+          fixture.repo,
+          "commit-tree",
+          `${target}^{tree}`,
+          "-m",
+          "replacement history",
+        );
+        git(fixture.repo, "update-ref", `refs/heads/${branch}`, replacement);
+        const refused = await runCli(
+          fixture,
+          fixture.repo,
+          ["resume"],
+          fake.env,
+        );
+        expect(refused.code).toBe(1);
+        expect(refused.stderr).toContain(
+          mode === "rewritten-target"
+            ? "history was rewritten"
+            : "staging diverged",
+        );
+        expect(git(fixture.repo, "rev-parse", branch)).toBe(replacement);
+        expect(git(remote, "rev-parse", "dev")).toBe(target);
+        expect(await exists(validationLog)).toBe(false);
+        expect(await readFile(join(canonical, "shared.txt"), "utf8")).toBe(
+          "other session work\n",
+        );
+        return;
+      }
+      const resumed = await runCli(fixture, fixture.repo, ["resume"], fake.env);
+      if (mode !== "clean") {
+        expect(resumed.code, resumed.stderr).toBe(1);
+        const recovering = (await sessions(fixture))[0]!;
+        expect(recovering.status).toBe(
+          mode === "conflict" ? "needs_review" : "validation_pending",
+        );
+        expect(git(fixture.repo, "rev-parse", "dev")).toBe(target);
+        expect(git(remote, "rev-parse", "dev")).toBe(target);
+        if (mode === "conflict") {
+          await writeFile(
+            join(recovering.integrationWorktreePath, "shared.txt"),
+            "local\nremote\n",
+          );
+          git(recovering.integrationWorktreePath, "add", "shared.txt");
+        } else await writeFile(gate, "pass");
+        await runCliOkWithEnv(fixture, fixture.repo, ["resume"], fake.env);
+      } else expect(resumed.code, resumed.stderr).toBe(0);
+      const completed = (await sessions(fixture))[0]!;
+      expect(completed.status).toBe("succeeded");
+      expect(completed.readyCommit).toBe(ready);
+      expect(completed.localTargetRecovery.baseCommit).toBe(originalResult);
+      for (const commit of [ready, originalResult, target])
+        git(
+          fixture.repo,
+          "merge-base",
+          "--is-ancestor",
+          commit,
+          completed.promotedCommit,
+        );
+      expect(completed.pullRequestUrl).toBe("https://github.example/pull/17");
+      expect(git(remote, "rev-parse", "dev")).toBe(completed.promotedCommit);
+      expect(await readFile(validationLog, "utf8")).toContain("validated");
+      expect(await readFile(join(canonical, "shared.txt"), "utf8")).toBe(
+        "other session work\n",
+      );
+      const manifestAfter = JSON.parse(
+        await readFile(
+          join(completed.recoveryBundle.path, "manifest.json"),
+          "utf8",
+        ),
+      );
+      expect(manifestAfter.targetCommit).toBe(manifestBefore.targetCommit);
+      expect(
+        manifestAfter.snapshots.slice(0, manifestBefore.snapshots.length),
+      ).toEqual(manifestBefore.snapshots);
+    },
+  );
+
   it("preserves a resumable conflict against the freshly fetched shared target", async () => {
     const fixture = await createFixture();
     const remote = await configureSharedTargetPromotion(fixture);
