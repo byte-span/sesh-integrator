@@ -192,7 +192,16 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
         break;
       }
       case "resume": {
-        await resumeCommand(parseSessionOption(args));
+        const acceptStagedResolution = args.includes(
+          "--accept-staged-resolution",
+        );
+        const remaining = [...args];
+        if (acceptStagedResolution)
+          remaining.splice(remaining.indexOf("--accept-staged-resolution"), 1);
+        await resumeCommand(
+          parseSessionOption(remaining),
+          acceptStagedResolution,
+        );
         break;
       }
       case "status": {
@@ -484,7 +493,7 @@ Usage:
   seshx commit --message "..." [--session <session-id>]
   seshx validate [--session <session-id>]
   seshx integrate --summary "..." --rollout <none|applied|automated|manual> [--follow-up "<action, destination, exact configuration names; no secret values>"]... [--session <session-id>]
-  seshx resume [--session <session-id>]
+  seshx resume [--session <session-id>] [--accept-staged-resolution]
   seshx status [--session <session-id>]
   seshx dashboard [--web [--no-open] [--port <port>]]
   seshx finish --no-changes --summary "..." [--session <session-id>] [--satisfied-by <session-id>]

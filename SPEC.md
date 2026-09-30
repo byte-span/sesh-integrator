@@ -964,3 +964,18 @@ attempt per resume bounds repeated target movement. Failed validation, conflicts
 and interrupted evidence publication retain recoverable state. Rewritten target
 or non-descendant staging history requires ancestry review. Historical reconcile
 remains a separate conservative fast-forward audit/apply command.
+
+Promotion recovery also checks ancestry when the live target still equals the
+recorded expectation: isolated staging may have omitted a target refreshed
+before integration. Resume reconciles the preserved validated result with that
+exact target through the same local recovery path, including full uncached
+validation and configured PR publication. Rewritten target history and staging
+that no longer contains the validated result remain review stops.
+
+After local reconciliation validation fails, an operator may correct and stage
+the preserved merge, then run `resume --accept-staged-resolution`. The explicit
+option records another immutable resolution snapshot with the original parents,
+preserves failed snapshots and evidence, and reruns full uncached validation. It
+is restricted to a failed local resolution without a committed result; ordinary
+resume still rejects changed trees. Unstaged edits, unresolved conflicts, changed
+merge parents, and missing recovery worktrees remain stops.
