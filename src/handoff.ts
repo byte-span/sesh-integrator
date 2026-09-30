@@ -1189,8 +1189,23 @@ export async function resumeCommand(sessionId?: string): Promise<Session> {
       (session.recoveryPhase === "promotion" &&
         session.integratedCommit &&
         localTarget &&
-        localTarget !== session.targetCommitBeforeIntegration &&
-        localTarget !== session.integratedCommit)
+        localTarget !== session.integratedCommit &&
+        (localTarget !== session.targetCommitBeforeIntegration ||
+          // A remote refresh may have advanced the recorded target before an
+          // isolated staging checkout merged the source from an older base.
+          // Reconcile that validated result even when the target stayed put.
+          (
+            await run(
+              "git",
+              [
+                "merge-base",
+                "--is-ancestor",
+                localTarget,
+                session.integratedCommit,
+              ],
+              { cwd: repository.path },
+            )
+          ).code === 1))
     ) {
       await reconcileLocalTarget(repository, session);
       process.stdout.write(
