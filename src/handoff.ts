@@ -27,6 +27,7 @@ import {
   recordValidationCache,
   runSetupWithCache,
   validationCacheFor,
+  withValidationReuse,
 } from "./cache.js";
 import {
   changedPaths,
@@ -960,54 +961,81 @@ export async function validateCommand(sessionId?: string): Promise<Session> {
     ["rev-parse", `${source.head}^{tree}`],
     source.worktreePath,
   );
-  const cachedFingerprints = await validationCacheFor(
+  return withValidationReuse(
     repository,
-    session,
     tree,
     validation.sourceCommands,
+    async () => {
+      if (
+        (await git(["rev-parse", "HEAD"], source.worktreePath)) !== source.head
+      )
+        throw new Error("Source commit changed while waiting for validation");
+      await assertSourceHandoffState(
+        session,
+        source.worktreePath,
+        paths,
+        "validation reuse",
+      );
+      const cachedFingerprints = await validationCacheFor(
+        repository,
+        session,
+        tree,
+        validation.sourceCommands,
+      );
+      const successfulCommands: Command[] = [];
+      let validationResult;
+      try {
+        validationResult = await measurePhase("source_validation", async () =>
+          runValidation(validation.sourceCommands, source.worktreePath, {
+            cachedFingerprints,
+            sessionId: session.id,
+            resourceWaitSeconds: (await readConfig()).lockWaitSeconds,
+            phase: "source",
+            onCommandSuccess: async (command) => {
+              successfulCommands.push(command);
+            },
+          }),
+        );
+      } catch (error) {
+        if (error instanceof ValidationFailure)
+          session.validationFailure = error.record;
+        session.latestError = errorMessage(error);
+        await writeSession(session);
+        await safelyRecordIncident(session, error);
+        throw error;
+      }
+      await assertSourceHandoffState(
+        session,
+        source.worktreePath,
+        paths,
+        "source validation",
+      );
+      if (
+        (await git(["rev-parse", "HEAD"], source.worktreePath)) !== source.head
+      )
+        throw new Error("Source commit changed during validation");
+      for (const command of successfulCommands) {
+        await recordValidationCache(repository, session, tree, command);
+      }
+      recordPerformanceMetric(
+        "validationCacheHits",
+        validationResult.cacheHits,
+      );
+      recordPerformanceMetric(
+        "validationCommandsRun",
+        validationResult.executed,
+      );
+      session.validationTier = validation.name;
+      session.changedPaths = paths;
+      session.sourceValidatedAt = new Date().toISOString();
+      session.sourceValidatedCommit = source.head;
+      session.sourceValidatedTree = tree;
+      delete session.validationFailure;
+      await writeSession(session);
+      process.stdout.write(`Validated ${session.id} at ${source.head}\n`);
+      return session;
+    },
   );
-  const successfulCommands: Command[] = [];
-  let validationResult;
-  try {
-    validationResult = await measurePhase("source_validation", async () =>
-      runValidation(validation.sourceCommands, source.worktreePath, {
-        cachedFingerprints,
-        sessionId: session.id,
-        resourceWaitSeconds: (await readConfig()).lockWaitSeconds,
-        phase: "source",
-        onCommandSuccess: async (command) => {
-          successfulCommands.push(command);
-        },
-      }),
-    );
-  } catch (error) {
-    if (error instanceof ValidationFailure)
-      session.validationFailure = error.record;
-    session.latestError = errorMessage(error);
-    await writeSession(session);
-    await safelyRecordIncident(session, error);
-    throw error;
-  }
-  await assertSourceHandoffState(
-    session,
-    source.worktreePath,
-    paths,
-    "source validation",
-  );
-  for (const command of successfulCommands) {
-    await recordValidationCache(repository, session, tree, command);
-  }
-  recordPerformanceMetric("validationCacheHits", validationResult.cacheHits);
-  recordPerformanceMetric("validationCommandsRun", validationResult.executed);
-  session.validationTier = validation.name;
-  session.changedPaths = paths;
-  session.sourceValidatedAt = new Date().toISOString();
-  session.sourceValidatedCommit = source.head;
-  session.sourceValidatedTree = tree;
-  delete session.validationFailure;
-  await writeSession(session);
-  process.stdout.write(`Validated ${session.id} at ${source.head}\n`);
-  return session;
 }
 
 export async function resumeCommand(
@@ -1636,48 +1664,72 @@ async function validateCommitAndFinish(
   );
   recordPerformanceMetric("integrationSetupCacheHit", setup.cacheHit);
   const tree = await git(["write-tree"], worktree);
-  const cachedFingerprints =
+  const reuseRepository =
     session.recoveryPhase === "local_target"
-      ? new Set<string>()
-      : await validationCacheFor(
-          repository,
-          session,
-          tree,
-          validation.integrationCommands,
+      ? { ...repository, validationCache: "off" as const }
+      : repository;
+  await withValidationReuse(
+    reuseRepository,
+    tree,
+    validation.integrationCommands,
+    async () => {
+      if ((await git(["write-tree"], worktree)) !== tree)
+        throw new Error(
+          "Integration tree changed while waiting for validation",
         );
-  const successfulCommands: Command[] = [];
-  let result;
-  try {
-    result = await measurePhase("integration_validation", async () =>
-      runValidation(validation.integrationCommands, worktree, {
-        cachedFingerprints,
-        sessionId: session.id,
-        resourceWaitSeconds: (await readConfig()).lockWaitSeconds,
-        phase: "integration",
-        onCommandSuccess: async (command) => {
-          successfulCommands.push(command);
-        },
-      }),
-    );
-    await recordValidationRecovery(repository, session, worktree, "passed");
-  } catch (error) {
-    if (error instanceof ValidationFailure)
-      await recordValidationRecovery(
-        repository,
-        session,
-        worktree,
-        "failed",
-        error.record,
+      await assertNoUnstagedChanges(session, worktree);
+      const cachedFingerprints =
+        session.recoveryPhase === "local_target"
+          ? new Set<string>()
+          : await validationCacheFor(
+              repository,
+              session,
+              tree,
+              validation.integrationCommands,
+            );
+      const successfulCommands: Command[] = [];
+      let result;
+      try {
+        result = await measurePhase("integration_validation", async () =>
+          runValidation(validation.integrationCommands, worktree, {
+            cachedFingerprints,
+            sessionId: session.id,
+            resourceWaitSeconds: (await readConfig()).lockWaitSeconds,
+            phase: "integration",
+            onCommandSuccess: async (command) => {
+              successfulCommands.push(command);
+            },
+          }),
+        );
+        await recordValidationRecovery(repository, session, worktree, "passed");
+      } catch (error) {
+        if (error instanceof ValidationFailure)
+          await recordValidationRecovery(
+            repository,
+            session,
+            worktree,
+            "failed",
+            error.record,
+          );
+        throw error;
+      }
+      await assertNoUnstagedChanges(session, worktree);
+      if ((await git(["write-tree"], worktree)) !== tree)
+        throw new Error("Integration tree changed during validation");
+      for (const command of successfulCommands) {
+        await recordValidationCache(repository, session, tree, command);
+      }
+      recordPerformanceMetric(
+        "integrationValidationCacheHits",
+        result.cacheHits,
       );
-    throw error;
-  }
-  await assertNoUnstagedChanges(session, worktree);
-  for (const command of successfulCommands) {
-    await recordValidationCache(repository, session, tree, command);
-  }
-  recordPerformanceMetric("integrationValidationCacheHits", result.cacheHits);
-  recordPerformanceMetric("integrationValidationCommandsRun", result.executed);
-  delete session.validationFailure;
+      recordPerformanceMetric(
+        "integrationValidationCommandsRun",
+        result.executed,
+      );
+      delete session.validationFailure;
+    },
+  );
   const integrationBranchAdvanced = await hasMergeInProgress(worktree);
   if (integrationBranchAdvanced) {
     await measurePhase("integration_commit", async () => {

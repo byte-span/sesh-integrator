@@ -355,15 +355,18 @@ default to three attempts, 250 ms initial backoff, and a 2 s cap. Legacy
 
 `validationCache` defaults to `session`: successful commands are reusable only
 for the same Git tree, command fingerprint, platform, architecture, and Node
-version in that handoff. Set it to `repository` for content-addressed reuse
-across sessions, or `off` to disable reuse. Auto-detected advisory JavaScript
+version and execution environment in that handoff. Set it to `repository` for content-addressed reuse
+across sessions and coalesce identical concurrent validation plans, or `off` to
+disable reuse. Repository caching requires worktree-independent checks without
+required local artifacts or external mutable inputs; see [reuse boundaries](build-queue.md#validation-and-caching). Auto-detected advisory JavaScript
 setup is skipped only when its manifest/lockfile fingerprint matches and the
 worktree still has its dependency marker. Explicit required setup is never
 skipped.
 
 ## Machine-local build capacity
 
-Use `seshx queue configure --concurrency <auto|1-64>` to limit commands across
-repositories and sessions. Queue configuration is machine-local and independent
+Use `seshx queue configure --concurrency <unlimited|auto|1-64>` to limit commands across
+repositories and sessions. New machines default to `unlimited`; `auto` opts into
+resource-aware throttling. Existing explicit settings are retained. Queue configuration is machine-local and independent
 of this repository configuration. See [build queue settings, recovery, and limits](build-queue.md).
 Directly launched builds remain outside the queue.
