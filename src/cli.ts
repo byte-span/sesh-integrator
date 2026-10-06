@@ -498,7 +498,7 @@ Usage:
   seshx validate [--session <session-id>]
   seshx integrate --summary "..." --rollout <none|applied|automated|manual> [--follow-up "<action, destination, exact configuration names; no secret values>"]... [--session <session-id>]
   seshx resume [--session <session-id>] [--accept-staged-resolution]
-  seshx queue [status | configure --concurrency <auto|1-64> | configure --wait-seconds <1-86400> | recover <entry-id> --confirmed-stopped]
+  seshx queue [status | configure --concurrency <unlimited|auto|1-64> | configure --wait-seconds <1-86400> | recover <entry-id> --confirmed-stopped]
   seshx status [--session <session-id>]
   seshx dashboard [--web [--no-open] [--port <port>]]
   seshx finish --no-changes --summary "..." [--session <session-id>] [--satisfied-by <session-id>]
