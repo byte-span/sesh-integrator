@@ -1,3 +1,4 @@
+import { printBuildQueue } from "./build-queue.js";
 import {
   ExecutionOperationError,
   MissingWorkingDirectoryError,
@@ -30,6 +31,7 @@ export async function statusCommand(sessionId?: string): Promise<void> {
   if (sessionId && !selected) throw new Error(`Unknown session: ${sessionId}`);
   const sessions = selected ? [selected] : allSessions;
   process.stdout.write(`Runtime: ${paths.root}\n`);
+  await printBuildQueue();
   let currentCommonDir: string | undefined;
   try {
     currentCommonDir = await repositoryCommonDir(process.cwd());

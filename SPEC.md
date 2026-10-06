@@ -201,6 +201,11 @@ Example `~/.sesh-integrator/config.json`:
 }
 ```
 
+Integrator-launched setup, preparation, validation and post-check commands share
+a machine-local capacity queue. Scheduling preserves the checks and cache
+fingerprints below. Directly launched builds remain outside the queue.
+See [queue ownership, configuration and recovery](docs/build-queue.md).
+
 Commands are argument arrays. Validation lists may also contain explicit
 `{"parallel": [<command>, ...]}` groups whose members run concurrently.
 Any validation command may instead use a declarative object:

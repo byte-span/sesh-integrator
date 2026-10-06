@@ -1,3 +1,10 @@
+import { setTimeout as cancellableDelay } from "node:timers/promises";
+import {
+  runQueued,
+  withQueueCancellation,
+  QueueCancellation,
+  QueueOwnershipUncertain,
+} from "./queued-process.js";
 import { ExecutionOperationError, spawnFailure } from "./execution-error.js";
 import { withCleanup, LockCleanupError } from "./file-lock.js";
 import { spawn } from "node:child_process";
@@ -130,44 +137,54 @@ export async function runValidation(
     phase?: "source" | "integration";
   } = {},
 ): Promise<{ cacheHits: number; executed: number }> {
-  if (commands.length > 0) {
-    await runValidationPreparation(cwd);
-  }
-  let cacheHits = 0;
-  let executed = 0;
-  for (const step of commands) {
-    const group =
-      Array.isArray(step) || "command" in step ? [step] : step.parallel;
-    const runnable = group.filter((entry) => {
-      const command = validationCommandValue(entry);
-      const fingerprint = commandFingerprint(command);
-      if (options.cachedFingerprints?.has(fingerprint)) {
-        process.stdout.write(`Using cached validation: ${command.join(" ")}\n`);
-        cacheHits += 1;
-        return false;
-      }
-      return true;
-    });
-    const results = await Promise.all(
-      runnable.map(async (entry) => {
-        const command = validationCommandValue(entry);
-        process.stdout.write(`Running validation: ${command.join(" ")}\n`);
-        await runValidationCommand(entry, cwd, options);
-        return { command };
-      }),
-    );
-    executed += results.length;
-    for (const { command } of results) {
-      await options.onCommandSuccess?.(command, commandFingerprint(command));
+  return withQueueCancellation(async (signal) => {
+    if (commands.length > 0) {
+      await runValidationPreparation(cwd);
     }
-  }
-  return { cacheHits, executed };
+    let cacheHits = 0;
+    let executed = 0;
+    for (const step of commands) {
+      const group =
+        Array.isArray(step) || "command" in step ? [step] : step.parallel;
+      const runnable = group.filter((entry) => {
+        const command = validationCommandValue(entry);
+        const fingerprint = commandFingerprint(command);
+        if (options.cachedFingerprints?.has(fingerprint)) {
+          process.stdout.write(
+            `Using cached validation: ${command.join(" ")}\n`,
+          );
+          cacheHits += 1;
+          return false;
+        }
+        return true;
+      });
+      const outcomes = await Promise.allSettled(
+        runnable.map(async (entry) => {
+          const command = validationCommandValue(entry);
+          process.stdout.write(`Running validation: ${command.join(" ")}\n`);
+          await runValidationCommand(entry, cwd, { ...options, signal });
+          return { command };
+        }),
+      );
+      const failed = outcomes.find((result) => result.status === "rejected");
+      if (failed?.status === "rejected") throw failed.reason;
+      const results = outcomes.flatMap((result) =>
+        result.status === "fulfilled" ? [result.value] : [],
+      );
+      executed += results.length;
+      for (const { command } of results) {
+        await options.onCommandSuccess?.(command, commandFingerprint(command));
+      }
+    }
+    return { cacheHits, executed };
+  });
 }
 
 async function runValidationCommand(
   entry: ValidationCommand,
   cwd: string,
   options: {
+    signal: AbortSignal;
     sessionId?: string;
     resourceWaitSeconds?: number;
     phase?: "source" | "integration";
@@ -199,14 +216,18 @@ async function runValidationCommand(
         exclusiveResources,
         options.sessionId ?? `process-${process.pid}`,
         options.resourceWaitSeconds ?? 900,
+        options.signal,
       );
       const owned = handle;
       const succeeded = await withCleanup(
         async () => {
-          const result = await run(command[0], command.slice(1), {
+          const result = await runQueued(
+            command[0],
+            command.slice(1),
             cwd,
-            echo: true,
-          });
+            `${options.phase ?? "source"} validation`,
+            options.sessionId,
+          );
           if (result.code === 0) return true;
           const message = `Validation failed (${result.code}): ${command.join(" ")}`;
           if (classification !== "transient" || attempt === maxAttempts) {
@@ -219,6 +240,8 @@ async function runValidationCommand(
       if (succeeded) return;
     } catch (error) {
       if (
+        error instanceof QueueCancellation ||
+        error instanceof QueueOwnershipUncertain ||
         error instanceof ValidationFailure ||
         error instanceof AggregateError ||
         error instanceof LockCleanupError
@@ -238,7 +261,7 @@ async function runValidationCommand(
     process.stderr.write(
       `Transient validation failure; retrying ${command.join(" ")} in ${backoff}ms (attempt ${attempt + 1}/${maxAttempts})\n`,
     );
-    await new Promise((resolve) => setTimeout(resolve, backoff));
+    await cancellableDelay(backoff, undefined, { signal: options.signal });
   }
 
   function failure(message: string, attempts: number): ValidationFailure {
@@ -266,10 +289,12 @@ async function runValidationPreparation(cwd: string): Promise<void> {
       `Running inferred validation preparation (${preparation.environment}): ${preparation.command.join(" ")} in ${displayPreparationDirectory(cwd, preparation.cwd)}\n`,
     );
     const [command, ...args] = preparation.command;
-    const result = await run(command, args, {
-      cwd: preparation.cwd,
-      echo: true,
-    });
+    const result = await runQueued(
+      command,
+      args,
+      preparation.cwd,
+      "validation preparation",
+    );
     if (result.code !== 0) {
       throw new Error(
         `Inferred validation preparation failed (${result.code}) for ${preparation.environment}: ${preparation.command.join(" ")}`,
@@ -289,15 +314,19 @@ export async function runRequiredCommands(
   cwd: string,
   label: string,
 ): Promise<void> {
-  for (const [command, ...args] of commands) {
-    process.stdout.write(`Running ${label}: ${[command, ...args].join(" ")}\n`);
-    const result = await run(command, args, { cwd, echo: true });
-    if (result.code !== 0) {
-      throw new Error(
-        `${capitalize(label)} failed (${result.code}): ${[command, ...args].join(" ")}`,
+  return withQueueCancellation(async () => {
+    for (const [command, ...args] of commands) {
+      process.stdout.write(
+        `Running ${label}: ${[command, ...args].join(" ")}\n`,
       );
+      const result = await runQueued(command, args, cwd, label);
+      if (result.code !== 0) {
+        throw new Error(
+          `${capitalize(label)} failed (${result.code}): ${[command, ...args].join(" ")}`,
+        );
+      }
     }
-  }
+  });
 }
 
 function capitalize(value: string): string {
@@ -313,18 +342,20 @@ export async function runCommandList(
   cwd: string,
   label: string,
 ): Promise<CommandExecutionResult[]> {
-  const results: CommandExecutionResult[] = [];
-  for (const commandWithArgs of commands) {
-    const [command, ...args] = commandWithArgs;
-    process.stdout.write(`Running ${label}: ${commandWithArgs.join(" ")}\n`);
-    const result = await run(command, args, { cwd, echo: true });
-    results.push({
-      command: commandWithArgs,
-      exitCode: result.code,
-      stdout: result.stdout,
-      stderr: result.stderr,
-    });
-    if (result.code !== 0) break;
-  }
-  return results;
+  return withQueueCancellation(async () => {
+    const results: CommandExecutionResult[] = [];
+    for (const commandWithArgs of commands) {
+      const [command, ...args] = commandWithArgs;
+      process.stdout.write(`Running ${label}: ${commandWithArgs.join(" ")}\n`);
+      const result = await runQueued(command, args, cwd, label);
+      results.push({
+        command: commandWithArgs,
+        exitCode: result.code,
+        stdout: result.stdout,
+        stderr: result.stderr,
+      });
+      if (result.code !== 0) break;
+    }
+    return results;
+  });
 }

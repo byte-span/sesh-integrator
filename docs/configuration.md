@@ -360,3 +360,10 @@ across sessions, or `off` to disable reuse. Auto-detected advisory JavaScript
 setup is skipped only when its manifest/lockfile fingerprint matches and the
 worktree still has its dependency marker. Explicit required setup is never
 skipped.
+
+## Machine-local build capacity
+
+Use `seshx queue configure --concurrency <auto|1-64>` to limit commands across
+repositories and sessions. Queue configuration is machine-local and independent
+of this repository configuration. See [build queue settings, recovery, and limits](build-queue.md).
+Directly launched builds remain outside the queue.

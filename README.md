@@ -59,6 +59,8 @@ the handoff between their worktrees and the branch you want to review:
   resume using the preserved integration state.
 
 Integration is a one-shot CLI operation. There is no background integration daemon.
+Integrator-launched builds and checks share a [machine-local queue](docs/build-queue.md)
+with configurable capacity. Directly launched builds remain outside the queue.
 
 ## Quickstart
 
@@ -160,6 +162,7 @@ can push and open or update a PR after checks pass. It never merges the PR for y
 ## Track progress and recover
 
 ```bash
+seshx queue status                  # See running/waiting build and test commands
 seshx dashboard                     # Browse sessions and task checklists
 seshx dashboard --web               # Open the local browser dashboard
 seshx status --session <session-id>  # Inspect commits, state, and next steps
