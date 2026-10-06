@@ -1,3 +1,7 @@
+import {
+  QueueCancellation,
+  QueueOwnershipUncertain,
+} from "./queued-process.js";
 import { worktreePaths } from "./worktree-location.js";
 import { requireCapabilities } from "./capabilities.js";
 import { withCleanup } from "./file-lock.js";
@@ -398,7 +402,12 @@ async function beginUnlocked(
       );
       recordPerformanceMetric("setupCacheHit", setup.cacheHit);
     } catch (error) {
-      if (repository.setupCommandPolicy !== "advisory") throw error;
+      if (
+        error instanceof QueueCancellation ||
+        error instanceof QueueOwnershipUncertain ||
+        repository.setupCommandPolicy !== "advisory"
+      )
+        throw error;
       process.stderr.write(
         `Warning: auto-configured setup failed during begin; continuing without it. ${errorMessage(error)}\n`,
       );

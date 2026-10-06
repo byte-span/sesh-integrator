@@ -1,3 +1,4 @@
+import { setTimeout as delay } from "node:timers/promises";
 import { tryFileLock, releaseFileLock, withCleanup } from "./file-lock.js";
 import { createHash, randomBytes } from "node:crypto";
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
@@ -25,6 +26,7 @@ export async function acquireValidationResources(
   exclusive: string[],
   sessionId: string,
   waitSeconds: number,
+  signal?: AbortSignal,
 ): Promise<ResourceLockHandle> {
   const requests = new Map<string, ResourceMode>();
   for (const key of shared) requests.set(key, "shared");
@@ -34,7 +36,7 @@ export async function acquireValidationResources(
     for (const [key, mode] of [...requests].sort(([a], [b]) =>
       a.localeCompare(b),
     )) {
-      leases.push(await acquireOne(key, mode, sessionId, waitSeconds));
+      leases.push(await acquireOne(key, mode, sessionId, waitSeconds, signal));
     }
     return { leases };
   } catch (error) {
@@ -70,6 +72,7 @@ async function acquireOne(
   mode: ResourceMode,
   sessionId: string,
   waitSeconds: number,
+  signal?: AbortSignal,
 ): Promise<string> {
   const root = join(
     runtimePaths().locks,
@@ -86,6 +89,7 @@ async function acquireOne(
   );
   let announced = false;
   for (;;) {
+    signal?.throwIfAborted();
     const gateLock = await tryFileLock(gate, { sessionId });
     if (gateLock) {
       const acquired = await withCleanup(
@@ -126,7 +130,9 @@ async function acquireOne(
         `Timed out waiting for validation resource ${JSON.stringify(key)} (${mode})`,
       );
     }
-    await delay(Math.min(100, Math.max(10, deadline - Date.now())));
+    await delay(Math.min(100, Math.max(10, deadline - Date.now())), undefined, {
+      signal,
+    });
   }
 }
 
@@ -177,10 +183,6 @@ function isAlive(pid: number): boolean {
   } catch (error) {
     return isNodeError(error) && error.code === "EPERM";
   }
-}
-
-function delay(milliseconds: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 function validLease(value: unknown): value is ResourceLease {
