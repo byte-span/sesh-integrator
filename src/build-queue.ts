@@ -16,7 +16,7 @@ import { stripVTControlCharacters } from "node:util";
 import { withCleanup } from "./file-lock.js";
 
 export interface QueueSettings {
-  concurrency: number | "auto";
+  concurrency: number | "auto" | "unlimited";
   waitSeconds: number;
 }
 export interface QueueEntry {
@@ -35,7 +35,7 @@ export interface QueueLease {
   root: string;
   entry: QueueEntry;
 }
-const defaults: QueueSettings = { concurrency: "auto", waitSeconds: 900 };
+const defaults: QueueSettings = { concurrency: "unlimited", waitSeconds: 900 };
 
 // Stable capacity, not a fluctuating free-memory snapshot. Leave room for the UI,
 // OS and editors, and assume builds may each have their own worker pools.
@@ -87,6 +87,7 @@ export async function queueSettings(
     ) ||
     !(
       settings.concurrency === "auto" ||
+      settings.concurrency === "unlimited" ||
       (Number.isSafeInteger(settings.concurrency) &&
         Number(settings.concurrency) >= 1 &&
         Number(settings.concurrency) <= 64)
@@ -96,11 +97,12 @@ export async function queueSettings(
     Number(settings.waitSeconds) > 86400
   )
     throw new Error(
-      `Invalid build queue config: ${join(root, "config.json")}. Use concurrency "auto" or 1–64 and waitSeconds 1–86400.`,
+      `Invalid build queue config: ${join(root, "config.json")}. Use concurrency "unlimited", "auto" or 1–64 and waitSeconds 1–86400.`,
     );
   return settings as QueueSettings;
 }
 function capacity(settings: QueueSettings): number {
+  if (settings.concurrency === "unlimited") return Infinity;
   const constrained = process.constrainedMemory?.() || Infinity;
   return settings.concurrency === "auto"
     ? defaultConcurrency(
@@ -182,17 +184,21 @@ function entryPath(root: string, id: string): string {
 // no protocol/data and closes after one filesystem transaction. Unlike a file
 // gate, the OS releases it even on SIGKILL; no stale-gate deletion race exists.
 // A port collision only delays/fails admission; it cannot over-admit work.
-async function gate<T>(
+export async function gate<T>(
   root: string,
   action: () => Promise<T>,
   signal?: AbortSignal,
+  waitMs = 10000,
+  onWait?: () => void,
+  reuse = false,
 ): Promise<T> {
   await mkdir(join(root, "entries"), { recursive: true, mode: 0o700 });
   const canonical = await realpath(root);
   const port =
-    20000 +
-    (createHash("sha256").update(canonical).digest().readUInt32BE(0) % 30000);
-  const deadline = Date.now() + 10000;
+    (reuse ? 50000 : 20000) +
+    (createHash("sha256").update(canonical).digest().readUInt32BE(0) %
+      (reuse ? 15000 : 30000));
+  const deadline = Date.now() + waitMs;
   for (;;) {
     signal?.throwIfAborted();
     const server = await listen(port);
@@ -209,7 +215,8 @@ async function gate<T>(
       throw new Error(
         `Build queue admission mutex busy on 127.0.0.1:${port}; retry after the current operation ends. Queue: ${root}`,
       );
-    await delay(25, undefined, { signal });
+    onWait?.();
+    await delay(reuse ? 25 : 1, undefined, { signal });
   }
 }
 function listen(port: number): Promise<Server | undefined> {
@@ -243,7 +250,7 @@ export async function acquireBuildSlot(
     queuedAt: new Date().toISOString(),
   };
   const lease = { root, entry };
-  await gate(root, () => atomicJson(entryPath(root, entry.id), entry), signal);
+  let registered = false;
   const deadline = Date.now() + settings.waitSeconds * 1000;
   let announced = "";
   try {
@@ -252,6 +259,10 @@ export async function acquireBuildSlot(
       const result = await gate(
         root,
         async () => {
+          if (!registered) {
+            await atomicJson(entryPath(root, entry.id), entry);
+            registered = true;
+          }
           const entries = await queueEntries(root);
           // Dead waiting owners cannot have launched work: running is persisted
           // under this gate before spawn. Dead running owners may have descendants.
@@ -270,18 +281,20 @@ export async function acquireBuildSlot(
           const orphaned = active.some(
             (e) => e.state === "running" && !ownerAlive(e),
           );
-          if (position === 0 && running < limit && !orphaned) {
+          // Reserve capacity for earlier waiters without forcing each free slot
+          // to wait for the head waiter's next polling interval.
+          if (position < limit - running && !orphaned) {
             entry.state = "running";
             entry.startedAt = new Date().toISOString();
             await atomicJson(entryPath(root, entry.id), entry);
             return {
               admitted: true,
-              message: `Build queue running (${running + 1}/${limit}): ${label} [${sessionId}]`,
+              message: `Build queue running (${running + 1}/${limit === Infinity ? "unlimited" : limit}): ${label} [${sessionId}]`,
             };
           }
           return {
             admitted: false,
-            message: `Build queue waiting (#${position + 1}, ${running}/${limit} running${orphaned ? "; orphaned owner needs recovery" : ""}): ${label} [${sessionId}]`,
+            message: `Build queue waiting (#${position + 1}, ${running}/${limit === Infinity ? "unlimited" : limit} running${orphaned ? "; orphaned owner needs recovery" : ""}): ${label} [${sessionId}]`,
           };
         },
         signal,
@@ -298,6 +311,7 @@ export async function acquireBuildSlot(
       await delay(100, undefined, { signal });
     }
   } catch (error) {
+    if (!registered) throw error;
     return withCleanup(
       async () => {
         throw error;
@@ -327,7 +341,7 @@ export async function printBuildQueue(): Promise<void> {
   const settings = await queueSettings(root);
   const entries = await queueEntries(root);
   process.stdout.write(
-    `Build queue: ${root}\n  concurrency: ${capacity(settings)} (${settings.concurrency === "auto" ? "resource-aware default" : "machine override"}); wait: ${settings.waitSeconds}s\n`,
+    `Build queue: ${root}\n  concurrency: ${settings.concurrency === "unlimited" ? "unlimited" : capacity(settings)} (${settings.concurrency === "auto" ? "resource-aware limit" : settings.concurrency === "unlimited" ? "no throttling" : "machine override"}); wait: ${settings.waitSeconds}s\n`,
   );
   for (const entry of entries)
     process.stdout.write(
@@ -345,11 +359,11 @@ export async function queueCommand(args: string[]): Promise<void> {
     ["--concurrency", "--wait-seconds"].includes(args[1]!)
   ) {
     const value =
-      args[2] === "auto" && args[1] === "--concurrency"
-        ? "auto"
+      ["auto", "unlimited"].includes(args[2]!) && args[1] === "--concurrency"
+        ? (args[2] as "auto" | "unlimited")
         : Number(args[2]);
     if (
-      value !== "auto" &&
+      typeof value === "number" &&
       (!Number.isSafeInteger(value) ||
         value < 1 ||
         value > (args[1] === "--concurrency" ? 64 : 86400))
@@ -383,7 +397,7 @@ export async function queueCommand(args: string[]): Promise<void> {
     return;
   }
   throw new Error(
-    "Usage: seshx queue [status | configure --concurrency <auto|1-64> | configure --wait-seconds <1-86400> | recover <entry-id> --confirmed-stopped]",
+    "Usage: seshx queue [status | configure --concurrency <unlimited|auto|1-64> | configure --wait-seconds <1-86400> | recover <entry-id> --confirmed-stopped]",
   );
 }
 function code(error: unknown): string | undefined {

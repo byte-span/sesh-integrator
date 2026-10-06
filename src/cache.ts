@@ -1,3 +1,5 @@
+import { gate, queueRoot, queueSettings } from "./build-queue.js";
+import { withQueueCancellation } from "./queued-process.js";
 import { createHash } from "node:crypto";
 import { access, readFile } from "node:fs/promises";
 import { constants } from "node:fs";
@@ -102,7 +104,8 @@ function validationFingerprint(
   command: Command,
 ): string {
   return digest({
-    version: 1,
+    version: 2,
+    environment: validationEnvironment(),
     repository: repository.gitCommonDir,
     tree,
     command: commandFingerprint(command),
@@ -181,4 +184,55 @@ async function exists(path: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+// Repository caching is an explicit assertion that checks are reusable across
+// worktrees and depend on the tracked tree, command and execution environment.
+// Keep the lock through the caller's tree verification and cache publication.
+export async function withValidationReuse<T>(
+  repository: RepositoryConfig,
+  tree: string,
+  steps: ValidationStep[],
+  action: () => Promise<T>,
+): Promise<T> {
+  if (repository.validationCache !== "repository") return action();
+  const key = digest({
+    repository: repository.gitCommonDir,
+    cache: runtimePaths().cache,
+    tree,
+    steps,
+    environment: validationEnvironment(),
+    node: process.version,
+    platform: process.platform,
+    architecture: process.arch,
+  });
+  let announced = false;
+  return withQueueCancellation(async (signal) =>
+    gate(
+      join(queueRoot(), "validation-reuse", key),
+      async () => {
+        signal.throwIfAborted();
+        return action();
+      },
+      signal,
+      (await queueSettings()).waitSeconds * 1000,
+      () => {
+        if (!announced)
+          process.stdout.write(
+            "Waiting for matching repository validation; its verified results will be rechecked.\n",
+          );
+        announced = true;
+      },
+      true,
+    ),
+  );
+}
+function validationEnvironment(): string {
+  // Never persist environment values. PWD is inherently worktree-specific;
+  // repository caching already requires checks to be independent of that path.
+  return digest(
+    Object.entries(process.env)
+      .filter(([key]) => !["PWD", "OLDPWD"].includes(key))
+      .sort(([a], [b]) => a.localeCompare(b)),
+  );
 }

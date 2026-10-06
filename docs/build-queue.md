@@ -10,13 +10,13 @@ joining the queue. Git operations and agent work do not consume a slot.
 task, or an older pinned coordinator, **remain outside the queue**. The queue
 does not cap a command's internal workers or coordinate other OS accounts, VMs,
 containers, or native Windows with WSL. Configure tool-specific worker limits
-when a single command is itself too large. This repository's Vitest worker count
-uses the same conservative CPU/memory calculation.
+when a single command is itself too large. This repository leaves Vitest worker selection at its normal default.
 
 ## Inspect and configure
 
 ```sh
 seshx queue status
+seshx queue configure --concurrency unlimited
 seshx queue configure --concurrency 2
 seshx queue configure --wait-seconds 1800
 seshx queue configure --concurrency auto
@@ -27,7 +27,9 @@ session, queue position and capacity; queue status includes worktree and owner
 PID. Setup and post-checks without a session argument identify their owning CLI
 process and worktree. No command arguments or environment values are saved.
 
-The default is the smallest of four commands, half the available CPU threads,
+The default is `unlimited`, restoring unrestricted parallel scheduling. Status,
+cancellation and orphan protection remain active. Existing explicit machine
+settings are preserved. Opt into `auto` for the smallest of four commands, half the available CPU threads,
 and one command per 4 GiB of memory after reserving 2 GiB, with a minimum of one.
 Memory uses the lower of OS total memory and Node's process constraint when
 available. This is a conservative estimate, not a guarantee against exhausting
@@ -39,7 +41,10 @@ current user's home. These settings are independent of repository and runtime
 configuration, so different repositories and custom integrator runtime homes
 share the same capacity. Do not commit or sync this directory between hosts.
 
-`concurrency` accepts `auto` or 1–64. `waitSeconds` accepts 1–86400 (default 900).
+`concurrency` accepts `unlimited`, `auto` or 1–64. `waitSeconds` accepts 1–86400 (default 900).
+Older pinned coordinators retain their original defaults and do not coalesce
+validation plans. Coordinators predating `unlimited` cannot read that explicit
+setting; finish their sessions before writing it to a shared configuration.
 Changing capacity affects new admissions without interrupting existing work.
 Wait-time changes apply to newly queued requests. Invalid settings stop admission
 rather than disabling the queue.
@@ -91,11 +96,32 @@ Do not blindly delete the queue to bypass a stop.
 ## Validation and caching
 
 Scheduling does not remove, reorder across sequential steps, or substitute any
-configured pre-promotion checks. Cache hits keep the existing tree, command,
-platform and runtime fingerprint rules. Only uncached commands consume execution
-slots; inferred preparation retains its existing behavior. Failure or
+configured pre-promotion checks. Cache hits require matching tree, command, platform, runtime and execution
+environment fingerprints. Environment values are hashed, never persisted; `PWD`
+and `OLDPWD` are excluded because worktree paths inherently differ. Older
+fingerprints are conservatively missed once because they lack environment evidence.
+Only uncached commands consume execution slots; inferred preparation is skipped
+when every requested check is already cached. Failure or
 cancellation never records a successful result. Parallel siblings settle before
 the lifecycle proceeds or releases its repository/resource locks.
+
+With `validationCache: "repository"`, identical concurrent validation plans in the
+same repository/runtime share one run. A bounded, OS-owned mutex stays held through
+tree verification and cache publication. Waiters recheck the verified cache after
+acquiring it. Different trees, plans or environments use separate mutexes. Session
+caching remains the default; no repository is silently opted into broader reuse.
+
+Only enable repository caching for checks whose result depends on the tracked tree,
+command and environment, independent of worktree path, untracked inputs and external
+mutable services. Checks must not need per-worktree output artifacts or side effects.
+Use `session` or `off` otherwise. This is result reuse, not build-artifact distribution.
+Different repositories never share validation results. Separate runtime homes keep
+separate caches even when they share queue capacity.
+
+Cancellation of a reuse waiter leaves the owner running. A crashed owner's mutex is
+released by the OS; no success is published before verification. Its running queue
+entries still require the normal orphan recovery before new commands can start.
+Full local-target recovery continues to bypass validation reuse.
 
 ## Measurement
 
@@ -117,3 +143,13 @@ It does not impose memory pressure or claim to measure an OOM threshold.
 See [the recorded local results](build-queue-results.md) for measurements and
 platform coverage. Native Windows queue smoke coverage passed; native macOS execution remains
 unverified.
+
+For the follow-up speed comparison against actual earlier installations:
+
+```sh
+node scripts/benchmark-validation-reuse.mjs /tmp/reuse-results.json /path/to/pre-queue/dist /path/to/queued/dist
+```
+
+This measures four concurrent validation sessions in separate worktrees of two
+repositories, with independent checks and explicitly cacheable matching checks.
+See [speed comparison results](validation-reuse-results.md).

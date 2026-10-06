@@ -138,7 +138,18 @@ export async function runValidation(
   } = {},
 ): Promise<{ cacheHits: number; executed: number }> {
   return withQueueCancellation(async (signal) => {
-    if (commands.length > 0) {
+    if (
+      commands.some((step) => {
+        const group =
+          Array.isArray(step) || "command" in step ? [step] : step.parallel;
+        return group.some(
+          (entry) =>
+            !options.cachedFingerprints?.has(
+              commandFingerprint(validationCommandValue(entry)),
+            ),
+        );
+      })
+    ) {
       await runValidationPreparation(cwd);
     }
     let cacheHits = 0;

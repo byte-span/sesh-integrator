@@ -1,0 +1,314 @@
+{
+  "recordedAt": "2026-10-06T22:39:54.617Z",
+  "node": "v24.21.0",
+  "cpus": 16,
+  "memoryGiB": 7.458648681640625,
+  "versions": {
+    "baseline": "/home/dev/.local/share/sesh-integrator/releases/release.bndiTyOL/dist",
+    "current": "/home/dev/.local/share/sesh-integrator/releases/release.y30FmeQs/dist",
+    "candidate": "/home/dev/.sesh-integrator/source-worktrees/24b94d7e/session_mux95i89_0d5eab35a4/dist"
+  },
+  "method": "Four concurrent validation sessions in four worktrees of two disposable Git repositories. Actual pre-queue/current/candidate modules, unchanged required commands: TypeScript on 1800 declarations and 96 MiB/500ms scan. Independent disables caching; matching explicitly enables repository cache. Fresh caches every case. Five rotated repetitions. 20ms aggregate descendant RSS includes sampler and double-counts shared pages. No imposed memory pressure. Measures validation orchestration, not complete edit/merge/PR lifecycles.",
+  "cases": [
+    {
+      "scenario": "independent",
+      "repeat": 1,
+      "mode": "baseline",
+      "durationMs": 1681,
+      "peakRssMiB": 997,
+      "executed": 8,
+      "cacheHits": 0,
+      "failures": []
+    },
+    {
+      "scenario": "independent",
+      "repeat": 1,
+      "mode": "current",
+      "durationMs": 4753,
+      "peakRssMiB": 534,
+      "executed": 8,
+      "cacheHits": 0,
+      "failures": []
+    },
+    {
+      "scenario": "independent",
+      "repeat": 1,
+      "mode": "candidate",
+      "durationMs": 1549,
+      "peakRssMiB": 1038,
+      "executed": 8,
+      "cacheHits": 0,
+      "failures": []
+    },
+    {
+      "scenario": "independent",
+      "repeat": 2,
+      "mode": "current",
+      "durationMs": 4958,
+      "peakRssMiB": 557,
+      "executed": 8,
+      "cacheHits": 0,
+      "failures": []
+    },
+    {
+      "scenario": "independent",
+      "repeat": 2,
+      "mode": "candidate",
+      "durationMs": 1572,
+      "peakRssMiB": 1056,
+      "executed": 8,
+      "cacheHits": 0,
+      "failures": []
+    },
+    {
+      "scenario": "independent",
+      "repeat": 2,
+      "mode": "baseline",
+      "durationMs": 1525,
+      "peakRssMiB": 1040,
+      "executed": 8,
+      "cacheHits": 0,
+      "failures": []
+    },
+    {
+      "scenario": "independent",
+      "repeat": 3,
+      "mode": "candidate",
+      "durationMs": 1604,
+      "peakRssMiB": 1088,
+      "executed": 8,
+      "cacheHits": 0,
+      "failures": []
+    },
+    {
+      "scenario": "independent",
+      "repeat": 3,
+      "mode": "baseline",
+      "durationMs": 1530,
+      "peakRssMiB": 1039,
+      "executed": 8,
+      "cacheHits": 0,
+      "failures": []
+    },
+    {
+      "scenario": "independent",
+      "repeat": 3,
+      "mode": "current",
+      "durationMs": 5076,
+      "peakRssMiB": 565,
+      "executed": 8,
+      "cacheHits": 0,
+      "failures": []
+    },
+    {
+      "scenario": "independent",
+      "repeat": 4,
+      "mode": "baseline",
+      "durationMs": 1662,
+      "peakRssMiB": 1060,
+      "executed": 8,
+      "cacheHits": 0,
+      "failures": []
+    },
+    {
+      "scenario": "independent",
+      "repeat": 4,
+      "mode": "current",
+      "durationMs": 5306,
+      "peakRssMiB": 566,
+      "executed": 8,
+      "cacheHits": 0,
+      "failures": []
+    },
+    {
+      "scenario": "independent",
+      "repeat": 4,
+      "mode": "candidate",
+      "durationMs": 1637,
+      "peakRssMiB": 1070,
+      "executed": 8,
+      "cacheHits": 0,
+      "failures": []
+    },
+    {
+      "scenario": "independent",
+      "repeat": 5,
+      "mode": "current",
+      "durationMs": 4987,
+      "peakRssMiB": 570,
+      "executed": 8,
+      "cacheHits": 0,
+      "failures": []
+    },
+    {
+      "scenario": "independent",
+      "repeat": 5,
+      "mode": "candidate",
+      "durationMs": 1668,
+      "peakRssMiB": 1077,
+      "executed": 8,
+      "cacheHits": 0,
+      "failures": []
+    },
+    {
+      "scenario": "independent",
+      "repeat": 5,
+      "mode": "baseline",
+      "durationMs": 1589,
+      "peakRssMiB": 1054,
+      "executed": 8,
+      "cacheHits": 0,
+      "failures": []
+    },
+    {
+      "scenario": "matching",
+      "repeat": 1,
+      "mode": "baseline",
+      "durationMs": 1530,
+      "peakRssMiB": 1045,
+      "executed": 8,
+      "cacheHits": 0,
+      "failures": []
+    },
+    {
+      "scenario": "matching",
+      "repeat": 1,
+      "mode": "current",
+      "durationMs": 5151,
+      "peakRssMiB": 570,
+      "executed": 8,
+      "cacheHits": 0,
+      "failures": []
+    },
+    {
+      "scenario": "matching",
+      "repeat": 1,
+      "mode": "candidate",
+      "durationMs": 1308,
+      "peakRssMiB": 727,
+      "executed": 4,
+      "cacheHits": 4,
+      "failures": []
+    },
+    {
+      "scenario": "matching",
+      "repeat": 2,
+      "mode": "current",
+      "durationMs": 5109,
+      "peakRssMiB": 577,
+      "executed": 8,
+      "cacheHits": 0,
+      "failures": []
+    },
+    {
+      "scenario": "matching",
+      "repeat": 2,
+      "mode": "candidate",
+      "durationMs": 1371,
+      "peakRssMiB": 734,
+      "executed": 4,
+      "cacheHits": 4,
+      "failures": []
+    },
+    {
+      "scenario": "matching",
+      "repeat": 2,
+      "mode": "baseline",
+      "durationMs": 1621,
+      "peakRssMiB": 1077,
+      "executed": 8,
+      "cacheHits": 0,
+      "failures": []
+    },
+    {
+      "scenario": "matching",
+      "repeat": 3,
+      "mode": "candidate",
+      "durationMs": 1345,
+      "peakRssMiB": 732,
+      "executed": 4,
+      "cacheHits": 4,
+      "failures": []
+    },
+    {
+      "scenario": "matching",
+      "repeat": 3,
+      "mode": "baseline",
+      "durationMs": 1671,
+      "peakRssMiB": 1066,
+      "executed": 8,
+      "cacheHits": 0,
+      "failures": []
+    },
+    {
+      "scenario": "matching",
+      "repeat": 3,
+      "mode": "current",
+      "durationMs": 4872,
+      "peakRssMiB": 581,
+      "executed": 8,
+      "cacheHits": 0,
+      "failures": []
+    },
+    {
+      "scenario": "matching",
+      "repeat": 4,
+      "mode": "baseline",
+      "durationMs": 1627,
+      "peakRssMiB": 1088,
+      "executed": 8,
+      "cacheHits": 0,
+      "failures": []
+    },
+    {
+      "scenario": "matching",
+      "repeat": 4,
+      "mode": "current",
+      "durationMs": 5160,
+      "peakRssMiB": 592,
+      "executed": 8,
+      "cacheHits": 0,
+      "failures": []
+    },
+    {
+      "scenario": "matching",
+      "repeat": 4,
+      "mode": "candidate",
+      "durationMs": 1379,
+      "peakRssMiB": 739,
+      "executed": 4,
+      "cacheHits": 4,
+      "failures": []
+    },
+    {
+      "scenario": "matching",
+      "repeat": 5,
+      "mode": "current",
+      "durationMs": 5056,
+      "peakRssMiB": 589,
+      "executed": 8,
+      "cacheHits": 0,
+      "failures": []
+    },
+    {
+      "scenario": "matching",
+      "repeat": 5,
+      "mode": "candidate",
+      "durationMs": 1387,
+      "peakRssMiB": 751,
+      "executed": 4,
+      "cacheHits": 4,
+      "failures": []
+    },
+    {
+      "scenario": "matching",
+      "repeat": 5,
+      "mode": "baseline",
+      "durationMs": 1640,
+      "peakRssMiB": 1062,
+      "executed": 8,
+      "cacheHits": 0,
+      "failures": []
+    }
+  ]
+}
