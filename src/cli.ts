@@ -23,6 +23,7 @@ import {
   resumeCommand,
   validateCommand,
 } from "./handoff.js";
+import { queueCommand } from "./build-queue.js";
 import { statusCommand } from "./status.js";
 import { reconcileCommand } from "./reconcile.js";
 import { benchmarkCommand } from "./benchmark.js";
@@ -204,6 +205,9 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
         );
         break;
       }
+      case "queue":
+        await queueCommand(args);
+        break;
       case "status": {
         await statusCommand(parseSessionOption(args));
         break;
@@ -494,6 +498,7 @@ Usage:
   seshx validate [--session <session-id>]
   seshx integrate --summary "..." --rollout <none|applied|automated|manual> [--follow-up "<action, destination, exact configuration names; no secret values>"]... [--session <session-id>]
   seshx resume [--session <session-id>] [--accept-staged-resolution]
+  seshx queue [status | configure --concurrency <auto|1-64> | configure --wait-seconds <1-86400> | recover <entry-id> --confirmed-stopped]
   seshx status [--session <session-id>]
   seshx dashboard [--web [--no-open] [--port <port>]]
   seshx finish --no-changes --summary "..." [--session <session-id>] [--satisfied-by <session-id>]

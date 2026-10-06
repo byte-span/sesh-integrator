@@ -1,0 +1,74 @@
+{
+  "version": 1,
+  "recordedAt": "2026-10-06T21:44:21.096Z",
+  "platform": "linux",
+  "node": "v24.21.0",
+  "availableCpus": 16,
+  "memoryGiB": 7.5,
+  "method": "4 concurrent sessions, 2 disposable Git repositories, 4 runtime homes; each session runs TypeScript on 1800 typed declarations then a 96 MiB/500ms memory scan. 20ms summed process-tree RSS samples include coordinator overhead and double-count shared pages. Three rotated repetitions, warm filesystem cache. No imposed memory pressure; not an OOM stress test.",
+  "cases": [
+    {
+      "repeat": 1,
+      "mode": "direct",
+      "durationMs": 1560,
+      "peakRssMiB": 993,
+      "failures": []
+    },
+    {
+      "repeat": 1,
+      "mode": "queue-1",
+      "durationMs": 4966,
+      "peakRssMiB": 522,
+      "failures": []
+    },
+    {
+      "repeat": 1,
+      "mode": "queue-2",
+      "durationMs": 2759,
+      "peakRssMiB": 684,
+      "failures": []
+    },
+    {
+      "repeat": 2,
+      "mode": "queue-1",
+      "durationMs": 4974,
+      "peakRssMiB": 553,
+      "failures": []
+    },
+    {
+      "repeat": 2,
+      "mode": "queue-2",
+      "durationMs": 2861,
+      "peakRssMiB": 714,
+      "failures": []
+    },
+    {
+      "repeat": 2,
+      "mode": "direct",
+      "durationMs": 1721,
+      "peakRssMiB": 1061,
+      "failures": []
+    },
+    {
+      "repeat": 3,
+      "mode": "queue-2",
+      "durationMs": 2789,
+      "peakRssMiB": 708,
+      "failures": []
+    },
+    {
+      "repeat": 3,
+      "mode": "direct",
+      "durationMs": 1627,
+      "peakRssMiB": 1067,
+      "failures": []
+    },
+    {
+      "repeat": 3,
+      "mode": "queue-1",
+      "durationMs": 5149,
+      "peakRssMiB": 568,
+      "failures": []
+    }
+  ]
+}
