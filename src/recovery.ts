@@ -1,6 +1,7 @@
 import { worktreePaths } from "./worktree-location.js";
 import { createHash } from "node:crypto";
 import {
+  stat,
   copyFile,
   mkdir,
   readFile,
@@ -9,7 +10,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve } from "node:path";
-import { git, hasMergeInProgress, refCommit } from "./git.js";
+import { git, hasMergeInProgress, inspectGit, refCommit } from "./git.js";
 import { run } from "./process.js";
 import { runtimePaths, writeJsonAtomic } from "./runtime.js";
 import type {
@@ -230,6 +231,55 @@ export async function reconstructRecoveryWorktree(
   importResolvedFrom?: string,
 ): Promise<string> {
   let manifest = await readVerifiedManifest(session);
+  const path = join(
+    (await worktreePaths(repository.path)).recoveryWorktrees,
+    session.id,
+    session.recoveryBundle!.attemptId,
+  );
+  // Older coordinators could throw before recording this path. Inspect the
+  // attempt's live merge before importing an older worktree or replacing it.
+  if (
+    (await stat(path).then(
+      () => true,
+      (error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT") return false;
+        throw error;
+      },
+    )) &&
+    (await hasMergeInProgress(path))
+  ) {
+    const context = await inspectGit(path);
+    const mergeHead = await git(["rev-parse", "MERGE_HEAD"], path);
+    if (
+      context.gitCommonDir !== repository.gitCommonDir ||
+      context.branch !== null ||
+      mergeHead !== manifest.sourceCommit ||
+      (session.integrationWorktreePath === path &&
+        session.conflictIntegrationHead !== undefined &&
+        session.conflictIntegrationHead !== context.head)
+    )
+      throw new Error(`Recovery worktree identity mismatch; preserved ${path}`);
+    session.integrationWorktreePath = path;
+    session.integrationWorktreeDetached = true;
+    session.conflictIntegrationHead = context.head;
+    session.awaitingConflictResolution = true;
+    const unresolved = await git(
+      ["diff", "--name-only", "--diff-filter=U"],
+      path,
+    );
+    // Keep partial resolutions intact until every conflict has been staged.
+    if (unresolved.trim()) return path;
+    const unstaged = await run("git", ["diff", "--quiet"], { cwd: path });
+    const untracked = await git(
+      ["ls-files", "--others", "--exclude-standard"],
+      path,
+    );
+    if (unstaged.code !== 0 || untracked.trim())
+      throw new Error(
+        `Recovery worktree has unstaged or untracked changes; preserve or stage them before resume: ${path}`,
+      );
+    importResolvedFrom = path;
+  }
   if (importResolvedFrom && (await hasMergeInProgress(importResolvedFrom))) {
     const unresolved = await run(
       "git",
@@ -288,17 +338,15 @@ export async function reconstructRecoveryWorktree(
     }
     session.targetCommitBeforeIntegration = currentTarget;
   }
-  const path = join(
-    (await worktreePaths(repository.path)).recoveryWorktrees,
-    session.id,
-    session.recoveryBundle!.attemptId,
-  );
   await removeOwnedWorktree(repository.path, path);
   await mkdir(dirname(path), { recursive: true });
   await git(
     ["worktree", "add", "--detach", path, currentStaging],
     repository.path,
   );
+  session.integrationWorktreePath = path;
+  session.integrationWorktreeDetached = true;
+  session.conflictIntegrationHead = currentStaging;
   if (snapshot?.object && currentStaging !== snapshotBase) {
     const currentTarget = session.targetBranch
       ? await refCommit(repository.path, `refs/heads/${session.targetBranch}`)
@@ -322,10 +370,18 @@ export async function reconstructRecoveryWorktree(
       ["merge", "--no-ff", "--no-commit", manifest.sourceCommit],
       { cwd: path },
     );
-    if (merge.code !== 0)
-      throw new Error(
-        "The preserved session conflicts with newer staging history; resolve and stage the fresh recovery worktree, then resume",
+    if (merge.code !== 0) {
+      const unresolved = await git(
+        ["diff", "--name-only", "--diff-filter=U"],
+        path,
       );
+      if (!unresolved.trim())
+        throw new Error(
+          `Recovery merge failed without reported conflicts: ${(merge.stderr || merge.stdout).trim()}`,
+        );
+      session.awaitingConflictResolution = true;
+      await snapshotRecoveryState(repository, session, path);
+    }
   } else if (snapshot?.object) {
     const expected = await git(
       ["rev-parse", `${snapshot.object}^{tree}`],
@@ -367,9 +423,6 @@ export async function reconstructRecoveryWorktree(
       session.awaitingConflictResolution = true;
     }
   }
-  session.integrationWorktreePath = path;
-  session.integrationWorktreeDetached = true;
-  session.conflictIntegrationHead = currentStaging;
   if (reconstructingSnapshotlessBundle) {
     await snapshotRecoveryState(repository, session, path);
   }
