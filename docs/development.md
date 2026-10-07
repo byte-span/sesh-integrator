@@ -184,6 +184,10 @@ installed renderer and restart the user's dashboard only when authorized, or
 record that restart as an outstanding follow-up.
 
 Before PR promotion, fetch `origin/main` and verify it is an ancestor of `dev`.
+Compare commit ancestry even when the file trees match: a reviewed PR merge
+can add a required ancestor without changing any files. Preserve that merge
+commit in the synchronization session; tree equality alone does not satisfy
+the publication guard.
 After a shared PR is merged, synchronize the exact fetched merge commit in a
 separate managed source session, validate and integrate that session, then
 continue the original task. Preserve pending sessions and dirty launch files;
