@@ -191,6 +191,35 @@ review and rollout obligations. Report the current no-change session and the
 referenced integration separately. Inspect `seshx status --session <id>` before
 reporting completion. A terminal response does not update stored session status.
 
+## Task resource cleanup
+
+Track resources created for the task in its checklist or non-secret evidence:
+exact container/builder names, process identity, temporary paths, purpose and
+stop command. Prefer unique task identities and project scripts that clean up
+on success, failure and cancellation. Temporary containers and builders must
+not restart automatically with Docker unless their continued operation is
+explicitly required. An explicitly started development environment may remain
+running; record that intent and how to stop it.
+
+Before finishing (including no-change completion), after failed validation, and
+when resuming interrupted work, inspect the task's recorded resources. Stop
+owned containers, builders, servers and background processes that are no longer
+needed, using their supported lifecycle commands and bounded waits. Verify the
+result. Remove only known disposable task files after retaining needed evidence.
+An interruption or host crash may bypass cleanup handlers; reconcile leftovers
+before starting replacement workloads.
+
+Confirm ownership and current use before acting. Inactivity, a matching name
+prefix, or a dead parent alone does not prove a resource is safe to stop. Preserve
+shared resources, pre-existing development environments, persistent data, user
+changes, Git worktrees/branches, locks and integration recovery evidence. Never
+use blanket Docker prune, volume deletion, broad process kills or lock removal
+to clean up a session. If ownership is ambiguous, leave the resource intact and
+report the uncertainty. For anything intentionally retained or not cleaned up,
+report its exact identity, purpose, owner and supported stop/recovery command;
+record required manual cleanup as an outstanding follow-up. These are agent
+workflow duties, not a new daemon or automatic cleanup performed by `integrate`.
+
 ## Validation scope
 
 This workflow owns the general policy. Repository instructions should retain
