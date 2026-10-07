@@ -3273,6 +3273,87 @@ process.stdout.write(JSON.stringify({status:"SUCCESS",response:"resolved",text:"
     );
   });
 
+  it.each([false, true])(
+    "preserves newer staging conflicts across resume (legacy path: %s)",
+    async (legacyPath) => {
+      const fixture = await createFixture("base\n");
+      const older = await addWorktree(fixture, "recovery-conflict-older");
+      const newer = await addWorktree(fixture, "recovery-conflict-newer");
+      await runCliOk(fixture, older, ["begin", "--summary", "older change"]);
+      await runCliOk(fixture, newer, ["begin", "--summary", "newer change"]);
+      commitFile(older, "shared.txt", "older\n", "older source");
+      commitFile(newer, "shared.txt", "newer\n", "newer source");
+      await updateConfig(fixture, (config) => {
+        config.repositories[0].integrationValidationCommands = [
+          [process.execPath, "-e", "process.exit(19)"],
+        ];
+      });
+      expect(
+        (
+          await runCli(fixture, older, [
+            "integrate",
+            "--summary",
+            "older attempt",
+          ])
+        ).code,
+      ).toBe(1);
+      const oldState = (await sessions(fixture)).find(
+        (item) => item.worktreePath === older,
+      )!;
+      await updateConfig(fixture, (config) => {
+        config.repositories[0].integrationValidationCommands = [];
+      });
+      await runCliOk(fixture, newer, [
+        "integrate",
+        "--summary",
+        "newer complete",
+      ]);
+      const first = await runCli(fixture, older, ["resume"]);
+      expect(first.code).toBe(1);
+      expect(first.stderr).toContain(
+        "Resolve and stage all conflicts before resume",
+      );
+      let pending = (await sessions(fixture)).find(
+        (item) => item.worktreePath === older,
+      )!;
+      const recoveryPath = pending.integrationWorktreePath;
+      expect(recoveryPath).toContain("recovery-worktrees");
+      expect(pending.awaitingConflictResolution).toBe(true);
+      // Model an older coordinator's stale pointer without touching the live merge.
+      if (legacyPath) {
+        pending.integrationWorktreePath = oldState.integrationWorktreePath;
+        pending.awaitingConflictResolution = false;
+        await writeFile(
+          join(fixture.runtime, "sessions", pending.id + ".json"),
+          JSON.stringify(pending),
+        );
+      }
+      await writeFile(join(recoveryPath, "shared.txt"), "partial resolution\n");
+      expect((await runCli(fixture, older, ["resume"])).code).toBe(1);
+      expect(await readFile(join(recoveryPath, "shared.txt"), "utf8")).toBe(
+        "partial resolution\n",
+      );
+      await writeFile(join(recoveryPath, "shared.txt"), "newer\nolder\n");
+      git(recoveryPath, "add", "shared.txt");
+      await writeFile(join(recoveryPath, "keep.txt"), "untracked work\n");
+      const unsafe = await runCli(fixture, older, ["resume"]);
+      expect(unsafe.code).toBe(1);
+      expect(unsafe.stderr).toContain("unstaged or untracked changes");
+      expect(await readFile(join(recoveryPath, "keep.txt"), "utf8")).toBe(
+        "untracked work\n",
+      );
+      git(recoveryPath, "add", "keep.txt");
+      await runCliOk(fixture, older, ["resume"]);
+      pending = (await sessions(fixture)).find(
+        (item) => item.worktreePath === older,
+      )!;
+      expect(pending.status).toBe("succeeded");
+      expect(pending.recoveryCoordinator).toBeDefined();
+      expect(git(fixture.repo, "show", "main:shared.txt")).toBe("newer\nolder");
+      expect(git(fixture.repo, "show", "main:keep.txt")).toBe("untracked work");
+    },
+  );
+
   it("reconstructs and snapshots a clean snapshotless legacy bundle from the current target", async () => {
     const fixture = await createFixture();
     const worktree = await addWorktree(fixture, "legacy-empty-clean");

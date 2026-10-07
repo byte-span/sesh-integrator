@@ -472,6 +472,14 @@ commits, unresolved files, or a moved integration branch. It also retries an
 unchanged clean merge after validation or commit creation failed, but only when
 the staged tree exactly matches Git's reconstructed merge tree.
 
+If an older coordinator repeatedly recreates a recovery conflict, install a
+compatible fixed release, then run its absolute CLI path from the original source
+worktree: `node /absolute/path/to/fixed/dist/cli.js resume --session <session-id>`.
+The command records the recovery coordinator while retaining the original one.
+It recognizes the existing attempt's detached recovery merge, preserves partial
+resolutions, and imports the fully staged resolution before reconstruction.
+Do not edit session records, recovery manifests, refs, or retained executables.
+
 For `promotion_pending`, an unchanged target retries the exact validated staging
 commit. If the local target advanced normally from the recorded baseline,
 `resume` merges that exact target commit with the preserved result in a detached
