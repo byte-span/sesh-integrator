@@ -239,6 +239,8 @@ export async function reconstructRecoveryWorktree(
   // Older coordinators could throw before recording this path. Inspect the
   // attempt's live merge before importing an older worktree or replacing it.
   if (
+    (session.awaitingConflictResolution ||
+      session.integrationWorktreePath !== path) &&
     (await stat(path).then(
       () => true,
       (error: NodeJS.ErrnoException) => {
