@@ -19,6 +19,10 @@ import {
 } from "./enablement.js";
 import { withConfigLock } from "./runtime.js";
 import { writeCompletionSummary } from "./completion.js";
+import {
+  checkTrackedFollowUps,
+  readTaskRegister,
+} from "./follow-up-tracking.js";
 import { access, mkdir, readFile } from "node:fs/promises";
 import { constants } from "node:fs";
 import { dirname, join } from "node:path";
@@ -671,6 +675,16 @@ export async function integrateCommand(
     "integration",
   );
 
+  // Retries keep the originally persisted classification; check only what is recorded now.
+  if (
+    rolloutDisposition === "manual" &&
+    (session.status === "active" || !session.rolloutDisposition)
+  ) {
+    checkTrackedFollowUps(
+      rolloutFollowUps,
+      await readTaskRegister(source.worktreePath, source.head),
+    );
+  }
   if (session.status === "active") {
     session.status = "ready";
     session.readyCommit = source.head;

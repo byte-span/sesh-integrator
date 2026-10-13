@@ -149,7 +149,7 @@ Implement:
 seshx init
 seshx register [repo-path]
 seshx begin [--summary "..."] [--depends-on <session-id>]
-seshx integrate --summary "..." --rollout <none|applied|automated|manual> [--follow-up "..."]...
+seshx integrate --summary "..." --rollout <none|applied|automated|manual> [--follow-up "<TASK-ID>: ..."]...
 seshx status
 seshx audit-legacy
 seshx doctor
@@ -257,7 +257,7 @@ The Codex CLI workflow is responsible for validating and creating a focused
 source-branch commit before invoking:
 
 ```bash
-seshx integrate --summary "<completion summary>" --rollout <none|applied|automated|manual> [--follow-up "<required action>"]...
+seshx integrate --summary "<completion summary>" --rollout <none|applied|automated|manual> [--follow-up "<TASK-ID>: <required action>"]...
 ```
 
 `integrate` must:

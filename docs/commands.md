@@ -31,7 +31,7 @@ seshx register [repo-path] [--auto-config] [--setup-command '<json-array>']...
 seshx begin --summary "Implement feature" [--create-worktree] [--no-auto-branch] [--depends-on <session-id>]...
 seshx commit --message "Implement feature" [--session <session-id>]
 seshx validate [--session <session-id>]
-seshx integrate --summary "Implemented feature and tests" --rollout <none|applied|automated|manual> [--follow-up "..."]... [--session <session-id>]
+seshx integrate --summary "Implemented feature and tests" --rollout <none|applied|automated|manual> [--follow-up "<TASK-ID>: ..."]... [--session <session-id>]
 seshx resume [--session <session-id>]
 seshx incident <ticket-id>
 seshx status [--session <session-id>]
@@ -399,31 +399,40 @@ resolved integration blockers; it does not imply that external setup occurred.
 without rollout metadata report incomplete requirements instead of claiming no
 manual work remains.
 
-Use one repeatable `--follow-up` per outstanding action. Specify what to do,
-where (system, repository/project, environment), and exact configuration names
-verified from non-secret source/configuration. For example:
+Use one repeatable `--follow-up` per outstanding action. Start it with the ID
+of the open task in the repository's `TASKS.json` that covers the action, then
+specify what to do, where (system, repository/project, environment), and exact
+configuration names verified from non-secret source/configuration. For example:
 
 ```text
---follow-up "On a trusted machine, add CWS_CLIENT_ID, CWS_CLIENT_SECRET, and CWS_REFRESH_TOKEN to the release repository's chrome-web-store GitHub environment."
+--follow-up "REL-004: On a trusted machine, add CWS_CLIENT_ID, CWS_CLIENT_SECRET, and CWS_REFRESH_TOKEN to the release repository's chrome-web-store GitHub environment."
 ```
+
+Integration reads `TASKS.json` at the source commit and refuses a follow-up
+without a task ID, with an ID it does not list, or with a completed task. Add or
+update the task in the same session when none covers the action. A repository
+without `TASKS.json` cannot record manual follow-ups: ask the user where to track
+the action (for example, add `TASKS.json` with qtask). The pull request's own
+review and merge is listed automatically and needs no task. Retries keep the
+originally recorded follow-ups, so earlier sessions stay recoverable.
 
 Add a separate action listing the verified Actions variable names and their
 destination when variables are required; do not guess their names. Credential
 values must never enter arguments, session records, or output. Documentation
 links supplement known steps rather than replacing them.
 
-The CLI enforces a rollout classification and nonempty manual actions and
-preserves their text across retry/recovery. It cannot verify actionability,
+The CLI enforces a rollout classification and nonempty manual actions that each
+name an open task, and preserves their text across retry/recovery. It cannot verify actionability,
 external completion, secret-free input, or the agent's final response. The skill
 and managed instructions require a final action-by-action check that preserves
 destinations and configuration names even when concise. Resolved prerequisites
 belong in completed work, not the outstanding list. Recorded follow-ups remain
-a declaration snapshot, not an external task tracker: if an action is later
+a declaration snapshot; the referenced task is the tracker: if an action is later
 completed with evidence, the agent reports it separately as completed. The CLI
 does not infer resolution from error text or remove external steps on recovery.
 
-No session schema migration or new flags are needed; existing `--follow-up`
-strings remain supported. After rebuilding the CLI, refresh installed guidance
+No session schema migration or new flags are needed; recorded follow-ups from
+earlier sessions remain supported. After rebuilding the CLI, refresh installed guidance
 with `./scripts/install-skill.sh` and `node scripts/sync-managed-guidance.mjs`.
 The latter updates only the managed block in global guidance; registered
 repositories are not modified. Start a new agent session to load

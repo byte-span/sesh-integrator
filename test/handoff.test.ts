@@ -225,9 +225,50 @@ process.stdout.write(JSON.stringify({status:"SUCCESS",response:"resolved",text:"
       "manual rollout requires at least one --follow-up",
     );
 
+    const manualIntegrate = (...followUps: string[]) =>
+      runCli(fixture, fixture.repo, [
+        "integrate",
+        "--summary",
+        "tracked follow-ups",
+        "--rollout",
+        "manual",
+        ...followUps.flatMap((item) => ["--follow-up", item]),
+      ]);
+    const untracked = await manualIntegrate("Configure FIXTURE_KEY somewhere.");
+    expect(untracked.code).toBe(1);
+    expect(untracked.stderr).toContain(
+      "must start with the ID of the open task that covers it",
+    );
+    const noRegister = await manualIntegrate("CWS-1: Configure FIXTURE_KEY.");
+    expect(noRegister.code).toBe(1);
+    expect(noRegister.stderr).toContain("has no TASKS.json");
+    expect(noRegister.stderr).toContain("Ask the user where to track");
+    commitFile(
+      fixture.repo,
+      "TASKS.json",
+      JSON.stringify({
+        schemaVersion: 1,
+        tasks: [
+          { id: "CWS-1", status: "ready" },
+          { id: "CWS-2", status: "blocked" },
+          { id: "DONE-1", status: "completed" },
+        ],
+      }),
+      "task register",
+    );
+    const unknown = await manualIntegrate("NOPE-1: Configure FIXTURE_KEY.");
+    expect(unknown.code).toBe(1);
+    expect(unknown.stderr).toContain(
+      "NOPE-1, which is not a task in TASKS.json",
+    );
+    const closed = await manualIntegrate("DONE-1: Configure FIXTURE_KEY.");
+    expect(closed.code).toBe(1);
+    expect(closed.stderr).toContain("DONE-1, which is completed");
+    expect((await sessions(fixture))[0]!.status).toBe("active");
+
     const actions = [
-      "On a trusted machine, add CWS_CLIENT_ID, CWS_CLIENT_SECRET, and CWS_REFRESH_TOKEN to the release repository's chrome-web-store GitHub environment.",
-      "In the fixture repository's chrome-web-store GitHub environment, configure Actions variables FIXTURE_EXTENSION_ID and FIXTURE_CHANNEL. See docs/release.md for context.",
+      "CWS-1: On a trusted machine, add CWS_CLIENT_ID, CWS_CLIENT_SECRET, and CWS_REFRESH_TOKEN to the release repository's chrome-web-store GitHub environment.",
+      "CWS-2: In the fixture repository's chrome-web-store GitHub environment, configure Actions variables FIXTURE_EXTENSION_ID and FIXTURE_CHANNEL. See docs/release.md for context.",
     ];
     const completed = await runCliOk(fixture, fixture.repo, [
       "integrate",
@@ -1899,6 +1940,15 @@ process.stdout.write(JSON.stringify({status:"SUCCESS",response:"resolved",text:"
       "unheld post target",
     ]);
     commitFile(worktree, "unheld-post.txt", "safe\n", "unheld post commit");
+    commitFile(
+      worktree,
+      "TASKS.json",
+      JSON.stringify({
+        schemaVersion: 1,
+        tasks: [{ id: "CWS-1", status: "ready" }],
+      }),
+      "task register",
+    );
     const marker = join(fixture.root, "unheld-post-ran.txt");
     await updateConfig(fixture, (config) => {
       config.repositories[0].postIntegrationCommands = [
@@ -1917,9 +1967,9 @@ process.stdout.write(JSON.stringify({status:"SUCCESS",response:"resolved",text:"
       "--rollout",
       "manual",
       "--follow-up",
-      "On a trusted machine, add CWS_CLIENT_ID and CWS_CLIENT_SECRET to the chrome-web-store GitHub environment.",
+      "CWS-1: On a trusted machine, add CWS_CLIENT_ID and CWS_CLIENT_SECRET to the chrome-web-store GitHub environment.",
       "--follow-up",
-      "On a trusted machine, add CWS_REFRESH_TOKEN to the chrome-web-store GitHub environment.",
+      "CWS-1: On a trusted machine, add CWS_REFRESH_TOKEN to the chrome-web-store GitHub environment.",
     ]);
 
     expect(blocked.code).toBe(1);

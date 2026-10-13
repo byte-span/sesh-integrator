@@ -367,6 +367,13 @@ Requests for concision never override these required completion fields. Use the
 CLI's compact `Completion summary` block as the reporting baseline and do not
 omit a populated pull-request URL.
 
+Start each `--follow-up` with the ID of the open task in the repository's
+`TASKS.json` that covers it, for example `PC-006: Deploy ...`; integration
+refuses anything else. If no task covers the action, add or update one in this
+session first. If the repository has no `TASKS.json`, ask the user where to
+track the action instead of reporting it untracked. The pull request's own
+review and merge needs no follow-up.
+
 For each `--follow-up`, record one actionable outstanding step: what to do,
 where to do it (system, repository/project, environment), and exact configuration
 names when known. Verify names from non-secret source/configuration; do not
