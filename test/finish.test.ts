@@ -158,7 +158,14 @@ it("links verified earlier integration and retains its outstanding review and ro
   const f = await fixture();
   const prior = await f.begin();
   await writeFile(join(prior.worktreePath, "fix.txt"), "already fixed");
-  f.git(["add", "fix.txt"], prior.worktreePath);
+  await writeFile(
+    join(prior.worktreePath, "TASKS.json"),
+    JSON.stringify({
+      schemaVersion: 1,
+      tasks: [{ id: "JOB-1", status: "ready" }],
+    }),
+  );
+  f.git(["add", "fix.txt", "TASKS.json"], prior.worktreePath);
   f.git(["commit", "-m", "fix"], prior.worktreePath);
   f.run(["validate"]);
   f.run([
@@ -168,7 +175,7 @@ it("links verified earlier integration and retains its outstanding review and ro
     "--rollout",
     "manual",
     "--follow-up",
-    "Enable fixture job in the sandbox project",
+    "JOB-1: Enable fixture job in the sandbox project",
   ]);
   const previous = (await f.sessions())[0]!;
   // Fixture review URL stands in for configured hosting, without remote access.
