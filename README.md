@@ -139,7 +139,8 @@ Use your harness identifier: `codex`, `claude`, `antigravity`, or `grok`.
 Start other independent tasks from the original checkout; each gets its own worktree.
 
 `--rollout none` means no external setup is needed. For changes requiring manual
-configuration or deployment, use `--rollout manual` with an explicit `--follow-up`.
+configuration or deployment, use `--rollout manual` with a `--follow-up` that starts with
+the ID of the open `TASKS.json` task covering it.
 [Rollout classifications →](docs/commands.md#integrate)
 
 ## How work comes together

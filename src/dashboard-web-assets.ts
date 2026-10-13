@@ -1603,7 +1603,7 @@ function actionForm(r, action) {
     }
     rollout.value = r.rollout;
     const follow = field(
-      "Manual follow-ups (one per line)",
+      "Manual follow-ups (one per line, each starting with its TASKS.json ID)",
       "textarea",
       r.followUps.join("\n"),
       "followups",

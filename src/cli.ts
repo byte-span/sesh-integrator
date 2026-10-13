@@ -496,7 +496,7 @@ Usage:
   seshx begin --summary "..." [--harness codex|claude|antigravity|grok] [--create-worktree] [--no-auto-branch] [--depends-on <session-id>]...
   seshx commit --message "..." [--session <session-id>]
   seshx validate [--session <session-id>]
-  seshx integrate --summary "..." --rollout <none|applied|automated|manual> [--follow-up "<action, destination, exact configuration names; no secret values>"]... [--session <session-id>]
+  seshx integrate --summary "..." --rollout <none|applied|automated|manual> [--follow-up "<TASK-ID>: <action, destination, exact configuration names; no secret values>"]... [--session <session-id>]
   seshx resume [--session <session-id>] [--accept-staged-resolution]
   seshx queue [status | configure --concurrency <unlimited|auto|1-64> | configure --wait-seconds <1-86400> | recover <entry-id> --confirmed-stopped]
   seshx status [--session <session-id>]

@@ -1186,7 +1186,7 @@ export async function dashboardCommand(): Promise<void> {
             ? "Completion summary:"
             : field === "rollout"
               ? "Rollout: none / applied / automated / manual"
-              : "Follow-up: action, destination, exact names (no secret values)",
+              : "Follow-up: TASK-ID: action, destination, exact names (no secret values)",
           ...(field === "rollout"
             ? [
                 "none: no external changes; applied: already applied",
