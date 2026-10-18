@@ -95,6 +95,8 @@ Complete personal MVP implementation checklist.
 - [x] Run Codex conflict resolution with isolated writable state and workspace sandboxing
 - [x] Default to current-session conflict resolution with a verified `resume` command
 - [x] Retain nested Codex resolution as an explicit compatibility mode
+- [ ] Add opt-in batch integration (default `serial`, configurable max batch size) that merges queued clean sessions, validates them once, and falls back to serial on any conflict or failure
+- [ ] Report what conflict resolution changed relative to each side (target and incoming session) in the completion summary and preserved evidence
 
 ## Session checklists and dashboard
 
