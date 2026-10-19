@@ -50,43 +50,69 @@ export const webHtml = String.raw`<!doctype html>
       </aside>
       <main id="sessions" tabindex="-1">
         <div class="page-heading">
-          <div>
+          <div class="page-title">
             <h1>Sessions</h1>
-            <p id="scope">Across your local repositories</p>
+            <span id="count" class="count" title="Loading sessions…">…</span>
           </div>
-          <button id="refresh" type="button">Refresh</button>
-        </div>
-        <div class="toolbar">
-          <label class="search"
-            >Search sessions<input
-              id="search"
-              type="search"
-              placeholder="Task, branch, repository…"
-              autocomplete="off" /></label
-          ><label
-            >Show<select id="filter">
-              <option value="active">Active</option>
-              <option value="attention">Needs attention</option>
-              <option value="finished">Finished</option>
-              <option value="all">All sessions</option>
-            </select></label
-          ><label
-            >Sort<select id="sort">
-              <option value="updated">Latest update</option>
-              <option value="priority">Needs attention first</option>
-              <option value="repository">Repository</option>
-            </select></label
+          <div class="toolbar">
+            <label class="search"
+              ><span class="visually-hidden">Search sessions</span
+              ><svg viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="11" cy="11" r="7" />
+                <path d="m20 20-4-4" /></svg
+              ><input
+                id="search"
+                type="search"
+                placeholder="Search sessions…"
+                title="Search by task, branch or repository. Press / to focus."
+                autocomplete="off" /></label
+            ><label
+              ><span class="visually-hidden">Show</span
+              ><select id="filter">
+                <option value="active">Active</option>
+                <option value="attention">Needs attention</option>
+                <option value="finished">Finished</option>
+                <option value="all">All sessions</option>
+              </select></label
+            ><label
+              ><span class="visually-hidden">Sort</span
+              ><select id="sort">
+                <option value="updated">Latest update</option>
+                <option value="priority">Needs attention first</option>
+                <option value="repository">Repository</option>
+              </select></label
+            >
+          </div>
+          <button
+            id="refresh"
+            class="icon-button"
+            type="button"
+            aria-label="Refresh"
+            title="Refresh sessions"
           >
-        </div>
-        <div class="list-caption">
-          <span id="count">Loading sessions…</span><span id="refreshed"></span>
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M20 11a8 8 0 0 0-14.3-4.9L4 8" />
+              <path d="M4 4v4h4" />
+              <path d="M4 13a8 8 0 0 0 14.3 4.9L20 16" />
+              <path d="M20 20v-4h-4" />
+            </svg></button
+          ><span id="refreshed"></span>
         </div>
         <div class="split">
           <section class="session-list" aria-label="Session list">
-            <div class="column-head">
-              <span>Session / current task</span><span>Status</span>
-            </div>
-            <div id="rows"></div>
+            <table id="session-table" class="session-table">
+              <thead>
+                <tr>
+                  <th scope="col" class="col-title">Session</th>
+                  <th scope="col" class="col-repository">Repository</th>
+                  <th scope="col" class="col-task">Current task</th>
+                  <th scope="col" class="col-progress">Tasks</th>
+                  <th scope="col" class="col-status">Status</th>
+                  <th scope="col" class="col-updated">Updated</th>
+                </tr>
+              </thead>
+              <tbody id="rows"></tbody>
+            </table>
             <div id="empty" class="empty" hidden>
               <h2>No active sessions</h2>
               <p>Choose All sessions to browse your history.</p>
@@ -197,10 +223,18 @@ export const webCss = String.raw`:root {
 * {
   box-sizing: border-box;
 }
+/* Fixed app shell: the page never scrolls. Only the repository nav, session
+   list and detail pane scroll (main scrolls only when the window is too short
+   to fit the split at its minimum height). */
 body {
   margin: 0;
   background: var(--bg);
   color: var(--ink);
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
 }
 button,
 input,
@@ -289,6 +323,7 @@ p {
   line-height: 1.55;
 }
 header {
+  flex-shrink: 0;
   height: 70px;
   padding: 0 28px;
   display: flex;
@@ -381,15 +416,15 @@ html.page-hidden #connection.connected .signal {
 .workspace {
   display: grid;
   grid-template-columns: var(--repository-width, 210px) minmax(0, 1fr);
-  min-height: calc(100vh - 70px);
+  grid-template-rows: minmax(0, 1fr);
+  flex: 1;
+  min-height: 0;
 }
 .repositories {
-  position: sticky;
-  top: 70px;
-  align-self: start;
+  position: relative;
   display: flex;
   flex-direction: column;
-  height: calc(100dvh - 70px);
+  min-height: 0;
   min-width: 0;
   padding: 32px 16px;
   background: var(--surface);
@@ -498,34 +533,61 @@ html.page-hidden #connection.connected .signal {
   flex-shrink: 0;
 }
 main {
-  padding: 32px;
+  display: flex;
+  flex-direction: column;
+  padding: 20px 32px 32px;
   min-width: 0;
+  min-height: 0;
   max-width: 1800px;
   width: 100%;
-  margin: auto;
+  margin: 0 auto;
+  overflow-y: auto;
+}
+main > * {
+  flex-shrink: 0;
+}
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 .page-heading {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  margin-bottom: 24px;
+  gap: 14px;
+  margin-bottom: 16px;
 }
-.page-heading p {
+.page-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-right: 16px;
+}
+.page-title h1 {
   margin: 0;
-  color: var(--muted);
+  line-height: 1.2;
+}
+.count {
+  min-width: 26px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: var(--selected);
+  color: var(--accent);
   font-size: 13px;
+  font-weight: 650;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
 }
 .toolbar {
+  flex: 1;
+  min-width: 0;
   display: flex;
   gap: 14px;
-  align-items: end;
-}
-.toolbar label {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-  font-size: 12px;
-  color: var(--muted);
+  align-items: center;
 }
 .toolbar input,
 .toolbar select {
@@ -534,93 +596,181 @@ main {
 }
 .search {
   flex: 1;
+  min-width: 0;
+  position: relative;
 }
-.list-caption {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
+.search svg {
+  position: absolute;
+  left: 11px;
+  top: 50%;
+  width: 17px;
+  height: 17px;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+.search input {
+  width: 100%;
+  padding-left: 36px;
+}
+.page-heading svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  color: var(--muted);
+}
+.icon-button {
+  flex-shrink: 0;
+  display: inline-grid;
+  place-items: center;
+  width: 44px;
+  height: 38px;
+  padding: 0;
+}
+.icon-button svg {
+  width: 18px;
+  height: 18px;
+  color: var(--ink);
+}
+#refreshed {
+  min-width: 0;
+  margin-left: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 12px;
   color: var(--muted);
-  margin: 24px 0 12px;
   font-variant-numeric: tabular-nums;
 }
 .split {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 0 var(--detail-width, minmax(0, 0.95fr));
+  grid-template-rows: minmax(0, 1fr);
+  flex: 1 1 0;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--surface);
   overflow: hidden;
-  min-height: 540px;
+  min-height: 240px;
 }
 .session-list {
   min-width: 0;
-  max-height: calc(100vh - 300px);
-  min-height: 400px;
+  min-height: 0;
   overflow: auto;
+  container-type: inline-size;
 }
-.column-head {
-  display: flex;
-  justify-content: space-between;
-  padding: 12px 18px;
-  font-size: 11px;
-  color: var(--muted);
-  background: var(--surface);
+.session-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13px;
+}
+.session-table th,
+.session-table td {
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--line);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+.session-table th {
   position: sticky;
   top: 0;
-  border-bottom: 1px solid var(--line);
   z-index: 1;
+  padding-block: 9px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+.session-table td {
+  color: var(--muted);
+}
+.col-repository {
+  width: 108px;
+}
+.col-task {
+  width: 24%;
+}
+.col-progress {
+  width: 56px;
+}
+.col-status {
+  width: 124px;
+}
+.col-updated {
+  width: 76px;
+}
+.col-progress,
+.col-updated {
+  font-variant-numeric: tabular-nums;
+}
+.single-repository .col-repository {
+  display: none;
+}
+@container (max-width: 700px) {
+  .col-task {
+    display: none;
+  }
+}
+@container (max-width: 460px) {
+  .col-repository,
+  .col-progress {
+    display: none;
+  }
 }
 .session-row {
-  display: block;
-  width: 100%;
-  text-align: left;
-  border: 0;
-  border-bottom: 1px solid var(--line);
-  border-radius: 0;
-  background: var(--surface);
-  padding: 18px;
   cursor: pointer;
 }
-.session-row[aria-pressed="true"] {
+.session-row:hover td {
+  background: var(--hover);
+}
+.session-row.selected td {
   background: var(--selected);
+}
+.session-row.selected td:first-child {
   box-shadow: inset 2px 0 var(--accent);
 }
-.row-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  font-size: 11px;
-  font-weight: 500;
-  margin-bottom: 8px;
-  color: var(--muted);
+.session-row:has(.row-select:focus-visible) td {
+  box-shadow:
+    inset 0 2px var(--accent),
+    inset 0 -2px var(--accent);
 }
-.row-title {
-  font-size: 14px;
+.session-row:has(.row-select:focus-visible) td:first-child {
+  box-shadow:
+    inset 2px 0 var(--accent),
+    inset 0 2px var(--accent),
+    inset 0 -2px var(--accent);
+}
+.session-row:has(.row-select:focus-visible) td:last-child {
+  box-shadow:
+    inset -2px 0 var(--accent),
+    inset 0 2px var(--accent),
+    inset 0 -2px var(--accent);
+}
+.row-select,
+.row-select:hover:not(:disabled) {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--ink);
   font-weight: 600;
-  line-height: 1.5;
-  overflow-wrap: anywhere;
-  display: block;
-  margin-bottom: 8px;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.row-task {
+.row-select:focus-visible {
+  outline: none;
+}
+.session-table .status {
   font-size: 12px;
-  font-weight: 400;
-  color: var(--muted);
-  line-height: 1.45;
-  display: block;
-  overflow-wrap: anywhere;
-}
-.row-bottom {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  margin-top: 12px;
-  font-size: 11px;
-  font-weight: 400;
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
 }
 .status {
   font-size: 11px;
@@ -640,8 +790,7 @@ main {
   padding: 24px;
   border-left: 1px solid var(--line);
   min-width: 0;
-  max-height: calc(100vh - 300px);
-  min-height: 400px;
+  min-height: 0;
   overflow: auto;
 }
 .detail h2 {
@@ -812,7 +961,7 @@ summary {
 .command pre {
   background: var(--code);
   padding: 16px;
-  max-height: 320px;
+  max-height: min(320px, 22vh);
   overflow: auto;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -828,6 +977,7 @@ footer {
   margin-top: 20px;
 }
 #error {
+  flex-shrink: 0;
   padding: 14px 28px;
   background: var(--surface);
   color: var(--danger);
@@ -886,10 +1036,7 @@ dialog p {
 }
 @media (min-width: 1600px) {
   main {
-    padding: 40px 48px;
-  }
-  .session-row {
-    padding: 20px 24px;
+    padding: 24px 48px 40px;
   }
   .detail {
     padding: 30px;
@@ -900,23 +1047,21 @@ dialog p {
     grid-template-columns: var(--repository-width, 170px) minmax(0, 1fr);
   }
   main {
-    padding: 24px 20px;
+    padding: 20px;
   }
   .split {
     grid-template-columns: minmax(0, 1fr) 0 var(--detail-width, minmax(0, 1fr));
   }
+  .page-heading {
+    flex-wrap: wrap;
+    row-gap: 12px;
+  }
+  .page-title {
+    margin-right: auto;
+  }
   .toolbar {
-    flex-wrap: wrap;
-  }
-  .search {
+    order: 1;
     flex-basis: 100%;
-  }
-  .list-caption {
-    flex-wrap: wrap;
-  }
-  .session-list,
-  .detail {
-    max-height: 65vh;
   }
 }
 @media (max-width: 800px) {
@@ -940,12 +1085,11 @@ dialog p {
     font-size: 16px;
   }
   .workspace {
-    display: block;
+    display: flex;
+    flex-direction: column;
   }
   .repositories {
-    position: relative;
-    top: auto;
-    height: auto;
+    flex-shrink: 0;
     display: block;
     padding: 14px 16px;
     border-right: 0;
@@ -967,16 +1111,16 @@ dialog p {
     max-width: 180px;
   }
   main {
-    padding: 24px 16px;
+    flex: 1;
+    padding: 16px;
   }
   .split {
-    display: block;
-    min-height: 360px;
+    display: flex;
+    flex-direction: column;
   }
   .session-list,
   .detail {
-    max-height: none;
-    min-height: 360px;
+    flex: 1;
   }
   .detail {
     display: none;
@@ -992,8 +1136,12 @@ dialog p {
     display: block;
     margin-bottom: 16px;
   }
-  .column-head {
-    position: static;
+  .toolbar {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .search {
+    flex-basis: 100%;
   }
   .toolbar > label:not(.search) {
     flex: 1;
@@ -1002,14 +1150,16 @@ dialog p {
   .toolbar select {
     width: 100%;
   }
-  .list-caption {
-    margin-top: 18px;
-  }
-  .page-heading {
-    margin-bottom: 20px;
-  }
   h1 {
-    font-size: 26px;
+    font-size: 24px;
+  }
+  .refreshed-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
   .header-actions button {
     font-size: 11px;
@@ -1066,6 +1216,13 @@ const time = (value) =>
         minute: "2-digit",
       })
     : "No saved events";
+const shortTime = (value) => {
+  if (!value) return "–";
+  const d = new Date(value);
+  return d.toDateString() === new Date().toDateString()
+    ? d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+    : d.toLocaleDateString([], { month: "short", day: "numeric" });
+};
 const status = (r) =>
   el(
     "span",
@@ -1352,47 +1509,71 @@ function renderRepositories() {
     nav.append(b);
     if (focused === path) b.focus();
   }
-  $("scope").textContent = repository || "Across your local repositories";
 }
 function render() {
   renderRepositories();
   const rows = visible();
   if (!rows.some((r) => r.id === selected)) selected = rows[0]?.id || "";
-  $("count").textContent =
-    rows.length + " " + (rows.length === 1 ? "session" : "sessions");
-  $("refreshed").textContent = state.refreshedAt
-    ? "Updated " + time(state.refreshedAt)
-    : "";
+  const summary =
+    (rows.length === 1 ? " session" : " sessions") +
+    (repository ? " in " + repository : " across your local repositories");
+  $("count").replaceChildren(
+    String(rows.length),
+    el("span", summary, "visually-hidden"),
+  );
+  $("count").title = rows.length + summary;
+  $("refreshed").replaceChildren(
+    ...(state.refreshedAt
+      ? [el("span", "Updated ", "refreshed-label"), time(state.refreshedAt)]
+      : []),
+  );
+  $("session-table").classList.toggle("single-repository", !!repository);
   const list = $("rows"),
     focusId = document.activeElement?.dataset.session;
   list.replaceChildren();
   for (const r of rows) {
-    const b = button(
-      "",
-      () => {
-        selected = r.id;
-        render();
-        document.querySelector(".split").classList.add("show-detail");
-        if (matchMedia("(max-width:800px)").matches) {
-          $("detail").tabIndex = -1;
-          $("detail").focus();
-        }
-      },
-      "session-row",
-    );
+    const tr = el("tr", undefined, "session-row");
+    tr.classList.toggle("selected", r.id === selected);
+    tr.addEventListener("click", () => {
+      selected = r.id;
+      render();
+      document.querySelector(".split").classList.add("show-detail");
+      if (matchMedia("(max-width:800px)").matches) {
+        $("detail").tabIndex = -1;
+        $("detail").focus();
+      }
+    });
+    const b = el("button", r.title, "row-select");
+    b.type = "button";
     b.dataset.session = r.id;
     b.setAttribute("aria-pressed", String(r.id === selected));
-    const top = el("span", undefined, "row-top");
-    top.append(el("span", r.repositoryName), status(r));
-    const bottom = el("span", undefined, "row-bottom");
-    bottom.append(el("span", r.progress), el("span", time(r.updated)));
-    b.append(
-      top,
-      el("span", r.title, "row-title"),
-      el("span", r.current, "row-task"),
-      bottom,
+    b.title = r.branch ? r.title + "\n" + r.branch : r.title;
+    const cell = (className, ...content) => {
+      const td = el("td", undefined, className);
+      td.append(...content);
+      return td;
+    };
+    const done = r.tasks.filter((t) => t.status === "completed").length;
+    const repositoryCell = cell("col-repository", r.repositoryName),
+      taskCell = cell("col-task", r.current),
+      progressCell = cell(
+        "col-progress",
+        r.tasks.length ? done + "/" + r.tasks.length : "–",
+      ),
+      updatedCell = cell("col-updated", shortTime(r.updated));
+    repositoryCell.title = r.repository;
+    taskCell.title = r.current;
+    progressCell.title = r.progress;
+    updatedCell.title = time(r.updated);
+    tr.append(
+      cell("col-title", b),
+      repositoryCell,
+      taskCell,
+      progressCell,
+      cell("col-status", status(r)),
+      updatedCell,
     );
-    list.append(b);
+    list.append(tr);
     if (focusId === r.id) b.focus();
   }
   $("empty").hidden = rows.length > 0;
@@ -1428,7 +1609,7 @@ function renderDetail(r) {
       "Back to sessions",
       () => {
         document.querySelector(".split").classList.remove("show-detail");
-        Array.from(document.querySelectorAll(".session-row"))
+        Array.from(document.querySelectorAll(".row-select"))
           .find((n) => n.dataset.session === selected)
           ?.focus();
       },
