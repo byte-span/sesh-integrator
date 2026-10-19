@@ -32,9 +32,6 @@ export const webHtml = String.raw`<!doctype html>
       <aside id="repository-panel" class="repositories">
         <h2>Repositories</h2>
         <nav id="repositories" aria-label="Repositories"></nav>
-        <p class="aside-note">
-          Saved session progress.<br />Updates while you work.
-        </p>
         <div
           id="repository-resizer"
           role="separator"
@@ -95,8 +92,8 @@ export const webHtml = String.raw`<!doctype html>
               <path d="M4 4v4h4" />
               <path d="M4 13a8 8 0 0 0 14.3 4.9L20 16" />
               <path d="M20 20v-4h-4" />
-            </svg></button
-          ><span id="refreshed"></span>
+            </svg>
+          </button>
         </div>
         <div class="split">
           <section class="session-list" aria-label="Session list">
@@ -153,10 +150,7 @@ export const webHtml = String.raw`<!doctype html>
           <p id="command-session"></p>
           <pre id="output" tabindex="0"></pre>
         </section>
-        <footer>
-          Session status reflects saved records, not whether an agent process is
-          running.
-        </footer>
+        <footer><span id="refreshed"></span></footer>
       </main>
     </div>
     <dialog
@@ -525,17 +519,10 @@ html.page-hidden #connection.connected .signal {
   background: var(--selected);
   color: var(--accent);
 }
-.aside-note {
-  font-size: 12px;
-  color: var(--muted);
-  margin: auto 12px 0;
-  padding-top: 32px;
-  flex-shrink: 0;
-}
 main {
   display: flex;
   flex-direction: column;
-  padding: 20px 32px 32px;
+  padding: 20px 32px 12px;
   min-width: 0;
   min-height: 0;
   max-width: 1800px;
@@ -632,16 +619,6 @@ main > * {
   width: 18px;
   height: 18px;
   color: var(--ink);
-}
-#refreshed {
-  min-width: 0;
-  margin-left: 4px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 12px;
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
 }
 .split {
   display: grid;
@@ -972,9 +949,13 @@ summary {
   font-size: 12px;
 }
 footer {
-  font-size: 11px;
+  min-height: 18px;
+  margin-top: 8px;
+  text-align: right;
+  white-space: nowrap;
+  font-size: 12px;
   color: var(--muted);
-  margin-top: 20px;
+  font-variant-numeric: tabular-nums;
 }
 #error {
   flex-shrink: 0;
@@ -1036,7 +1017,7 @@ dialog p {
 }
 @media (min-width: 1600px) {
   main {
-    padding: 24px 48px 40px;
+    padding: 24px 48px 14px;
   }
   .detail {
     padding: 30px;
@@ -1047,7 +1028,7 @@ dialog p {
     grid-template-columns: var(--repository-width, 170px) minmax(0, 1fr);
   }
   main {
-    padding: 20px;
+    padding: 20px 20px 12px;
   }
   .split {
     grid-template-columns: minmax(0, 1fr) 0 var(--detail-width, minmax(0, 1fr));
@@ -1095,8 +1076,7 @@ dialog p {
     border-right: 0;
     border-bottom: 1px solid var(--line);
   }
-  .repositories h2,
-  .aside-note {
+  .repositories h2 {
     display: none;
   }
   .repositories nav {
@@ -1112,7 +1092,7 @@ dialog p {
   }
   main {
     flex: 1;
-    padding: 16px;
+    padding: 16px 16px 10px;
   }
   .split {
     display: flex;
@@ -1152,14 +1132,6 @@ dialog p {
   }
   h1 {
     font-size: 24px;
-  }
-  .refreshed-label {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
   }
   .header-actions button {
     font-size: 11px;
@@ -1524,7 +1496,7 @@ function render() {
   $("count").title = rows.length + summary;
   $("refreshed").replaceChildren(
     ...(state.refreshedAt
-      ? [el("span", "Updated ", "refreshed-label"), time(state.refreshedAt)]
+      ? ["Updated ", time(state.refreshedAt)]
       : []),
   );
   $("session-table").classList.toggle("single-repository", !!repository);
