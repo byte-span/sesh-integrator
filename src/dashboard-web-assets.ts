@@ -100,10 +100,19 @@ export const webHtml = String.raw`<!doctype html>
         </div>
         <div class="split">
           <section class="session-list" aria-label="Session list">
-            <div class="column-head">
-              <span>Session / current task</span><span>Status</span>
-            </div>
-            <div id="rows"></div>
+            <table id="session-table" class="session-table">
+              <thead>
+                <tr>
+                  <th scope="col" class="col-title">Session</th>
+                  <th scope="col" class="col-repository">Repository</th>
+                  <th scope="col" class="col-task">Current task</th>
+                  <th scope="col" class="col-progress">Tasks</th>
+                  <th scope="col" class="col-status">Status</th>
+                  <th scope="col" class="col-updated">Updated</th>
+                </tr>
+              </thead>
+              <tbody id="rows"></tbody>
+            </table>
             <div id="empty" class="empty" hidden>
               <h2>No active sessions</h2>
               <p>Choose All sessions to browse your history.</p>
@@ -649,69 +658,119 @@ main > * {
   min-width: 0;
   min-height: 0;
   overflow: auto;
+  container-type: inline-size;
 }
-.column-head {
-  display: flex;
-  justify-content: space-between;
-  padding: 12px 18px;
-  font-size: 11px;
-  color: var(--muted);
-  background: var(--surface);
+.session-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13px;
+}
+.session-table th,
+.session-table td {
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--line);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+.session-table th {
   position: sticky;
   top: 0;
-  border-bottom: 1px solid var(--line);
   z-index: 1;
+  padding-block: 9px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+.session-table td {
+  color: var(--muted);
+}
+.col-repository {
+  width: 108px;
+}
+.col-task {
+  width: 24%;
+}
+.col-progress {
+  width: 56px;
+}
+.col-status {
+  width: 124px;
+}
+.col-updated {
+  width: 76px;
+}
+.col-progress,
+.col-updated {
+  font-variant-numeric: tabular-nums;
+}
+.single-repository .col-repository {
+  display: none;
+}
+@container (max-width: 700px) {
+  .col-task {
+    display: none;
+  }
+}
+@container (max-width: 460px) {
+  .col-repository,
+  .col-progress {
+    display: none;
+  }
 }
 .session-row {
-  display: block;
-  width: 100%;
-  text-align: left;
-  border: 0;
-  border-bottom: 1px solid var(--line);
-  border-radius: 0;
-  background: var(--surface);
-  padding: 18px;
   cursor: pointer;
 }
-.session-row[aria-pressed="true"] {
+.session-row:hover td {
+  background: var(--hover);
+}
+.session-row.selected td {
   background: var(--selected);
+}
+.session-row.selected td:first-child {
   box-shadow: inset 2px 0 var(--accent);
 }
-.row-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  font-size: 11px;
-  font-weight: 500;
-  margin-bottom: 8px;
-  color: var(--muted);
+.session-row:has(.row-select:focus-visible) td {
+  box-shadow:
+    inset 0 2px var(--accent),
+    inset 0 -2px var(--accent);
 }
-.row-title {
-  font-size: 14px;
+.session-row:has(.row-select:focus-visible) td:first-child {
+  box-shadow:
+    inset 2px 0 var(--accent),
+    inset 0 2px var(--accent),
+    inset 0 -2px var(--accent);
+}
+.session-row:has(.row-select:focus-visible) td:last-child {
+  box-shadow:
+    inset -2px 0 var(--accent),
+    inset 0 2px var(--accent),
+    inset 0 -2px var(--accent);
+}
+.row-select,
+.row-select:hover:not(:disabled) {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--ink);
   font-weight: 600;
-  line-height: 1.5;
-  overflow-wrap: anywhere;
-  display: block;
-  margin-bottom: 8px;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.row-task {
+.row-select:focus-visible {
+  outline: none;
+}
+.session-table .status {
   font-size: 12px;
-  font-weight: 400;
-  color: var(--muted);
-  line-height: 1.45;
-  display: block;
-  overflow-wrap: anywhere;
-}
-.row-bottom {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  margin-top: 12px;
-  font-size: 11px;
-  font-weight: 400;
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
 }
 .status {
   font-size: 11px;
@@ -979,9 +1038,6 @@ dialog p {
   main {
     padding: 24px 48px 40px;
   }
-  .session-row {
-    padding: 20px 24px;
-  }
   .detail {
     padding: 30px;
   }
@@ -1160,6 +1216,13 @@ const time = (value) =>
         minute: "2-digit",
       })
     : "No saved events";
+const shortTime = (value) => {
+  if (!value) return "–";
+  const d = new Date(value);
+  return d.toDateString() === new Date().toDateString()
+    ? d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+    : d.toLocaleDateString([], { month: "short", day: "numeric" });
+};
 const status = (r) =>
   el(
     "span",
@@ -1464,36 +1527,53 @@ function render() {
       ? [el("span", "Updated ", "refreshed-label"), time(state.refreshedAt)]
       : []),
   );
+  $("session-table").classList.toggle("single-repository", !!repository);
   const list = $("rows"),
     focusId = document.activeElement?.dataset.session;
   list.replaceChildren();
   for (const r of rows) {
-    const b = button(
-      "",
-      () => {
-        selected = r.id;
-        render();
-        document.querySelector(".split").classList.add("show-detail");
-        if (matchMedia("(max-width:800px)").matches) {
-          $("detail").tabIndex = -1;
-          $("detail").focus();
-        }
-      },
-      "session-row",
-    );
+    const tr = el("tr", undefined, "session-row");
+    tr.classList.toggle("selected", r.id === selected);
+    tr.addEventListener("click", () => {
+      selected = r.id;
+      render();
+      document.querySelector(".split").classList.add("show-detail");
+      if (matchMedia("(max-width:800px)").matches) {
+        $("detail").tabIndex = -1;
+        $("detail").focus();
+      }
+    });
+    const b = el("button", r.title, "row-select");
+    b.type = "button";
     b.dataset.session = r.id;
     b.setAttribute("aria-pressed", String(r.id === selected));
-    const top = el("span", undefined, "row-top");
-    top.append(el("span", r.repositoryName), status(r));
-    const bottom = el("span", undefined, "row-bottom");
-    bottom.append(el("span", r.progress), el("span", time(r.updated)));
-    b.append(
-      top,
-      el("span", r.title, "row-title"),
-      el("span", r.current, "row-task"),
-      bottom,
+    b.title = r.branch ? r.title + "\n" + r.branch : r.title;
+    const cell = (className, ...content) => {
+      const td = el("td", undefined, className);
+      td.append(...content);
+      return td;
+    };
+    const done = r.tasks.filter((t) => t.status === "completed").length;
+    const repositoryCell = cell("col-repository", r.repositoryName),
+      taskCell = cell("col-task", r.current),
+      progressCell = cell(
+        "col-progress",
+        r.tasks.length ? done + "/" + r.tasks.length : "–",
+      ),
+      updatedCell = cell("col-updated", shortTime(r.updated));
+    repositoryCell.title = r.repository;
+    taskCell.title = r.current;
+    progressCell.title = r.progress;
+    updatedCell.title = time(r.updated);
+    tr.append(
+      cell("col-title", b),
+      repositoryCell,
+      taskCell,
+      progressCell,
+      cell("col-status", status(r)),
+      updatedCell,
     );
-    list.append(b);
+    list.append(tr);
     if (focusId === r.id) b.focus();
   }
   $("empty").hidden = rows.length > 0;
@@ -1529,7 +1609,7 @@ function renderDetail(r) {
       "Back to sessions",
       () => {
         document.querySelector(".split").classList.remove("show-detail");
-        Array.from(document.querySelectorAll(".session-row"))
+        Array.from(document.querySelectorAll(".row-select"))
           .find((n) => n.dataset.session === selected)
           ?.focus();
       },
