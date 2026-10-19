@@ -147,7 +147,11 @@ browser tab leaves the server running until you stop the CLI. Each invocation
 starts its own server; a port already in use is reported rather than replaced.
 
 Choose a repository, search sessions, and filter by Active, Needs attention,
-Finished, or All sessions. Select a session for its checklist, saved milestones,
+Finished, or All sessions. The list is a compact table with one line per
+session: Session, Repository, Current task, Tasks, Status, and Updated. Hover a
+truncated cell for its full text. Choosing a repository hides the Repository
+column; narrow panes hide Current task, then Repository and Tasks.
+Select a session for its checklist, saved milestones,
 source/validation/promotion details, and follow-ups. On smaller screens, use
 Back to sessions to return from details. `/` focuses search. The theme follows
 your system initially; Light theme / Dark theme saves your browser preference.
