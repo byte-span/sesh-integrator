@@ -214,10 +214,18 @@ export const webCss = String.raw`:root {
 * {
   box-sizing: border-box;
 }
+/* Fixed app shell: the page never scrolls. Only the repository nav, session
+   list and detail pane scroll (main scrolls only when the window is too short
+   to fit the split at its minimum height). */
 body {
   margin: 0;
   background: var(--bg);
   color: var(--ink);
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
 }
 button,
 input,
@@ -306,6 +314,7 @@ p {
   line-height: 1.55;
 }
 header {
+  flex-shrink: 0;
   height: 70px;
   padding: 0 28px;
   display: flex;
@@ -398,15 +407,15 @@ html.page-hidden #connection.connected .signal {
 .workspace {
   display: grid;
   grid-template-columns: var(--repository-width, 210px) minmax(0, 1fr);
-  min-height: calc(100vh - 70px);
+  grid-template-rows: minmax(0, 1fr);
+  flex: 1;
+  min-height: 0;
 }
 .repositories {
-  position: sticky;
-  top: 70px;
-  align-self: start;
+  position: relative;
   display: flex;
   flex-direction: column;
-  height: calc(100dvh - 70px);
+  min-height: 0;
   min-width: 0;
   padding: 32px 16px;
   background: var(--surface);
@@ -515,11 +524,18 @@ html.page-hidden #connection.connected .signal {
   flex-shrink: 0;
 }
 main {
+  display: flex;
+  flex-direction: column;
   padding: 20px 32px 32px;
   min-width: 0;
+  min-height: 0;
   max-width: 1800px;
   width: 100%;
-  margin: auto;
+  margin: 0 auto;
+  overflow-y: auto;
+}
+main > * {
+  flex-shrink: 0;
 }
 .visually-hidden {
   position: absolute;
@@ -621,16 +637,17 @@ main {
 .split {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 0 var(--detail-width, minmax(0, 0.95fr));
+  grid-template-rows: minmax(0, 1fr);
+  flex: 1 1 0;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--surface);
   overflow: hidden;
-  min-height: 540px;
+  min-height: 240px;
 }
 .session-list {
   min-width: 0;
-  max-height: calc(100vh - 160px);
-  min-height: 400px;
+  min-height: 0;
   overflow: auto;
 }
 .column-head {
@@ -714,8 +731,7 @@ main {
   padding: 24px;
   border-left: 1px solid var(--line);
   min-width: 0;
-  max-height: calc(100vh - 160px);
-  min-height: 400px;
+  min-height: 0;
   overflow: auto;
 }
 .detail h2 {
@@ -886,7 +902,7 @@ summary {
 .command pre {
   background: var(--code);
   padding: 16px;
-  max-height: 320px;
+  max-height: min(320px, 22vh);
   overflow: auto;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -902,6 +918,7 @@ footer {
   margin-top: 20px;
 }
 #error {
+  flex-shrink: 0;
   padding: 14px 28px;
   background: var(--surface);
   color: var(--danger);
@@ -990,10 +1007,6 @@ dialog p {
     order: 1;
     flex-basis: 100%;
   }
-  .session-list,
-  .detail {
-    max-height: 65vh;
-  }
 }
 @media (max-width: 800px) {
   #repository-resizer,
@@ -1016,12 +1029,11 @@ dialog p {
     font-size: 16px;
   }
   .workspace {
-    display: block;
+    display: flex;
+    flex-direction: column;
   }
   .repositories {
-    position: relative;
-    top: auto;
-    height: auto;
+    flex-shrink: 0;
     display: block;
     padding: 14px 16px;
     border-right: 0;
@@ -1043,16 +1055,16 @@ dialog p {
     max-width: 180px;
   }
   main {
+    flex: 1;
     padding: 16px;
   }
   .split {
-    display: block;
-    min-height: 360px;
+    display: flex;
+    flex-direction: column;
   }
   .session-list,
   .detail {
-    max-height: none;
-    min-height: 360px;
+    flex: 1;
   }
   .detail {
     display: none;
@@ -1067,9 +1079,6 @@ dialog p {
   .back {
     display: block;
     margin-bottom: 16px;
-  }
-  .column-head {
-    position: static;
   }
   .toolbar {
     flex-wrap: wrap;
