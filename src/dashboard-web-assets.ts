@@ -50,36 +50,53 @@ export const webHtml = String.raw`<!doctype html>
       </aside>
       <main id="sessions" tabindex="-1">
         <div class="page-heading">
-          <div>
+          <div class="page-title">
             <h1>Sessions</h1>
-            <p id="scope">Across your local repositories</p>
+            <span id="count" class="count" title="Loading sessions…">…</span>
           </div>
-          <button id="refresh" type="button">Refresh</button>
-        </div>
-        <div class="toolbar">
-          <label class="search"
-            >Search sessions<input
-              id="search"
-              type="search"
-              placeholder="Task, branch, repository…"
-              autocomplete="off" /></label
-          ><label
-            >Show<select id="filter">
-              <option value="active">Active</option>
-              <option value="attention">Needs attention</option>
-              <option value="finished">Finished</option>
-              <option value="all">All sessions</option>
-            </select></label
-          ><label
-            >Sort<select id="sort">
-              <option value="updated">Latest update</option>
-              <option value="priority">Needs attention first</option>
-              <option value="repository">Repository</option>
-            </select></label
+          <div class="toolbar">
+            <label class="search"
+              ><span class="visually-hidden">Search sessions</span
+              ><svg viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="11" cy="11" r="7" />
+                <path d="m20 20-4-4" /></svg
+              ><input
+                id="search"
+                type="search"
+                placeholder="Search sessions…"
+                title="Search by task, branch or repository. Press / to focus."
+                autocomplete="off" /></label
+            ><label
+              ><span class="visually-hidden">Show</span
+              ><select id="filter">
+                <option value="active">Active</option>
+                <option value="attention">Needs attention</option>
+                <option value="finished">Finished</option>
+                <option value="all">All sessions</option>
+              </select></label
+            ><label
+              ><span class="visually-hidden">Sort</span
+              ><select id="sort">
+                <option value="updated">Latest update</option>
+                <option value="priority">Needs attention first</option>
+                <option value="repository">Repository</option>
+              </select></label
+            >
+          </div>
+          <button
+            id="refresh"
+            class="icon-button"
+            type="button"
+            aria-label="Refresh"
+            title="Refresh sessions"
           >
-        </div>
-        <div class="list-caption">
-          <span id="count">Loading sessions…</span><span id="refreshed"></span>
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M20 11a8 8 0 0 0-14.3-4.9L4 8" />
+              <path d="M4 4v4h4" />
+              <path d="M4 13a8 8 0 0 0 14.3 4.9L20 16" />
+              <path d="M20 20v-4h-4" />
+            </svg></button
+          ><span id="refreshed"></span>
         </div>
         <div class="split">
           <section class="session-list" aria-label="Session list">
@@ -498,34 +515,54 @@ html.page-hidden #connection.connected .signal {
   flex-shrink: 0;
 }
 main {
-  padding: 32px;
+  padding: 20px 32px 32px;
   min-width: 0;
   max-width: 1800px;
   width: 100%;
   margin: auto;
 }
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
 .page-heading {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  margin-bottom: 24px;
+  gap: 14px;
+  margin-bottom: 16px;
 }
-.page-heading p {
+.page-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-right: 16px;
+}
+.page-title h1 {
   margin: 0;
-  color: var(--muted);
+  line-height: 1.2;
+}
+.count {
+  min-width: 26px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: var(--selected);
+  color: var(--accent);
   font-size: 13px;
+  font-weight: 650;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
 }
 .toolbar {
+  flex: 1;
+  min-width: 0;
   display: flex;
   gap: 14px;
-  align-items: end;
-}
-.toolbar label {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-  font-size: 12px;
-  color: var(--muted);
+  align-items: center;
 }
 .toolbar input,
 .toolbar select {
@@ -534,14 +571,51 @@ main {
 }
 .search {
   flex: 1;
+  min-width: 0;
+  position: relative;
 }
-.list-caption {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
+.search svg {
+  position: absolute;
+  left: 11px;
+  top: 50%;
+  width: 17px;
+  height: 17px;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+.search input {
+  width: 100%;
+  padding-left: 36px;
+}
+.page-heading svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  color: var(--muted);
+}
+.icon-button {
+  flex-shrink: 0;
+  display: inline-grid;
+  place-items: center;
+  width: 44px;
+  height: 38px;
+  padding: 0;
+}
+.icon-button svg {
+  width: 18px;
+  height: 18px;
+  color: var(--ink);
+}
+#refreshed {
+  min-width: 0;
+  margin-left: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 12px;
   color: var(--muted);
-  margin: 24px 0 12px;
   font-variant-numeric: tabular-nums;
 }
 .split {
@@ -555,7 +629,7 @@ main {
 }
 .session-list {
   min-width: 0;
-  max-height: calc(100vh - 300px);
+  max-height: calc(100vh - 160px);
   min-height: 400px;
   overflow: auto;
 }
@@ -640,7 +714,7 @@ main {
   padding: 24px;
   border-left: 1px solid var(--line);
   min-width: 0;
-  max-height: calc(100vh - 300px);
+  max-height: calc(100vh - 160px);
   min-height: 400px;
   overflow: auto;
 }
@@ -886,7 +960,7 @@ dialog p {
 }
 @media (min-width: 1600px) {
   main {
-    padding: 40px 48px;
+    padding: 24px 48px 40px;
   }
   .session-row {
     padding: 20px 24px;
@@ -900,19 +974,21 @@ dialog p {
     grid-template-columns: var(--repository-width, 170px) minmax(0, 1fr);
   }
   main {
-    padding: 24px 20px;
+    padding: 20px;
   }
   .split {
     grid-template-columns: minmax(0, 1fr) 0 var(--detail-width, minmax(0, 1fr));
   }
+  .page-heading {
+    flex-wrap: wrap;
+    row-gap: 12px;
+  }
+  .page-title {
+    margin-right: auto;
+  }
   .toolbar {
-    flex-wrap: wrap;
-  }
-  .search {
+    order: 1;
     flex-basis: 100%;
-  }
-  .list-caption {
-    flex-wrap: wrap;
   }
   .session-list,
   .detail {
@@ -967,7 +1043,7 @@ dialog p {
     max-width: 180px;
   }
   main {
-    padding: 24px 16px;
+    padding: 16px;
   }
   .split {
     display: block;
@@ -995,6 +1071,13 @@ dialog p {
   .column-head {
     position: static;
   }
+  .toolbar {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .search {
+    flex-basis: 100%;
+  }
   .toolbar > label:not(.search) {
     flex: 1;
     min-width: 0;
@@ -1002,14 +1085,16 @@ dialog p {
   .toolbar select {
     width: 100%;
   }
-  .list-caption {
-    margin-top: 18px;
-  }
-  .page-heading {
-    margin-bottom: 20px;
-  }
   h1 {
-    font-size: 26px;
+    font-size: 24px;
+  }
+  .refreshed-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
   .header-actions button {
     font-size: 11px;
@@ -1352,17 +1437,24 @@ function renderRepositories() {
     nav.append(b);
     if (focused === path) b.focus();
   }
-  $("scope").textContent = repository || "Across your local repositories";
 }
 function render() {
   renderRepositories();
   const rows = visible();
   if (!rows.some((r) => r.id === selected)) selected = rows[0]?.id || "";
-  $("count").textContent =
-    rows.length + " " + (rows.length === 1 ? "session" : "sessions");
-  $("refreshed").textContent = state.refreshedAt
-    ? "Updated " + time(state.refreshedAt)
-    : "";
+  const summary =
+    (rows.length === 1 ? " session" : " sessions") +
+    (repository ? " in " + repository : " across your local repositories");
+  $("count").replaceChildren(
+    String(rows.length),
+    el("span", summary, "visually-hidden"),
+  );
+  $("count").title = rows.length + summary;
+  $("refreshed").replaceChildren(
+    ...(state.refreshedAt
+      ? [el("span", "Updated ", "refreshed-label"), time(state.refreshedAt)]
+      : []),
+  );
   const list = $("rows"),
     focusId = document.activeElement?.dataset.session;
   list.replaceChildren();
