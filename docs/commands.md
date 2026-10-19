@@ -160,7 +160,8 @@ Left/Right arrows (Shift for larger steps), Home/End for its limits, and a
 double-click to reset. Width is remembered in the browser for this address;
 `--port` keeps that address consistent between launches. On small screens the
 repository list remains a horizontal strip.
-Updates preserve selection and detail scroll position. Disconnection and refresh
+Updates preserve selection and detail scroll position; the last update time is
+shown at the bottom right. Disconnection and refresh
 errors are shown with retry guidance. Status reflects saved records, not agent
 process liveness.
 
