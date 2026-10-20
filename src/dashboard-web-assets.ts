@@ -1202,7 +1202,7 @@ const shortTime = (value) => {
 const status = (r) =>
   el(
     "span",
-    labels[r.status] || r.status.replaceAll("_", " "),
+    r.idle || labels[r.status] || r.status.replaceAll("_", " "),
     "status " +
       (r.attention
         ? "attention"

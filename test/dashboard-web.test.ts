@@ -165,6 +165,14 @@ it("uses selected projections, preserves Unicode and rejects unsafe PR URLs", ()
   expect(view.pullRequestUrl).toBeUndefined();
   expect(view).not.toHaveProperty("repository.sourceValidationCommands");
 });
+it("reports idle active sessions without changing their status", () => {
+  const sample = row();
+  expect(webRow(sample, new Date("2026-09-22T12:00:00Z"))).toMatchObject({
+    status: "active",
+    idle: "Idle 2d",
+  });
+  expect(webRow(sample, new Date("2026-09-21T11:00:00Z")).idle).toBeNull();
+});
 it("rechecks action gating and stale session/configuration revisions", () => {
   const sample = row();
   const revision = webRevision(sample);

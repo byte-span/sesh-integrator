@@ -8,6 +8,7 @@ import { currentTask, taskProgress, taskLines } from "./tasks.js";
 import { targetBranch } from "./promotion.js";
 import { pullRequestPromotion } from "./pull-request.js";
 import { readConfig, readSessions } from "./runtime.js";
+import { idleDays, lastActivity } from "./session-audit.js";
 import type { RepositoryConfig, RolloutDisposition, Session } from "./types.js";
 
 export type DashboardAction = "validate" | "integrate" | "resume";
@@ -325,17 +326,32 @@ function sessionCurrentTask(session?: Session): string {
     : "";
 }
 
-function sessionStatusLabel(row: DashboardRow): string {
+/**
+ * Label an active session with no recorded activity for at least a day. Only
+ * the displayed label changes; the stored status stays `active`.
+ */
+export function idleLabel(
+  session: Session,
+  now = new Date(),
+): string | undefined {
+  if (session.status !== "active") return undefined;
+  const days = idleDays(lastActivity(session), now);
+  return days ? `Idle ${days}d` : undefined;
+}
+
+function sessionStatusLabel(row: DashboardRow, now = new Date()): string {
   const session = row.session;
   if (!row.repository || !session) return stateLabel(row);
   if (session.status === "no_changes") return "No changes";
   if (session.status === "succeeded") return "Integrated";
   if (session.status === "abandoned") return "Abandoned";
-  return session.status === "active" ? "In progress" : stateLabel(row);
+  return session.status === "active"
+    ? (idleLabel(session, now) ?? "In progress")
+    : stateLabel(row);
 }
 
-function sessionRowStatus(row: DashboardRow): string {
-  const status = sessionStatusLabel(row);
+function sessionRowStatus(row: DashboardRow, now = new Date()): string {
+  const status = sessionStatusLabel(row, now);
   const session = row.session;
   return row.repository &&
     session?.tasks?.length &&
@@ -366,6 +382,7 @@ export function renderDetailPane(
   width: number,
   height: number,
   requestedOffset = 0,
+  now = new Date(),
 ) {
   width = Math.max(1, width);
   height = Math.max(4, height);
@@ -380,7 +397,7 @@ export function renderDetailPane(
       "...".slice(0, width);
   const header = [
     ...title,
-    terminalText(sessionStatusLabel(row)).slice(0, width),
+    terminalText(sessionStatusLabel(row, now)).slice(0, width),
   ];
   const body = wrapLines(
     [
@@ -878,7 +895,7 @@ function renderDashboardContent(
   const repoWidth = Math.min(18, Math.max(10, Math.floor(leftWidth * 0.18)));
   const statusWidth = Math.min(
     Math.floor(leftWidth * 0.36),
-    Math.max(18, ...rows.map((row) => sessionRowStatus(row).length)),
+    Math.max(18, ...rows.map((row) => sessionRowStatus(row, now).length)),
   );
   const descriptionWidth = leftWidth - repoWidth - statusWidth - 4;
   const table = (
@@ -933,7 +950,7 @@ function renderDashboardContent(
     used += sessionRowHeight(rows[--start]!, tabular);
   }
   const details = selectedRow
-    ? renderDetailPane(selectedRow, rightWidth, count, pane.offset).lines
+    ? renderDetailPane(selectedRow, rightWidth, count, pane.offset, now).lines
     : ["Select a session to inspect its next action."];
   const listLines: string[] = [];
   for (let index = start; index < visible.length; index++) {
@@ -945,7 +962,7 @@ function renderDashboardContent(
           table(
             name(row),
             row.session?.taskSummary ?? "No session",
-            sessionRowStatus(row),
+            sessionRowStatus(row, now),
             marker,
           ),
         ]
@@ -956,7 +973,7 @@ function renderDashboardContent(
       rowLines.push(
         tabular ? table("", `Task: ${task}`, "") : `  Task: ${task}`,
       );
-    if (!tabular) rowLines.push(`  ${sessionRowStatus(row)}`);
+    if (!tabular) rowLines.push(`  ${sessionRowStatus(row, now)}`);
     if (listLines.length && listLines.length + rowLines.length > count) break;
     listLines.push(...rowLines);
   }

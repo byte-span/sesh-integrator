@@ -210,6 +210,9 @@ their details show the reason and restore command. Task updates contribute to so
 blocked tasks appear in the needs-attention filter. Sessions default to most recent saved event first. Optional priority sorting
 puts blockers first, then the latest saved event.
 Activity and update times reflect recorded evidence, not a live process monitor.
+Both dashboards label an active session with no recorded activity for at least a
+day as Idle Nd (whole days) instead of In progress; its stored status stays
+active. Use `seshx abandon --all --idle-days <n>` to preview closing idle records.
 Wide terminals (at least 111 columns and 20 rows) show the split layout;
 smaller terminals use a compact list with full details available through Enter.
 At 115 columns and 27 rows, a framed header and main area, a table heading rule,

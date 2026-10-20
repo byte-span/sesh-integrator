@@ -15,6 +15,7 @@ import {
   detailLines,
   filterDashboard,
   defaultDashboardView,
+  idleLabel,
   loadDashboard,
   needsAttention,
   type DashboardRow,
@@ -84,7 +85,7 @@ function nextAction(row: DashboardRow): string {
     : "Commit your source changes, then choose Validate.";
 }
 
-export function webRow(row: DashboardRow) {
+export function webRow(row: DashboardRow, now = new Date()) {
   const s = row.session;
   const repository = row.repository?.path ?? s?.repositoryPath ?? "";
   const times = [
@@ -109,6 +110,7 @@ export function webRow(row: DashboardRow) {
     title: s?.taskSummary ?? "No sessions yet",
     branch: s?.branch ?? "",
     status: s?.status ?? "empty",
+    idle: s ? (idleLabel(s, now) ?? null) : null,
     attention: needsAttention(row),
     updated: Math.max(0, ...times.map((t) => (t ? Date.parse(t) || 0 : 0))),
     progress: taskProgress(s),
@@ -298,10 +300,11 @@ export async function startWebDashboard(
             filter: "all",
             sort: "updated",
           });
+          const now = new Date();
           json(res, 200, {
-            rows: rows.map(webRow),
+            rows: rows.map((row) => webRow(row, now)),
             job,
-            refreshedAt: new Date().toISOString(),
+            refreshedAt: now.toISOString(),
           });
           return;
         }
