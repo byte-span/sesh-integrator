@@ -120,6 +120,10 @@ const session = (id: string, repository: string) => ({
   progress: "",
   tasks: [],
   actions: {},
+  // Everything the detail pane reads, so selecting any row renders it.
+  followUps: [],
+  activity: [],
+  details: [],
 });
 
 it("filters the repository panel by name, keeps the chosen one and reports no matches", async () => {
