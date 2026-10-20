@@ -1,13 +1,17 @@
 import { spawn, execFileSync, type ChildProcess } from "node:child_process";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { once } from "node:events";
+import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
+import { connect, createServer, type AddressInfo, type Socket } from "node:net";
 import { hostname } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { afterEach, expect, it } from "vitest";
 import {
   acquireBuildSlot,
+  admissionPorts,
   defaultConcurrency,
+  gate,
   queueCommand,
   queueEntries,
   queueRoot,
@@ -379,21 +383,113 @@ it("cancels parallel resource waiters without launching them or retrying", async
   expect((await readFile(events, "utf8")).trim().split("\n")).toHaveLength(1);
   expect(await queueEntries()).toEqual([]);
 });
-it("recovers the OS admission mutex automatically after its owner crashes", async () => {
-  const run = launch(
-    `import {createServer} from 'node:net';import {createHash} from 'node:crypto';import {realpath} from 'node:fs/promises';const canonical=await realpath(${JSON.stringify(queueRoot())});const port=20000+createHash('sha256').update(canonical).digest().readUInt32BE(0)%30000;createServer(s=>s.destroy()).listen({host:'127.0.0.1',port,exclusive:true},()=>console.log('GATE_READY'));`,
-  );
-  await until(() => run.output().includes("GATE_READY"));
-  const pending = acquireBuildSlot(
-    queueRoot(),
-    "after gate crash",
-    "test",
-    new AbortController().signal,
-  );
-  await new Promise((resolve) => setTimeout(resolve, 150));
-  expect(await queueEntries()).toEqual([]);
-  run.child.kill("SIGKILL");
-  await run.done;
-  const lease = await pending;
-  await releaseBuildSlot(lease);
+function canListen(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const server = createServer();
+    server.once("error", () => resolve(false));
+    server.listen({ host: "127.0.0.1", port, exclusive: true }, () =>
+      server.close(() => resolve(true)),
+    );
+  });
+}
+it("keeps admission ports below ephemeral ranges and legacy ports unchanged", () => {
+  for (let i = 0; i < 1000; i++) {
+    const root = `/queue/${i}`;
+    const hash = createHash("sha256").update(root).digest().readUInt32BE(0);
+    const admission = admissionPorts(root);
+    const reuse = admissionPorts(root, true);
+    expect(admission.port).toBeGreaterThanOrEqual(10000);
+    expect(admission.port).toBeLessThan(15000);
+    expect(reuse.port).toBeGreaterThanOrEqual(15000);
+    expect(reuse.port).toBeLessThan(20000);
+    // Coordinators pinned before the port change derive exactly these.
+    expect(admission.legacyPort).toBe(20000 + (hash % 30000));
+    expect(reuse.legacyPort).toBe(50000 + (hash % 15000));
+  }
 });
+it.each(["established", "TIME_WAIT"])(
+  "admits while an %s outbound loopback socket occupies the legacy mutex port",
+  async (state) => {
+    const peer = createServer((socket) => socket.on("end", () => socket.end()));
+    await new Promise<void>((resolve) =>
+      peer.listen(0, "127.0.0.1", () => resolve()),
+    );
+    const clients: Socket[] = [];
+    try {
+      // Only OS-assigned client ports collide (Node binds explicit ones with
+      // SO_REUSEADDR), so find a queue whose legacy port the OS just used.
+      let occupied = 0;
+      for (let attempt = 0; attempt < 20 && !occupied; attempt++) {
+        const client = connect(
+          (peer.address() as AddressInfo).port,
+          "127.0.0.1",
+        );
+        clients.push(client);
+        await once(client, "connect");
+        if (client.localPort! >= 20000 && client.localPort! < 65000)
+          occupied = client.localPort!;
+      }
+      expect(occupied).not.toBe(0);
+      if (state === "TIME_WAIT") {
+        const client = clients.at(-1)!;
+        client.end();
+        await once(client, "close");
+      }
+      const reuse = occupied >= 50000;
+      const base = await realpath(queueRoot());
+      let root = "";
+      for (let i = 0; i < 1_000_000 && !root; i++)
+        if (admissionPorts(join(base, `q${i}`), reuse).legacyPort === occupied)
+          root = join(base, `q${i}`);
+      await mkdir(root);
+      // Such sockets reject every listener there, for 60s after TIME_WAIT.
+      if (process.platform === "linux")
+        expect(await canListen(occupied)).toBe(false);
+      const { port } = admissionPorts(root, reuse);
+      await gate(
+        root,
+        async () => {
+          // Skipping the occupied legacy port must not admit a second holder.
+          await expect(
+            gate(root, async () => undefined, undefined, 200, undefined, reuse),
+          ).rejects.toThrow(`admission mutex busy on 127.0.0.1:${port};`);
+        },
+        undefined,
+        1000,
+        undefined,
+        reuse,
+      );
+    } finally {
+      for (const client of clients) client.destroy();
+      peer.close();
+    }
+  },
+);
+it("excludes older coordinators' legacy mutex while admitting", async () => {
+  const { port, legacyPort } = admissionPorts(await realpath(queueRoot()));
+  await gate(queueRoot(), async () => {
+    expect(await canListen(port)).toBe(false);
+    expect(await canListen(legacyPort)).toBe(false);
+  });
+});
+it.each(["port", "legacyPort"] as const)(
+  "recovers the OS admission mutex automatically after its %s owner crashes",
+  async (key) => {
+    const run = launch(
+      `import {createServer} from 'node:net';import {realpath} from 'node:fs/promises';import {admissionPorts} from ${JSON.stringify(queueModule)};const port=admissionPorts(await realpath(${JSON.stringify(queueRoot())}))[${JSON.stringify(key)}];createServer(s=>s.destroy()).listen({host:'127.0.0.1',port,exclusive:true},()=>console.log('GATE_READY'));`,
+    );
+    await until(() => run.output().includes("GATE_READY"));
+    const pending = acquireBuildSlot(
+      queueRoot(),
+      "after gate crash",
+      "test",
+      new AbortController().signal,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(await queueEntries()).toEqual([]);
+    run.child.kill("SIGKILL");
+    await run.done;
+    const lease = await pending;
+    await releaseBuildSlot(lease);
+  },
+);
