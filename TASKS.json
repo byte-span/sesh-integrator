@@ -105,6 +105,18 @@
         "docs/commands.md",
         "SPEC.md"
       ]
+    },
+    {
+      "id": "SI-006",
+      "title": "Move config history out of the dashboard JSON tab",
+      "status": "ready",
+      "order": 60,
+      "executor": "automated",
+      "device_requirement": [],
+      "blocked_by": [],
+      "acceptance": "Dashboard Settings shows config.json history in its own History tab (Global, Repository, JSON, History) instead of under the JSON editor, and a History button in the Settings header opens the same list in a drawer or dialog from any tab. Each entry shows its time and source with Compare with current and Restore. Restore opens the existing Save config.json? confirmation with the diff and saves only after confirmation, without loading the version into the JSON editor or discarding unsaved edits silently. The saved tab choice, keyboard tab navigation, and history-unavailable and empty states keep working, docs/commands.md describes the new placement, and dashboard tests cover the tab, the header button, and restore through confirmation.",
+      "doc": "docs/commands.md",
+      "evidence": []
     }
   ]
 }
