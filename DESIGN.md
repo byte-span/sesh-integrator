@@ -72,6 +72,10 @@ double-click reset. Remember the preferred width locally and clamp it to leave
 at least 240px for each pane. Hide the divider in the mobile detail view. Session rows use 18px
 padding; details use 24px. At 1600px and above, increase main and row spacing.
 
+A compact Filter repositories field sits under the sidebar heading. It matches
+repository names (full paths when the query contains a separator), keeps the
+chosen repository listed, and shows a muted note when nothing matches.
+
 The sidebar divider supports pointer dragging, arrow keys (10px; Shift: 40px),
 Home/End, and double-click reset. Hover, drag, and keyboard focus subtly thicken
 and tint the divider line itself; do not outline the full-height hit area.

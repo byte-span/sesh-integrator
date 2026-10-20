@@ -31,7 +31,22 @@ export const webHtml = String.raw`<!doctype html>
     <div class="workspace">
       <aside id="repository-panel" class="repositories">
         <h2>Repositories</h2>
+        <label class="repository-search"
+          ><span class="visually-hidden">Filter repositories</span
+          ><svg viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="11" cy="11" r="7" />
+            <path d="m20 20-4-4" /></svg
+          ><input
+            id="repository-search"
+            type="search"
+            placeholder="Filter repositories…"
+            title="Filter by repository name, or by path when the text contains /. Enter opens the first match; Escape clears."
+            aria-controls="repositories"
+            autocomplete="off" /></label>
         <nav id="repositories" aria-label="Repositories"></nav>
+        <p id="repository-empty" class="repository-empty" role="status" hidden>
+          No matching repositories
+        </p>
         <div
           id="repository-resizer"
           role="separator"
@@ -489,6 +504,39 @@ html.page-hidden #connection.connected .signal {
   font-size: 12px;
   color: var(--muted);
   font-weight: 600;
+}
+.repository-search {
+  flex-shrink: 0;
+  position: relative;
+  display: block;
+  margin-bottom: 10px;
+}
+.repository-search svg {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  width: 15px;
+  height: 15px;
+  transform: translateY(-50%);
+  pointer-events: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  color: var(--muted);
+}
+.repository-search input {
+  width: 100%;
+  min-height: 34px;
+  padding: 7px 8px 7px 31px;
+  font-size: 13px;
+}
+.repository-empty {
+  margin: 6px 0 0;
+  padding-left: 12px;
+  color: var(--muted);
+  font-size: 13px;
 }
 .repositories nav {
   min-height: 0;
@@ -1467,11 +1515,28 @@ function visible() {
             : 0) || b.updated - a.updated,
     );
 }
+const repositoryName = (path) => path.split(/[\\/]/).pop();
+const repositoryPaths = () =>
+  [...new Set(state.rows.map((r) => r.repository))].sort();
+const repositoryQuery = () =>
+  $("repository-search").value.trim().toLocaleLowerCase();
+// Names are matched by default because every path shares its parent folders;
+// typing a separator searches full paths instead.
+function repositoryMatches(path, query) {
+  return (/[\\/]/.test(query) ? path : repositoryName(path))
+    .toLocaleLowerCase()
+    .includes(query);
+}
 function renderRepositories() {
   const nav = $("repositories"),
-    focused = document.activeElement?.dataset.repo;
+    focused = document.activeElement?.dataset.repo,
+    query = repositoryQuery();
   nav.replaceChildren();
-  const paths = [...new Set(state.rows.map((r) => r.repository))].sort();
+  const all = repositoryPaths(),
+    matches = all.filter((path) => repositoryMatches(path, query)),
+    // Keep the chosen repository visible so the active filter is never hidden.
+    paths = all.filter((path) => path === repository || matches.includes(path));
+  $("repository-empty").hidden = !query || matches.length > 0;
   for (const path of ["", ...paths]) {
     const count = state.rows.filter(
       (r) =>
@@ -1489,7 +1554,7 @@ function renderRepositories() {
     b.title = path || "All repositories";
     b.setAttribute("aria-current", String(repository === path));
     b.append(
-      el("span", path ? path.split(/[\\/]/).pop() : "All repositories"),
+      el("span", path ? repositoryName(path) : "All repositories"),
       el("span", String(count)),
     );
     nav.append(b);
@@ -1852,6 +1917,24 @@ async function refresh() {
 }
 for (const id of ["filter", "sort"]) $(id).onchange = render;
 $("search").oninput = render;
+$("repository-search").oninput = renderRepositories;
+$("repository-search").addEventListener("keydown", (event) => {
+  const input = event.currentTarget;
+  if (event.key === "Escape" && input.value) {
+    event.preventDefault();
+    input.value = "";
+    renderRepositories();
+  } else if (event.key === "Enter") {
+    event.preventDefault();
+    const query = repositoryQuery(),
+      match =
+        query && repositoryPaths().find((p) => repositoryMatches(p, query));
+    if (match) {
+      repository = match;
+      render();
+    }
+  }
+});
 $("refresh").onclick = refresh;
 document.addEventListener("keydown", (event) => {
   if (
