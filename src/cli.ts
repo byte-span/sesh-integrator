@@ -34,6 +34,7 @@ import { cleanupGuidanceCommand } from "./cleanup-guidance.js";
 import { dashboardCommand } from "./dashboard.js";
 import { webDashboardCommand } from "./dashboard-web.js";
 import { tasksCommand } from "./tasks.js";
+import { sessionsCommand } from "./session-audit.js";
 
 export async function main(argv = process.argv.slice(2)): Promise<void> {
   const [command, ...args] = argv;
@@ -137,6 +138,9 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
       }
       case "tasks":
         await tasksCommand(args);
+        break;
+      case "sessions":
+        await sessionsCommand(args);
         break;
       case "dashboard":
         if (args.length) await webDashboardCommand(args);
@@ -506,6 +510,7 @@ Usage:
   seshx tasks add --title "..." [--title "..."]... [--description "..."] [--session <session-id>]
   seshx tasks update <task-id> [--title "..."] [--description "..."] [--status pending|in_progress|completed|blocked|skipped] [--reason "..."] [--session <session-id>]
   seshx tasks move <task-id> --position <n> [--session <session-id>]
+  seshx sessions audit [--repo <path>] [--idle-days <n>] [--json]
   seshx incident <ticket-id>
   seshx reconcile [repo-path] [--apply]
   seshx audit-legacy
