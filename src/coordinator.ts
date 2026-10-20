@@ -28,8 +28,14 @@ const assets = [
   "GLOBAL_AGENTS_SNIPPET.md",
 ];
 const project = fileURLToPath(new URL("../", import.meta.url));
+/** Terminal statuses: integrated, finished without changes, or abandoned. */
+export const terminalStatuses: readonly Session["status"][] = [
+  "succeeded",
+  "no_changes",
+  "abandoned",
+];
 export const unfinished = (s: Session): boolean =>
-  !["succeeded", "no_changes"].includes(s.status);
+  !terminalStatuses.includes(s.status);
 
 export function assertCompatible(s: Session): void {
   if (

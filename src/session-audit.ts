@@ -161,6 +161,11 @@ export interface AuditContext {
   locksDirectory: string;
   coordinatorCache: Map<string, Promise<CoordinatorHealth>>;
   repositoryLockCache: Map<string, Promise<string | null>>;
+  /**
+   * Sessions whose record lock the caller itself holds, such as `abandon`
+   * rechecking a session under its lock. Their lock is not another owner.
+   */
+  heldRecordLocks?: ReadonlySet<string>;
 }
 
 export async function createAuditContext(
@@ -172,6 +177,9 @@ export async function createAuditContext(
     locksDirectory: overrides.locksDirectory ?? runtimePaths().locks,
     coordinatorCache: overrides.coordinatorCache ?? new Map(),
     repositoryLockCache: overrides.repositoryLockCache ?? new Map(),
+    ...(overrides.heldRecordLocks
+      ? { heldRecordLocks: overrides.heldRecordLocks }
+      : {}),
   };
 }
 
@@ -183,8 +191,11 @@ const lifecycleStatuses: Partial<Record<SessionStatus, string>> = {
     "status promotion_pending: validated commit awaits target promotion",
   needs_review: "status needs_review: preserved integration needs recovery",
 };
+// `abandoned` is terminal and excluded from `auditSessions`, but `abandon`
+// and `restore` may still classify such a record directly.
 const knownStatuses = new Set<string>([
   "active",
+  "abandoned",
   ...Object.keys(lifecycleStatuses),
 ]);
 
@@ -452,9 +463,11 @@ async function inspectSession(
     coordinator: await cachedCoordinatorHealth(session, context),
     holdsRepositoryLock:
       (await repositoryLockOwner(session.repositoryId, context)) === session.id,
-    recordLockPresent: await exists(
-      join(context.locksDirectory, `session-record-${session.id}`),
-    ),
+    recordLockPresent:
+      !context.heldRecordLocks?.has(session.id) &&
+      (await exists(
+        join(context.locksDirectory, `session-record-${session.id}`),
+      )),
     errors,
     worktreeNotGit: false,
     worktreeForeign: false,
@@ -760,35 +773,42 @@ export async function sessionsCommand(args: string[]): Promise<void> {
   if (filters.length) lines.push(`Filters: ${filters.join("; ")}`);
   lines.push(`Unfinished sessions shown: ${audits.length}`);
   if (!audits.length) lines.push("No unfinished sessions match.");
-  for (const audit of audits) {
-    const idle =
-      audit.idleDays === null || !audit.lastActivity
-        ? "idle unknown"
-        : `idle ${audit.idleDays} day(s) since ${audit.lastActivity.at} (${audit.lastActivity.source})`;
-    lines.push(
-      "",
-      `${audit.sessionId}  [${AUDIT_BUCKET_LABELS[audit.bucket]}]  ${idle}`,
-      `  status: ${audit.status}`,
-      `  repo: ${audit.repositoryPath}`,
-      `  worktree: ${audit.worktreePath}`,
-      `  branch: ${audit.branch}`,
-      `  summary: ${audit.taskSummary}`,
-      "  evidence:",
-      ...audit.evidence.map((line) => `    - ${line}`),
-      ...(audit.notes.length
-        ? ["  notes:", ...audit.notes.map((line) => `    - ${line}`)]
-        : []),
-    );
-  }
+  for (const audit of audits) lines.push("", ...auditLines(audit));
   lines.push(
     "",
     `Buckets: ${AUDIT_BUCKETS.map((bucket) => `${AUDIT_BUCKET_LABELS[bucket]} ${counts[bucket]}`).join(", ")}`,
   );
-  process.stdout.write(
+  process.stdout.write(terminalLines(lines));
+}
+
+/** One session's audit as plain text, as printed by `sessions audit`. */
+export function auditLines(audit: SessionAudit): string[] {
+  const idle =
+    audit.idleDays === null || !audit.lastActivity
+      ? "idle unknown"
+      : `idle ${audit.idleDays} day(s) since ${audit.lastActivity.at} (${audit.lastActivity.source})`;
+  return [
+    `${audit.sessionId}  [${AUDIT_BUCKET_LABELS[audit.bucket]}]  ${idle}`,
+    `  status: ${audit.status}`,
+    `  repo: ${audit.repositoryPath}`,
+    `  worktree: ${audit.worktreePath}`,
+    `  branch: ${audit.branch}`,
+    `  summary: ${audit.taskSummary}`,
+    "  evidence:",
+    ...audit.evidence.map((line) => `    - ${line}`),
+    ...(audit.notes.length
+      ? ["  notes:", ...audit.notes.map((line) => `    - ${line}`)]
+      : []),
+  ];
+}
+
+/** Join lines as terminal-safe ASCII for output. */
+export function terminalLines(lines: string[]): string {
+  return (
     lines
       .map((line) =>
         stripVTControlCharacters(line).replace(/[^\x20-\x7e]/g, "?"),
       )
-      .join("\n") + "\n",
+      .join("\n") + "\n"
   );
 }

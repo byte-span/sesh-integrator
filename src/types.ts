@@ -88,6 +88,7 @@ export type SessionStatus =
   | "promotion_pending"
   | "succeeded"
   | "no_changes"
+  | "abandoned"
   | "needs_review";
 
 export type RolloutDisposition = "none" | "applied" | "automated" | "manual";
@@ -123,6 +124,25 @@ export interface LocalTargetRecovery {
   resultCommit?: string;
 }
 
+/**
+ * Why and when a session was abandoned. Abandoning changes only the session
+ * record; branches, worktrees, commits and recovery evidence stay in place.
+ */
+export interface SessionAbandonment {
+  abandonedAt: string;
+  /** User-supplied explanation; never a secret value. */
+  reason: string;
+  /** Status restored by `seshx restore`; currently always `active`. */
+  previousStatus: SessionStatus;
+  /** Audit bucket and evidence observed immediately before abandoning. */
+  bucket: string;
+  evidence: string[];
+  /** Whether `--include-unsaved` was required and given. */
+  includedUnsaved?: boolean;
+  /** Set when the abandonment is moved to the history by a restore. */
+  restoredAt?: string;
+}
+
 export interface Session {
   coordinator?: CoordinatorIdentity;
   recoveryCoordinator?: CoordinatorIdentity;
@@ -141,6 +161,10 @@ export interface Session {
    * records written only by older coordinators; never backfilled.
    */
   lastActivityAt?: string;
+  /** Present only while the status is `abandoned`. */
+  abandonment?: SessionAbandonment;
+  /** Earlier abandonments undone by `seshx restore`, oldest first. */
+  abandonmentHistory?: SessionAbandonment[];
   status: SessionStatus;
   repositoryPath: string;
   repositoryId: string;

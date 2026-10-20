@@ -15,6 +15,7 @@ Commands below run from the repository root unless stated otherwise.
 - [`resume`](#resume)
 - [`status`](#status)
 - [`sessions audit`](#sessions-audit)
+- [`abandon` / `restore`](#abandon--restore)
 - [Failure incidents](#failure-incidents)
 - [`reconcile`](#reconcile)
 - [`doctor`](#doctor)
@@ -43,6 +44,8 @@ seshx tasks add --title "..." [--title "..."]... [--description "..."] [--sessio
 seshx tasks update <task-id> [--title "..."] [--description "..."] [--status pending|in_progress|completed|blocked|skipped] [--reason "..."] [--session <session-id>]
 seshx tasks move <task-id> --position <n> [--session <session-id>]
 seshx sessions audit [--repo <path>] [--idle-days <n>] [--json]
+seshx abandon --session <session-id> --reason "..." [--include-unsaved]
+seshx restore --session <session-id>
 seshx reconcile [repo-path] [--apply]
 seshx audit-legacy
 seshx cleanup-guidance [--apply]
@@ -99,7 +102,8 @@ inspection; they are never silently reclaimed.
 
 The current-task label shows the in-progress task's name, otherwise Not started,
 Between tasks, Blocked, All tasks skipped, or Tasks finished. Closed no-change
-sessions show No changes needed. Completed/total counts include skipped tasks
+sessions show No changes needed and abandoned sessions show Abandoned; neither
+accepts checklist edits until restored or replaced. Completed/total counts include skipped tasks
 in the total and report skipped counts separately in details. A checklist is
 complete when every task is completed or skipped; this does not mean integration
 or external rollout has completed.
@@ -151,7 +155,9 @@ browser tab leaves the server running until you stop the CLI. Each invocation
 starts its own server; a port already in use is reported rather than replaced.
 
 Choose a repository, search sessions, and filter by Active, Needs attention,
-Finished, or All sessions. The list is a compact table with one line per
+Finished, All sessions, or Abandoned. [Abandoned](#abandon--restore) sessions
+appear only under Abandoned, are excluded from repository counts, and offer no
+actions. The list is a compact table with one line per
 session: Session, Repository, Current task, Tasks, Status, and Updated. Hover a
 truncated cell for its full text. Choosing a repository hides the Repository
 column; narrow panes hide Current task, then Repository and Tasks.
@@ -196,8 +202,10 @@ show No tasks yet and a dash for progress. Narrow tables use three labeled lines
 per session to keep the description, current task, progress, and status readable. The selected-item pane shows the ordered checklist, task
 descriptions and blocked/skipped reasons, next-action guidance, saved milestones,
 and the full session record. Active is the default filter and includes all
-unfinished sessions, including blocked sessions. Completed and All are available
-through the status filter. Task updates contribute to sorting and search;
+unfinished sessions, including blocked sessions. Completed, All and Abandoned
+are available through the status filter. Abandoned sessions appear only under
+Abandoned, never count as active or needing attention, and offer no actions;
+their details show the reason and restore command. Task updates contribute to sorting and search;
 blocked tasks appear in the needs-attention filter. Sessions default to most recent saved event first. Optional priority sorting
 puts blockers first, then the latest saved event.
 Activity and update times reflect recorded evidence, not a live process monitor.
@@ -536,6 +544,11 @@ seshx status
 
 Shows every session, active/ready/waiting/succeeded/`needs_review`/`promotion_pending` state, staging and promoted commits, target branch, recovery phase, worktree paths, latest error, and current lock owners.
 
+Abandoned sessions are listed after the others under `Abandoned sessions: N`,
+with the abandon time, reason and restore command; `Sessions: N` counts only
+the rest. `status --session <id>` shows one session in full, including the
+evidence recorded when it was abandoned and any earlier restores.
+
 ### `sessions audit`
 
 Find stale sessions before deciding what to close. The audit is read-only: it
@@ -549,8 +562,8 @@ seshx sessions audit --idle-days 14        # Idle for at least 14 whole days
 seshx sessions audit --json                # Machine-readable report
 ```
 
-Each unfinished session (any status except `succeeded` and `no_changes`)
-appears once, in exactly one bucket, with the evidence behind it:
+Each unfinished session (any status except `succeeded`, `no_changes` and
+`abandoned`) appears once, in exactly one bucket, with the evidence behind it:
 
 | Bucket         | Meaning                                                                                                                                                                  |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -577,16 +590,20 @@ source used. The audit itself never records activity.
 
 **Liveness is inferred, never proven.** An agent may still be working in any
 listed session, including one marked empty or idle. Confirm with its owner
-before closing it. The audit never changes or closes a session.
+before closing it. The audit never changes or closes a session; use
+[`abandon`](#abandon--restore) for that.
 
 #### Last-activity heartbeat
 
 Session records carry an optional `lastActivityAt` timestamp. It is written
 under the per-session record lock whenever a command does work on the session:
 
-- `begin`, `commit`, `validate`, `integrate`, `resume`, `finish` and
-  `reconcile --apply`, including failures they record
+- `begin`, `commit`, `validate`, `integrate`, `resume`, `finish`, `restore`
+  and `reconcile --apply`, including failures they record
 - `tasks add`, `tasks update` and `tasks move`
+
+`abandon` deliberately keeps the existing value, so the idle evidence from
+before the session was abandoned is preserved.
 
 Commands that only observe never set it: `status`, `tasks list`,
 `sessions audit`, `dashboard`, `incident` and `doctor`. Dashboard actions run
@@ -600,6 +617,59 @@ Older coordinators read session records without validating fields and rewrite
 the whole record, so they keep the heartbeat. They do not refresh it, but their
 checklist edits still update `tasksUpdatedAt`, which is why idle time uses the
 later of the two.
+
+### `abandon` / `restore`
+
+Close a stale session without touching Git, after reviewing its
+[audit](#sessions-audit):
+
+```bash
+seshx abandon --session <session-id> --reason "Superseded by session_..."
+seshx abandon --session <session-id> --reason "Work kept on its branch" --include-unsaved
+seshx restore --session <session-id>
+```
+
+`abandon` first prints the session's audit bucket and evidence, then:
+
+- Refuses, changing nothing, when the session is not `active`, is in
+  lifecycle or recovery (`ready`, `validation_pending`, `promotion_pending`,
+  `needs_review`, a recorded lock wait, conflict, recovery phase or recovery
+  bundle, or a ready/staging/promoted commit), or holds the repository lock or
+  its session record lock.
+- Refuses sessions in the `unsaved work` bucket, or whose state could not be
+  fully inspected, unless you pass `--include-unsaved`.
+- Rechecks the session under its record lock immediately before saving, and
+  refuses if anything changed since the printed audit.
+- Records status `abandoned` with the reason, time, prior status, and the
+  bucket and evidence it observed, then prints the restore command.
+
+Only the session record changes. The branch, worktree, uncommitted files,
+commits, recovery bundles and refs, incidents and locks stay exactly as they
+were; nothing is deleted, reset, fetched or pushed. Abandon does not record
+activity, so the `lastActivityAt` idle evidence survives. The reason is
+required, single-line and at most 500 characters; never put secret values in it.
+
+Abandoned sessions are terminal: they no longer count as unfinished for
+`uninstall`, coordinator compatibility checks, worktree-location changes or
+`sessions audit`. Lifecycle and checklist commands refuse them and print the
+restore command; a save from a command that was already running is refused
+rather than reopening the session. `status`
+and both dashboards list them separately. Abandon and restore work from any
+directory, also for sessions whose repository is missing, unregistered or
+disabled.
+
+**If you abandoned the wrong session**, run `seshx restore --session <id>`.
+It returns the session to `active`, moves the abandonment to the record's
+`abandonmentHistory`, records activity, and prints the worktree to continue
+in. Keep using the session's pinned coordinator. Restore refuses if another
+unfinished session now uses the same worktree; finish or abandon that one first.
+
+Older coordinators see `abandoned` as an unknown, unfinished status: they still
+show it and defer uninstall for it, and they refuse to commit, validate,
+integrate, resume, finish or edit its checklist, so they cannot reopen it. Run
+`abandon` and `restore` with a coordinator that supports them. A coordinator
+that predates abandon and is already running a command for the session may
+still save over the record; abandon only sessions nobody is using.
 
 ### Failure incidents
 

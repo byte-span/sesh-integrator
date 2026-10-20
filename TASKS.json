@@ -43,23 +43,36 @@
     {
       "id": "SI-003",
       "title": "Add a single-session abandon command",
-      "status": "ready",
+      "status": "completed",
       "order": 30,
       "executor": "automated",
       "device_requirement": [],
       "blocked_by": [],
       "acceptance": "`seshx abandon --session <id> --reason \"...\"` shows the session's audit bucket, then records a terminal `abandoned` status with the reason and timestamp. It preserves the branch, worktree, commits, and recovery evidence; refuses sessions in lifecycle or recovery state or holding a lock; and requires an explicit flag for sessions with unsaved work. A documented command restores an abandoned session to active. Status and the dashboard show abandoned sessions separately, and they no longer count as unfinished for uninstall or coordinator checks. Disposable-repository tests cover each refusal and the restore path.",
       "doc": "docs/commands.md",
-      "evidence": []
+      "evidence": [
+        "src/abandon.ts",
+        "src/runtime.ts",
+        "src/coordinator.ts",
+        "src/status.ts",
+        "src/dashboard.ts",
+        "src/dashboard-web.ts",
+        "src/dashboard-web-assets.ts",
+        "test/abandon.test.ts",
+        "test/installation-transition.test.ts",
+        "docs/commands.md",
+        "docs/development.md",
+        "SPEC.md"
+      ]
     },
     {
       "id": "SI-004",
       "title": "Add batch abandon for all matching stale sessions",
-      "status": "blocked",
+      "status": "ready",
       "order": 40,
       "executor": "automated",
       "device_requirement": [],
-      "blocked_by": ["SI-003"],
+      "blocked_by": [],
       "acceptance": "`seshx abandon --all [--repo <path>] [--idle-days N] [--bucket <list>]` previews matching sessions by default and changes nothing without `--apply`. It selects only the empty, delivered, and corrupt buckets by default; sessions with unsaved work require `--include-unsaved` and are listed individually. Immediately before closing each session it rechecks the session under its record lock and skips any session that changed since the preview or is in lifecycle, lock-waiting, or recovery state. It reports closed and skipped sessions with reasons, preserves all branches, worktrees, commits, and recovery evidence, and tests cover preview, apply, filters, and recheck skips.",
       "doc": "docs/commands.md",
       "evidence": []

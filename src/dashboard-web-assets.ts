@@ -70,6 +70,7 @@ export const webHtml = String.raw`<!doctype html>
                 <option value="attention">Needs attention</option>
                 <option value="finished">Finished</option>
                 <option value="all">All sessions</option>
+                <option value="abandoned">Abandoned</option>
               </select></label
             ><label
               ><span class="visually-hidden">Sort</span
@@ -1157,6 +1158,8 @@ let state = { rows: [], job: null },
   fetching = false,
   again = false;
 const finished = (r) => ["succeeded", "no_changes"].includes(r.status);
+// Abandoned sessions are listed only under their own filter.
+const abandoned = (r) => r.status === "abandoned";
 const labels = {
   active: "In progress",
   ready: "Ready",
@@ -1165,6 +1168,7 @@ const labels = {
   promotion_pending: "Promotion pending",
   succeeded: "Integrated",
   no_changes: "No changes",
+  abandoned: "Abandoned",
   empty: "No sessions",
 };
 const el = (tag, text, className) => {
@@ -1200,7 +1204,13 @@ const status = (r) =>
     "span",
     labels[r.status] || r.status.replaceAll("_", " "),
     "status " +
-      (r.attention ? "attention" : finished(r) ? "finished" : "active"),
+      (r.attention
+        ? "attention"
+        : finished(r)
+          ? "finished"
+          : abandoned(r)
+            ? "abandoned"
+            : "active"),
   );
 let theme;
 try {
@@ -1430,10 +1440,13 @@ function visible() {
     .filter(
       (r) =>
         (!repository || r.repository === repository) &&
-        (filter === "all" ||
-          (filter === "active" && r.status !== "empty" && !finished(r)) ||
-          (filter === "finished" && finished(r)) ||
-          (filter === "attention" && r.attention)) &&
+        (filter === "abandoned"
+          ? abandoned(r)
+          : !abandoned(r) &&
+            (filter === "all" ||
+              (filter === "active" && r.status !== "empty" && !finished(r)) ||
+              (filter === "finished" && finished(r)) ||
+              (filter === "attention" && r.attention))) &&
         [
           r.title,
           r.repository,
@@ -1464,7 +1477,8 @@ function renderRepositories() {
       (r) =>
         (!path || r.repository === path) &&
         r.status !== "empty" &&
-        !finished(r),
+        !finished(r) &&
+        !abandoned(r),
     ).length;
     const b = button("", () => {
       repository = path;
