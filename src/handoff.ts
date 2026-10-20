@@ -53,6 +53,7 @@ import {
 } from "./process.js";
 import {
   DEFAULT_INTEGRATION_BRANCH,
+  abandonedSessionMessage,
   applyGlobalTargetPolicy,
   ensureRuntime,
   findLatestSessionForWorktree,
@@ -524,6 +525,8 @@ export async function resolveSourceSession(
       throw new Error(`Session ${sessionId} belongs to a different repository`);
     }
     if (!statuses.includes(session.status)) {
+      if (session.status === "abandoned")
+        throw new Error(abandonedSessionMessage(session));
       throw new Error(
         `Session ${sessionId} is ${session.status}; expected ${statuses.join(" or ")}`,
       );
@@ -554,6 +557,12 @@ export async function resolveSourceSession(
     throw new Error(
       `Multiple matching sessions were launched from this checkout: ${launched.map((item) => item.id).join(", ")}. Select one with --session <session-id>`,
     );
+  }
+  if (!statuses.includes("abandoned")) {
+    const abandoned = await findLatestSessionForWorktree(current.worktreePath, [
+      "abandoned",
+    ]);
+    if (abandoned) throw new Error(abandonedSessionMessage(abandoned));
   }
   throw new Error(
     `No ${statuses.join(" or ")} session exists for this worktree`,

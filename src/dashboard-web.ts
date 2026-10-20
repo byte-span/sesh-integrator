@@ -65,6 +65,8 @@ function nextAction(row: DashboardRow): string {
   if (!s) return "Run seshx begin in this repository to start a session.";
   if (!row.repository)
     return "Restore this repository's registration before running an action.";
+  if (s.status === "abandoned")
+    return `This session was abandoned; its branch, worktree and commits were kept. To continue it, run seshx restore --session ${s.id}.`;
   if (s.status === "succeeded" || s.status === "no_changes")
     return s.pullRequestUrl || s.rolloutFollowUps?.length
       ? "Review the pull request and complete any outstanding follow-ups below."
@@ -90,6 +92,7 @@ export function webRow(row: DashboardRow) {
     s?.lastActivityAt,
     s?.tasksUpdatedAt,
     s?.closedAt,
+    s?.abandonment?.abandonedAt,
     s?.readyAt,
     s?.sourceValidatedAt,
     s?.integratedAt,

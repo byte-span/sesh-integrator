@@ -35,6 +35,7 @@ import { dashboardCommand } from "./dashboard.js";
 import { webDashboardCommand } from "./dashboard-web.js";
 import { tasksCommand } from "./tasks.js";
 import { sessionsCommand } from "./session-audit.js";
+import { abandonCommand, restoreCommand } from "./abandon.js";
 
 export async function main(argv = process.argv.slice(2)): Promise<void> {
   const [command, ...args] = argv;
@@ -60,6 +61,8 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
         "integrate",
         "resume",
         "finish",
+        "abandon",
+        "restore",
       ].includes(command ?? "") ||
       (command === "tasks" && args[0] !== "list") ||
       (command === "reconcile" && args.includes("--apply"))
@@ -75,10 +78,17 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
         "finish",
         "tasks",
       ].includes(command ?? "");
+      // Abandon and restore change only the named session's record and may
+      // run outside its repository, so they never scope by the cwd.
+      const recordOnly = ["abandon", "restore"].includes(command ?? "");
       await preflightRuntimeCompatibility(
-        scoped
-          ? { cwd: process.cwd(), ...(sessionId ? { sessionId } : {}) }
-          : undefined,
+        recordOnly
+          ? sessionId
+            ? { cwd: process.cwd(), sessionId }
+            : undefined
+          : scoped
+            ? { cwd: process.cwd(), ...(sessionId ? { sessionId } : {}) }
+            : undefined,
       );
     }
     switch (command) {
@@ -141,6 +151,12 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
         break;
       case "sessions":
         await sessionsCommand(args);
+        break;
+      case "abandon":
+        await abandonCommand(args);
+        break;
+      case "restore":
+        await restoreCommand(args);
         break;
       case "dashboard":
         if (args.length) await webDashboardCommand(args);
@@ -511,6 +527,8 @@ Usage:
   seshx tasks update <task-id> [--title "..."] [--description "..."] [--status pending|in_progress|completed|blocked|skipped] [--reason "..."] [--session <session-id>]
   seshx tasks move <task-id> --position <n> [--session <session-id>]
   seshx sessions audit [--repo <path>] [--idle-days <n>] [--json]
+  seshx abandon --session <session-id> --reason "..." [--include-unsaved]
+  seshx restore --session <session-id>
   seshx incident <ticket-id>
   seshx reconcile [repo-path] [--apply]
   seshx audit-legacy

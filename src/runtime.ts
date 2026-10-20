@@ -25,6 +25,7 @@ import type {
   RepositoryConfig,
   RuntimePaths,
   Session,
+  SessionAbandonment,
   SessionIndexEntry,
   SessionTask,
 } from "./types.js";
@@ -323,6 +324,12 @@ export async function writeSession(
       throw new Error(
         "Session is already finished without changes; start a new session.",
       );
+    // A stale snapshot must neither reopen an abandoned session nor abandon
+    // one; only `abandon` and `restore` change that status.
+    if (latest?.status === "abandoned" && session.status !== "abandoned")
+      throw new Error(abandonedSessionMessage(latest));
+    if (session.status === "abandoned" && latest?.status !== "abandoned")
+      throw new Error("Abandon a session only with seshx abandon.");
     if (latest) {
       if (latest.tasks) session.tasks = latest.tasks;
       else delete session.tasks;
@@ -343,14 +350,19 @@ export async function writeSession(
 /**
  * Record work that does not otherwise save the session, such as a source
  * commit. Returns the saved record, or undefined for an unknown session.
- * Sessions already finished without changes are left untouched.
+ * Sessions finished without changes or abandoned are left untouched.
  */
 export async function recordSessionActivity(
   sessionId: string,
 ): Promise<Session | undefined> {
   return withSessionRecordLock(sessionId, async () => {
     const session = await readSession(sessionId);
-    if (!session || session.status === "no_changes") return session;
+    if (
+      !session ||
+      session.status === "no_changes" ||
+      session.status === "abandoned"
+    )
+      return session;
     session.lastActivityAt = new Date().toISOString();
     await writeSessionRecord(session);
     return session;
@@ -368,6 +380,8 @@ export async function updateSessionTasks(
       throw new Error(
         "Session is already finished without changes; start a new session.",
       );
+    if (session.status === "abandoned")
+      throw new Error(abandonedSessionMessage(session));
     session.tasks = update(session.tasks ?? []);
     session.tasksUpdatedAt = new Date().toISOString();
     session.lastActivityAt = session.tasksUpdatedAt;
@@ -406,6 +420,71 @@ export async function finishNoChangesSession(
     session.status = "no_changes";
     session.closedAt = new Date().toISOString();
     session.lastActivityAt = session.closedAt;
+    await writeSessionRecord(session);
+    return session;
+  });
+}
+
+export function abandonedSessionMessage(session: Session): string {
+  const at = session.abandonment?.abandonedAt;
+  return `Session ${session.id} was abandoned${at ? ` at ${at}` : ""}; nothing was saved. Restore it with seshx restore --session ${session.id} before continuing.`;
+}
+
+/**
+ * Abandon an active session under its record lock. `verify` receives the
+ * latest record, rechecks it (throwing to refuse) and returns the abandonment
+ * to store. Only the record changes, and the heartbeat is kept so the idle
+ * evidence from before abandoning survives.
+ */
+export async function abandonSessionRecord(
+  sessionId: string,
+  verify: (session: Session) => Promise<SessionAbandonment>,
+): Promise<Session> {
+  return withSessionRecordLock(sessionId, async () => {
+    const session = await readSession(sessionId);
+    if (!session) throw new Error(`Unknown session: ${sessionId}`);
+    if (session.status !== "active")
+      throw new Error(
+        `Only an active session can be abandoned; ${sessionId} is ${session.status}.`,
+      );
+    const abandonment = await verify(session);
+    session.status = "abandoned";
+    session.abandonment = abandonment;
+    await writeSessionRecord(session);
+    return session;
+  });
+}
+
+/**
+ * Return an abandoned session to the status it was abandoned from, keeping
+ * the abandonment in its history. Restoring is deliberate work on the
+ * session, so it records the heartbeat.
+ */
+export async function restoreSessionRecord(
+  sessionId: string,
+  verify: (session: Session) => Promise<void>,
+): Promise<Session> {
+  return withSessionRecordLock(sessionId, async () => {
+    const session = await readSession(sessionId);
+    if (!session) throw new Error(`Unknown session: ${sessionId}`);
+    const abandonment = session.abandonment;
+    if (session.status !== "abandoned" || !abandonment)
+      throw new Error(
+        `Only an abandoned session can be restored; ${sessionId} is ${session.status}.`,
+      );
+    if (abandonment.previousStatus !== "active")
+      throw new Error(
+        `Session ${sessionId} was abandoned from ${abandonment.previousStatus}; this coordinator restores only active sessions.`,
+      );
+    await verify(session);
+    const restoredAt = new Date().toISOString();
+    session.abandonmentHistory = [
+      ...(session.abandonmentHistory ?? []),
+      { ...abandonment, restoredAt },
+    ];
+    delete session.abandonment;
+    session.status = abandonment.previousStatus;
+    session.lastActivityAt = restoredAt;
     await writeSessionRecord(session);
     return session;
   });

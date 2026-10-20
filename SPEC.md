@@ -934,7 +934,7 @@ session-state event.
 ### Session activity heartbeat
 
 A session may have an optional `lastActivityAt` timestamp. Lifecycle saves
-(`begin`, `commit`, `validate`, `integrate`, `resume`, `finish`,
+(`begin`, `commit`, `validate`, `integrate`, `resume`, `finish`, `restore`,
 `reconcile --apply`) and checklist mutations set it under the per-session
 record lock. A lifecycle save from a stale snapshot records new activity, while
 bookkeeping saves keep the stored value rather than the snapshot's. Read-only
@@ -947,6 +947,38 @@ Idle calculations use the later of `lastActivityAt` and `tasksUpdatedAt`, then
 backfilled. The field does not change the state contract: older coordinators
 parse records without field validation and rewrite them whole, so they keep the
 heartbeat without refreshing it.
+
+### Abandoning sessions
+
+`abandon --session <id> --reason "..." [--include-unsaved]` prints the
+session's audit bucket and evidence, then closes an `active` session as the
+terminal status `abandoned`. It refuses lifecycle statuses, recorded
+integration or recovery state (ready/staging/promoted commits, lock wait,
+conflict, recovery phase or bundle, local target recovery), the `lifecycle`
+audit bucket, a held repository lock or present session record lock, and,
+without `--include-unsaved`, the `unsaved` bucket or an incomplete inspection.
+Under the session record lock it re-reads and re-audits the record (ignoring
+the lock it holds itself) and refuses when the status, heartbeat, checklist
+time, lifecycle state, bucket, worktree/branch heads, uncommitted paths, commit
+counts or lock facts differ from the shown audit. It persists `abandonment`
+(`abandonedAt`, non-empty single-line `reason` of at most 500 characters,
+`previousStatus`, `bucket`, `evidence`, optional `includedUnsaved`) and leaves
+`lastActivityAt` unchanged. Only the session record and its indexes change.
+
+`restore --session <id>` returns an abandoned session to its `previousStatus`
+(only `active` is supported), appends the abandonment with `restoredAt` to
+`abandonmentHistory`, and records activity. It refuses when another unfinished
+session uses the same worktree path.
+
+Abandoned sessions are excluded from `unfinished` (uninstall deferral,
+compatibility preflight, worktree-location changes, adoption reports) and from
+`sessions audit`. Stale lifecycle saves, heartbeats and checklist edits never
+reopen or modify them, and nothing but `abandon` sets the status. `status` lists
+them in a separate section; both dashboards show them only under an Abandoned
+filter with actions disabled. The status needs no state-contract change: older
+coordinators treat it as an unknown unfinished status, display it, defer
+uninstall for it, and match only their known statuses for mutation, so they
+neither crash on nor reopen it.
 
 ## Coding harness support
 
