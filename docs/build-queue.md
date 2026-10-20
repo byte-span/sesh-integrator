@@ -71,6 +71,12 @@ crash. There is no queue daemon or installed service. Waiting is bounded by a
 deadline. A port collision or local network restriction fails closed with an
 error; it never admits uncounted work. Queue inspection remains available.
 
+Its port, derived from the queue path, lies in 10000–19999, below the Linux and
+IANA ephemeral ranges where outbound and `TIME_WAIT` loopback sockets would
+otherwise block it. The mutex also holds the port used by coordinators pinned
+before this change, so they stay excluded. It skips that port only while a
+non-listening socket occupies it, which rejects their listeners too.
+
 Dead local waiting owners are safely removed on the next admission. A dead
 **running** owner may have surviving children, so its slot stays occupied and new admissions pause until recovery. Age,
 PID reuse, foreign-host records, malformed records, and permission errors never

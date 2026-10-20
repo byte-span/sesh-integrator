@@ -10,7 +10,7 @@ import {
 } from "node:fs/promises";
 import { availableParallelism, homedir, hostname, totalmem } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
-import { createServer, type Server } from "node:net";
+import { connect, createServer, type Server } from "node:net";
 import { setTimeout as delay } from "node:timers/promises";
 import { stripVTControlCharacters } from "node:util";
 import { withCleanup } from "./file-lock.js";
@@ -180,6 +180,23 @@ function entryPath(root: string, id: string): string {
   return join(root, "entries", `${id}.json`);
 }
 
+// Ports depend only on the canonical root so every participant agrees. Current
+// ports stay below the Linux (32768–60999) and IANA (49152–65535) ephemeral
+// ranges, where any loopback connection, including a 60-second TIME_WAIT, can
+// occupy the port longer than admission waits. Legacy ports are those used by
+// coordinators pinned before this change. All four ranges are disjoint so a
+// process holding a reuse mutex can still take the nested admission mutex.
+export function admissionPorts(
+  canonical: string,
+  reuse = false,
+): { port: number; legacyPort: number } {
+  const hash = createHash("sha256").update(canonical).digest().readUInt32BE(0);
+  return {
+    port: (reuse ? 15000 : 10000) + (hash % 5000),
+    legacyPort: (reuse ? 50000 : 20000) + (hash % (reuse ? 15000 : 30000)),
+  };
+}
+
 // A short-lived OS-owned loopback listener is the admission mutex. It accepts
 // no protocol/data and closes after one filesystem transaction. Unlike a file
 // gate, the OS releases it even on SIGKILL; no stale-gate deletion race exists.
@@ -193,31 +210,74 @@ export async function gate<T>(
   reuse = false,
 ): Promise<T> {
   await mkdir(join(root, "entries"), { recursive: true, mode: 0o700 });
-  const canonical = await realpath(root);
-  const port =
-    (reuse ? 50000 : 20000) +
-    (createHash("sha256").update(canonical).digest().readUInt32BE(0) %
-      (reuse ? 15000 : 30000));
+  const { port, legacyPort } = admissionPorts(await realpath(root), reuse);
   const deadline = Date.now() + waitMs;
   for (;;) {
     signal?.throwIfAborted();
     const server = await listen(port);
+    let legacy: Server | "busy" | "occupied" = "busy";
     if (server)
+      try {
+        legacy = await holdLegacy(legacyPort);
+      } catch (error) {
+        await close(server);
+        throw error;
+      }
+    if (server && legacy !== "busy")
       return withCleanup(
         action,
-        () =>
-          new Promise<void>((resolve, reject) =>
-            server.close((error) => (error ? reject(error) : resolve())),
-          ),
+        async () => {
+          if (legacy !== "occupied") await close(legacy);
+          await close(server);
+        },
         "Build queue gate cleanup",
       );
+    if (server) await close(server);
     if (Date.now() >= deadline)
       throw new Error(
-        `Build queue admission mutex busy on 127.0.0.1:${port}; retry after the current operation ends. Queue: ${root}`,
+        `Build queue admission mutex busy on 127.0.0.1:${server ? legacyPort : port}; retry after the current operation ends. Queue: ${root}`,
       );
     onWait?.();
     await delay(reuse ? 25 : 1, undefined, { signal });
   }
+}
+// Older pinned coordinators exclude each other only through the legacy port,
+// so hold it too. Any listener there may be their mutex and is waited for. A
+// port occupied by a non-listening socket (an outbound connection or
+// TIME_WAIT) rejects their listeners as well, so it is skipped; the second
+// attempt keeps a gate released between listen and probe from being skipped.
+async function holdLegacy(port: number): Promise<Server | "busy" | "occupied"> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const server = await listen(port);
+    if (server) return server;
+    if (await listening(port)) return "busy";
+  }
+  return "occupied";
+}
+// Unclear outcomes count as a listener so admission fails closed.
+function listening(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = connect({ host: "127.0.0.1", port });
+    // Windows reports a refused loopback connection only after SYN retries.
+    socket.setTimeout(3000, () => {
+      socket.destroy();
+      resolve(true);
+    });
+    socket.on("error", (error) => {
+      socket.destroy();
+      resolve(code(error) !== "ECONNREFUSED");
+    });
+    // Reset rather than close so the probe leaves no TIME_WAIT behind.
+    socket.once("connect", () => {
+      socket.resetAndDestroy();
+      resolve(true);
+    });
+  });
+}
+function close(server: Server): Promise<void> {
+  return new Promise((resolve, reject) =>
+    server.close((error) => (error ? reject(error) : resolve())),
+  );
 }
 function listen(port: number): Promise<Server | undefined> {
   return new Promise((resolve, reject) => {
