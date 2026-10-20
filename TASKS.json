@@ -129,6 +129,18 @@
       "acceptance": "Dashboard Settings replaces free-text inputs with an accessible, keyboard-operable combobox (type to filter, arrow keys, Enter, Escape) that still accepts typed values: Default target branch lists branches across all registered repositories with how many repositories have each (for example dev — 4 of 5 repos); repository Target branch and Production branch list that repository's branches; Remote lists that repository's git remotes; Reviewers and Assignees are chip inputs suggesting names already used in configuration; Signing program and agent commands suggest detected executables on PATH such as gpg, gpg2 and ssh-keygen. A typed branch that does not exist is offered as Use new branch \"<name>\", saves only the name, and shows a warning naming the repositories that lack it; saving never creates Git branches. Suggestions come from a read-only dashboard endpoint, the form still works with an empty or failed suggestion list, docs/commands.md describes the fields, and dashboard tests cover filtering, the new-branch option and warning, chip entry and removal, and the suggestion-failure fallback.",
       "doc": "docs/commands.md",
       "evidence": []
+    },
+    {
+      "id": "SI-008",
+      "title": "Use safe build queue defaults for external users",
+      "status": "ready",
+      "order": 80,
+      "executor": "automated",
+      "device_requirement": [],
+      "blocked_by": [],
+      "acceptance": "Machines without an explicit build queue setting default to concurrency auto instead of unlimited, after reviewing why docs/build-queue.md currently restores unlimited; explicit machine settings are preserved and --concurrency unlimited still restores the old behavior. Queue waiting is progress-based by default: the deadline resets whenever a running entry finishes or the waiter moves up, so a busy but moving queue never times out, and --wait-seconds (default 900) limits time without progress rather than total wait. When a running entry's owner is dead, waiters fail promptly instead of waiting out the timeout, with a message naming the entry and the exact seshx queue recover <entry-id> --confirmed-stopped command. seshx queue status shows the effective settings, docs/build-queue.md and docs/configuration.md describe the new defaults and how to restore the old ones, the next release notes call out the default change for existing users, and tests cover the auto default, the deadline reset on progress, the timeout after no progress, and the dead-owner fail-fast.",
+      "doc": "docs/build-queue.md",
+      "evidence": []
     }
   ]
 }
