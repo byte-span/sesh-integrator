@@ -81,15 +81,20 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
       // Abandon and restore change only the named session's record and may
       // run outside its repository, so they never scope by the cwd.
       const recordOnly = ["abandon", "restore"].includes(command ?? "");
-      await preflightRuntimeCompatibility(
-        recordOnly
-          ? sessionId
-            ? { cwd: process.cwd(), sessionId }
-            : undefined
-          : scoped
-            ? { cwd: process.cwd(), ...(sessionId ? { sessionId } : {}) }
-            : undefined,
-      );
+      // Batch abandon checks each session's compatibility itself, under its
+      // record lock, so one incompatible session neither blocks the read-only
+      // preview nor the others.
+      const batch = command === "abandon" && args.includes("--all");
+      if (!batch)
+        await preflightRuntimeCompatibility(
+          recordOnly
+            ? sessionId
+              ? { cwd: process.cwd(), sessionId }
+              : undefined
+            : scoped
+              ? { cwd: process.cwd(), ...(sessionId ? { sessionId } : {}) }
+              : undefined,
+        );
     }
     switch (command) {
       case "worktree-location":
@@ -528,6 +533,7 @@ Usage:
   seshx tasks move <task-id> --position <n> [--session <session-id>]
   seshx sessions audit [--repo <path>] [--idle-days <n>] [--json]
   seshx abandon --session <session-id> --reason "..." [--include-unsaved]
+  seshx abandon --all [--repo <path>] [--idle-days <n>] [--bucket <list>] [--include-unsaved] [--apply --reason "..."]
   seshx restore --session <session-id>
   seshx incident <ticket-id>
   seshx reconcile [repo-path] [--apply]

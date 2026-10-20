@@ -965,6 +965,23 @@ counts or lock facts differ from the shown audit. It persists `abandonment`
 `previousStatus`, `bucket`, `evidence`, optional `includedUnsaved`) and leaves
 `lastActivityAt` unchanged. Only the session record and its indexes change.
 
+`abandon --all [--repo <path>] [--idle-days <n>] [--bucket <list>]
+[--include-unsaved] [--apply --reason "..."]` audits the matching unfinished
+sessions read-only and previews which it would close: the `empty`, `delivered`
+and `corrupt` buckets by default, `--bucket` choosing among those and
+`unsaved`. `unsaved` requires `--include-unsaved`, which must not contradict an
+explicit `--bucket` list; `lifecycle` and `other` are never selectable.
+Sessions in a selected bucket that the single-session form would refuse, or
+whose coordinator contract is incompatible, are listed as left alone. Without
+`--apply` nothing is written. With `--apply` and a required reason, each
+selected session is abandoned in turn with its shown record and audit as the
+preview, so the same record-lock recheck applies, and `--include-unsaved` is
+granted only to sessions the shown audit required it for. A present session
+record lock is skipped without waiting. Refusals and errors skip that session
+and the batch continues; the command reports closed and skipped sessions and
+exits 1 when any were skipped. The batch form performs no runtime-wide
+compatibility preflight; compatibility is checked per session.
+
 `restore --session <id>` returns an abandoned session to its `previousStatus`
 (only `active` is supported), appends the abandonment with `restoredAt` to
 `abandonmentHistory`, and records activity. It refuses when another unfinished

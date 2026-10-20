@@ -45,6 +45,7 @@ seshx tasks update <task-id> [--title "..."] [--description "..."] [--status pen
 seshx tasks move <task-id> --position <n> [--session <session-id>]
 seshx sessions audit [--repo <path>] [--idle-days <n>] [--json]
 seshx abandon --session <session-id> --reason "..." [--include-unsaved]
+seshx abandon --all [--repo <path>] [--idle-days <n>] [--bucket <list>] [--include-unsaved] [--apply --reason "..."]
 seshx restore --session <session-id>
 seshx reconcile [repo-path] [--apply]
 seshx audit-legacy
@@ -670,6 +671,61 @@ integrate, resume, finish or edit its checklist, so they cannot reopen it. Run
 `abandon` and `restore` with a coordinator that supports them. A coordinator
 that predates abandon and is already running a command for the session may
 still save over the record; abandon only sessions nobody is using.
+
+#### Batch abandon
+
+Close many stale sessions at once. Without `--apply` it only previews:
+
+```bash
+seshx abandon --all                                   # Preview; changes nothing
+seshx abandon --all --repo ~/code/project --idle-days 14
+seshx abandon --all --bucket delivered                # Only delivered sessions
+seshx abandon --all --include-unsaved                 # Also list unsaved work
+seshx abandon --all --idle-days 14 --apply --reason "Stale after release 1.2"
+```
+
+1. Run the preview. It prints the same audit as
+   [`sessions audit`](#sessions-audit) for each session it would close, then
+   each matching session it leaves alone and why, then the exact `--apply`
+   command for that selection.
+2. Confirm with the owners that nobody is using the listed sessions.
+3. Rerun with `--apply --reason "..."`. It audits again, prints the sessions
+   it will close, closes them one at a time, then reports `Closed` and
+   `Skipped` sessions with reasons. It exits 1 when any session was skipped.
+
+Selection:
+
+- `--repo <path>` and `--idle-days <n>` filter as in `sessions audit`.
+- By default the `empty`, `delivered` and `corrupt` buckets are closed.
+  `--bucket` takes a comma-separated list of those bucket IDs, plus `unsaved`.
+- `unsaved` sessions are closed only with `--include-unsaved`, which adds
+  `unsaved` to the default buckets (with `--bucket`, list `unsaved` too).
+  Each one is listed individually with its evidence. `--include-unsaved`
+  covers only sessions that the printed audit showed as unsaved.
+- `lifecycle` and `other` cannot be selected. Finish or resume sessions in
+  lifecycle; review `other` sessions (such as a checklist without commits, or
+  an incomplete inspection) and use `abandon --session <id>`.
+- Sessions the single-session form would refuse are left alone, for example
+  ready, staging or promoted commits, a recovery bundle, or a coordinator
+  contract this build does not support.
+
+Immediately before closing each session, `--apply` rechecks it under its record
+lock, exactly like `abandon --session`, and skips it, changing nothing, when:
+
+- It changed since the printed audit: new activity or checklist edits,
+  different heads, uncommitted paths, commit counts or bucket.
+- It entered lifecycle, recovery or a lock wait, or now holds the repository
+  lock.
+- Its session record lock is held by another command.
+
+Like `abandon --session`, only the closed sessions' records change. Every
+branch, worktree, uncommitted file, commit, recovery bundle and ref, incident
+and lock is preserved. Each closed session can be restored with
+`seshx restore --session <id>`. The preview is strictly read-only: it writes no
+record, index, lock or file and runs only non-mutating Git commands. Batch
+abandon checks each session's coordinator contract on its own rather than the
+whole runtime first, so an incompatible session is left alone without blocking
+the others.
 
 ### Failure incidents
 
