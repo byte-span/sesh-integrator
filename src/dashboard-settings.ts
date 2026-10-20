@@ -2,8 +2,20 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { isDeepStrictEqual } from "node:util";
+import {
+  configHistoryLimit,
+  listConfigHistory,
+  readConfigSnapshot,
+  type ConfigSnapshot,
+  type ConfigSnapshotSummary,
+} from "./config-history.js";
 import { withCleanup } from "./file-lock.js";
-import { harnessCommand, harnessInfo, harnesses } from "./harness.js";
+import {
+  harnessCommand,
+  harnessInfo,
+  harnesses,
+  type Harness,
+} from "./harness.js";
 import { acquireRepoLock, releaseRepoLock, type LockHandle } from "./lock.js";
 import { targetBranch, targetBranchSource } from "./promotion.js";
 import {
@@ -14,7 +26,7 @@ import {
   runtimePaths,
   validateConfig,
   withConfigLock,
-  writeJsonAtomic,
+  writeConfigFile,
 } from "./runtime.js";
 import type {
   Config,
@@ -24,8 +36,8 @@ import type {
   ValidationStep,
 } from "./types.js";
 
-// The dashboard edits only these scalar settings. Commands, branches that
-// identify a registration, and harness executables stay CLI/config-file only.
+// The form edits only these scalar settings. Validation commands and the
+// branches that identify a registration stay in the JSON tab and the CLI.
 const conflictModes = ["current-session", "nested-agent", "nested-codex"];
 const validationCaches = ["off", "session", "repository"];
 const setupPolicies = ["required", "advisory"];
@@ -38,6 +50,8 @@ export interface GlobalSettings {
   reviewers: string[];
   assignees: string[];
   deliveryPolicyFile: string;
+  /** Program per harness; `""` uses the harness default on PATH. */
+  harnessCommands: Record<Harness, string>;
 }
 
 export interface RepositorySettings {
@@ -55,6 +69,8 @@ export interface RepositorySettings {
   validationCache: string;
   setupCommandPolicy: string;
   conflictInstructions: string;
+  /** `""` uses Git's own gpg.program. */
+  gpgProgram: string;
 }
 
 export type SettingsRequest =
@@ -138,8 +154,22 @@ function globalSettings(config: Config): GlobalSettings {
     reviewers: config.defaultPromotion?.reviewers ?? [],
     assignees: config.defaultPromotion?.assignees ?? [],
     deliveryPolicyFile: config.deliveryPolicyFile ?? "",
+    harnessCommands: Object.fromEntries(
+      harnesses.map((harness) => [harness, configuredCommand(config, harness)]),
+    ) as Record<Harness, string>,
   };
 }
+
+function configuredCommand(config: Config, harness: Harness): string {
+  return (
+    config.harnessCommands?.[harness] ??
+    (harness === "codex" ? config.codexCommand : undefined) ??
+    ""
+  );
+}
+
+const defaultCommand = (harness: Harness) =>
+  harnessInfo[harness].command ?? harness;
 
 function repositorySettings(
   config: Config,
@@ -163,6 +193,7 @@ function repositorySettings(
     validationCache: repository.validationCache ?? "session",
     setupCommandPolicy: repository.setupCommandPolicy ?? "required",
     conflictInstructions: repository.conflictInstructions,
+    gpgProgram: repository.gpgProgram ?? "",
   };
 }
 
@@ -174,13 +205,13 @@ export function settingsView(text: string | null, stored: Config) {
     revision: settingsRevision(text),
     configPath: paths.config,
     exists: text !== null,
-    global: {
-      ...globalSettings(config),
-      harnessCommands: harnesses.map((harness) => ({
-        harness: harnessInfo[harness].name,
-        command: harnessCommand(config, harness),
-      })),
-    },
+    global: globalSettings(config),
+    harnesses: harnesses.map((harness) => ({
+      id: harness,
+      name: harnessInfo[harness].name,
+      defaultCommand: defaultCommand(harness),
+      effectiveCommand: harnessCommand(config, harness),
+    })),
     repositories: config.repositories.map((repository) => ({
       path: repository.path,
       name: basename(repository.path),
@@ -191,7 +222,6 @@ export function settingsView(text: string | null, stored: Config) {
       targetSource: targetBranchSource(repository),
       inheritedTargetBranch:
         config.defaultTargetBranch ?? repository.defaultBranch,
-      gpgProgram: repository.gpgProgram ?? "",
       ...repositorySettings(config, repository),
       commands: [
         { label: "Setup", lines: repository.setupCommands.map(commandText) },
@@ -277,6 +307,24 @@ function optionalParticipants(value: unknown, label: string): string[] | null {
   return value === null ? null : participants(value, label);
 }
 
+/** A program path or name. Commands are never run through a shell. */
+function program(value: unknown, label: string): string {
+  const name = text(value, label).trim();
+  if (/[\r\n]/.test(name)) throw new Error(`${label} must be a single line`);
+  return name;
+}
+
+function harnessCommands(value: unknown): Record<Harness, string> {
+  const commands = object(value, "agent commands");
+  exactKeys(commands, harnesses, "agent commands");
+  return Object.fromEntries(
+    harnesses.map((harness) => [
+      harness,
+      program(commands[harness], `${harnessInfo[harness].name} command`),
+    ]),
+  ) as Record<Harness, string>;
+}
+
 export function parseSettingsRequest(value: unknown): SettingsRequest {
   const request = object(value, "settings request");
   const revision = request.revision;
@@ -294,6 +342,7 @@ export function parseSettingsRequest(value: unknown): SettingsRequest {
         "reviewers",
         "assignees",
         "deliveryPolicyFile",
+        "harnessCommands",
       ],
       "global settings",
     );
@@ -325,6 +374,7 @@ export function parseSettingsRequest(value: unknown): SettingsRequest {
           values.deliveryPolicyFile,
           "Delivery policy file",
         ).trim(),
+        harnessCommands: harnessCommands(values.harnessCommands),
       },
     };
   }
@@ -343,6 +393,7 @@ export function parseSettingsRequest(value: unknown): SettingsRequest {
       "validationCache",
       "setupCommandPolicy",
       "conflictInstructions",
+      "gpgProgram",
     ],
     "repository settings",
   );
@@ -391,6 +442,7 @@ export function parseSettingsRequest(value: unknown): SettingsRequest {
         "Conflict instructions",
         8000,
       ),
+      gpgProgram: program(values.gpgProgram, "Signing program"),
     },
   };
 }
@@ -448,6 +500,20 @@ export function applySettings(
     }
     if (changed("deliveryPolicyFile"))
       setOptional(next, "deliveryPolicyFile", values.deliveryPolicyFile);
+    const commands = { ...next.harnessCommands };
+    for (const harness of harnesses) {
+      const command = values.harnessCommands[harness];
+      if (command === before.harnessCommands[harness]) continue;
+      setOptional(commands, harness, command);
+      // Keep the legacy alias in step: older coordinators read only it.
+      if (harness === "codex" && next.codexCommand !== undefined)
+        setOptional(next, "codexCommand", command);
+    }
+    setOptional(
+      next,
+      "harnessCommands",
+      Object.keys(commands).length ? commands : undefined,
+    );
   } else {
     const index = current.repositories.findIndex(
       (repository) => repository.path === request.repository,
@@ -495,6 +561,8 @@ export function applySettings(
       >;
     if (changed("conflictInstructions"))
       repository.conflictInstructions = values.conflictInstructions;
+    if (changed("gpgProgram"))
+      setOptional(repository, "gpgProgram", values.gpgProgram);
     const target =
       repository.targetBranch ??
       next.defaultTargetBranch ??
@@ -524,7 +592,7 @@ export async function saveSettings(
             (r) => r.path === request.repository,
           )
         : [],
-      () => writeJsonAtomic(runtimePaths().config, next),
+      () => writeConfigFile(runtimePaths().config, next, "Dashboard form"),
     );
     const saved = await readStoredConfig();
     return settingsView(saved.text, saved.config);
@@ -699,8 +767,25 @@ export async function saveSettingsJson(
       );
     });
     await withRepositoryLocks(changed, () =>
-      writeJsonAtomic(runtimePaths().config, next),
+      writeConfigFile(runtimePaths().config, next, "Dashboard JSON"),
     );
     return settingsJson(await readConfigText());
   });
+}
+
+/** Earlier config.json versions, newest first, without their text. */
+export async function loadSettingsHistory(): Promise<{
+  limit: number;
+  entries: ConfigSnapshotSummary[];
+}> {
+  return {
+    limit: configHistoryLimit,
+    entries: await listConfigHistory(runtimePaths().config),
+  };
+}
+
+export async function loadSettingsSnapshot(
+  id: string,
+): Promise<ConfigSnapshot> {
+  return readConfigSnapshot(runtimePaths().config, id);
 }

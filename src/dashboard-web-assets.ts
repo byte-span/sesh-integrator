@@ -278,6 +278,31 @@ export const webHtml = String.raw`<!doctype html>
         </div>
       </form>
     </dialog>
+    <dialog
+      id="json-confirm"
+      class="wide-dialog"
+      aria-labelledby="json-confirm-title"
+      aria-describedby="json-confirm-description"
+    >
+      <form id="json-confirm-form">
+        <h2 id="json-confirm-title">Save config.json?</h2>
+        <p id="json-confirm-description">
+          This replaces the configuration every seshx command on this machine
+          reads. New commands use it right away; running commands keep the
+          values they loaded. The current file is kept in History, so you can
+          restore it.
+        </p>
+        <p id="json-confirm-warning" class="warning" hidden></p>
+        <ul id="json-confirm-changes" class="change-list"></ul>
+        <pre id="json-confirm-diff" class="diff" tabindex="0"></pre>
+        <div class="form-actions">
+          <button id="json-confirm-cancel" type="button">Cancel</button
+          ><button id="json-confirm-save" class="primary" type="submit">
+            Save config.json
+          </button>
+        </div>
+      </form>
+    </dialog>
   </body>
 </html>
 `;
@@ -863,6 +888,78 @@ html.page-hidden #connection.connected .signal {
 }
 .json-check.error {
   color: var(--danger);
+}
+.settings-group .group-action {
+  margin: 12px 0 18px;
+}
+.history-list {
+  margin: 14px 0 18px;
+  padding: 0;
+  list-style: none;
+}
+.history-list li {
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+.history-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+.history-row span {
+  flex: 1 1 260px;
+  font-size: 13px;
+}
+.history-row time {
+  font-weight: 600;
+}
+.history-list .diff {
+  margin-top: 10px;
+}
+/* Line diffs: + and - prefixes carry the meaning; color only reinforces it. */
+pre.diff,
+.settings-group pre.diff {
+  max-height: 50vh;
+  margin: 0;
+  padding: 10px 0;
+  overflow: auto;
+  border-radius: var(--radius);
+  background: var(--code);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre;
+  overflow-wrap: normal;
+}
+.diff span {
+  display: block;
+  padding: 0 12px;
+}
+.diff .add {
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 12%, transparent);
+}
+.diff .remove {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+.diff .gap {
+  color: var(--muted);
+  font-style: italic;
+}
+dialog.wide-dialog {
+  width: min(900px, calc(100vw - 32px));
+}
+dialog .warning {
+  color: var(--warning);
+  font-weight: 600;
+}
+.change-list {
+  margin: 0 0 14px;
+  padding-left: 20px;
+  font-size: 13px;
+  overflow-wrap: anywhere;
 }
 main {
   display: flex;
@@ -2244,6 +2341,7 @@ let settingsOpen = false,
   settingsRepository = "",
   settingsData = null,
   settingsJson = null,
+  settingsHistory = null,
   settingsFetching = false,
   settingsAgain = false;
 const settingsTabs = ["global", "repository", "json"];
@@ -2342,12 +2440,15 @@ async function loadSettings() {
   try {
     // The JSON tab reads the raw file, so it still opens to repair an
     // invalid config.json that the other tabs cannot load.
-    const [view, raw] = await Promise.allSettled([
+    const [view, raw, history] = await Promise.allSettled([
       getJson("/api/settings"),
       getJson("/api/settings/json"),
+      getJson("/api/settings/history"),
     ]);
     if (view.status === "fulfilled") settingsData = view.value;
     if (raw.status === "fulfilled") settingsJson = raw.value;
+    // History is optional: the editor still works without it.
+    settingsHistory = history.status === "fulfilled" ? history.value : null;
     const failed = [view, raw].find((r) => r.status === "rejected");
     $("settings-error").textContent = failed
       ? "Could not load settings: " +
@@ -2375,10 +2476,12 @@ function renderSettings() {
       source.configPath +
       (source.exists ? "" : " · created when you first save")
     : "Loading settings…";
-  if (settingsJson)
+  if (settingsJson) {
     renderSettingsForm("json", settingsJson.revision, () =>
       jsonSettingsForm(settingsJson),
     );
+    renderSettingsHistory();
+  }
   if (!data) return;
   if (!data.repositories.some((r) => r.path === settingsRepository))
     settingsRepository = data.repositories[0]?.path || "";
@@ -2593,12 +2696,18 @@ function globalSettingsForm(data) {
   group = settingsGroup(
     form,
     "Agent commands",
-    "Read-only here. Edit harnessCommands in the JSON tab to change them.",
+    "The program seshx starts for each harness, for nested conflict resolution and failure diagnosis. Use a name on PATH or a full path; arguments are not allowed.",
   );
-  settingsFacts(
-    group,
-    g.harnessCommands.map((h) => [h.harness, h.command]),
-  );
+  const commands = data.harnesses.map((h) => [
+    h.id,
+    settingField(group, {
+      name: "global-harness-" + h.id,
+      label: h.name,
+      value: g.harnessCommands[h.id],
+      placeholder: "Default: " + h.defaultCommand,
+      hint: "Leave empty to use " + h.defaultCommand + ".",
+    }),
+  ]);
   settingsActions(form, "global");
   form.onsubmit = (event) => {
     event.preventDefault();
@@ -2611,6 +2720,9 @@ function globalSettingsForm(data) {
         reviewers: parseList(reviewers.value),
         assignees: parseList(assignees.value),
         deliveryPolicyFile: policy.value.trim(),
+        harnessCommands: Object.fromEntries(
+          commands.map(([id, input]) => [id, input.value.trim()]),
+        ),
       },
     });
   };
@@ -2662,7 +2774,6 @@ function repositorySettingsForm(data, r) {
       "Promotes to",
       r.effectiveTargetBranch + " (" + targetSources[r.targetSource] + ")",
     ],
-    ...(r.gpgProgram ? [["Signing program", r.gpgProgram]] : []),
   ]);
   const enabled = settingField(group, {
     name: "repo-enabled",
@@ -2670,6 +2781,13 @@ function repositorySettingsForm(data, r) {
     label: "Use sesh-integrator in this repository",
     value: r.enabled,
     hint: "When off, begin and integrate refuse to run here. Configuration, sessions and Git state are kept.",
+  });
+  const signing = settingField(group, {
+    name: "repo-gpg",
+    label: "Signing program",
+    value: r.gpgProgram,
+    placeholder: "Git's gpg.program setting",
+    hint: "Program Git uses to sign this repository's commits and merges, for example /usr/bin/gpg. Leave empty to use Git's own setting.",
   });
   group = settingsGroup(form, "Target and promotion");
   const target = settingField(group, {
@@ -2775,8 +2893,11 @@ function repositorySettingsForm(data, r) {
   group = settingsGroup(
     form,
     "Commands",
-    "Read-only here. Edit this repository's entry in the JSON tab to change them.",
+    "Edit setup, validation and post-integration commands, and validation tiers, in this repository's JSON entry.",
   );
+  const edit = button("Edit in JSON", () => editRepositoryJson(r.path));
+  edit.classList.add("group-action");
+  group.append(edit);
   for (const c of r.commands) {
     group.append(el("h3", c.label));
     group.append(
@@ -2831,10 +2952,28 @@ function repositorySettingsForm(data, r) {
         validationCache: cache.value,
         setupCommandPolicy: setup.value,
         conflictInstructions: instructions.value,
+        gpgProgram: signing.value.trim(),
       },
     });
   };
   return form;
+}
+/** Open the JSON tab with this repository's entry selected. */
+function editRepositoryJson(path) {
+  selectSettingsTab("json");
+  const editor = settingsForms.json?.querySelector("#setting-json-text");
+  if (!editor) return;
+  const text = editor.value,
+    quoted = JSON.stringify(path),
+    match = new RegExp('"path"\\s*:\\s*' + quoted.replace(/[.*+?^$()|[\]\\{}]/g, "\\$&")).exec(text),
+    start = match ? match.index : text.indexOf(quoted);
+  editor.focus({ preventScroll: true });
+  if (start < 0) return;
+  const end = start + (match ? match[0].length : quoted.length),
+    line = text.slice(0, start).split("\n").length - 1,
+    height = parseFloat(getComputedStyle(editor).lineHeight) || 19;
+  editor.setSelectionRange(start, end);
+  editor.scrollTop = Math.max(0, (line - 2) * height);
 }
 function jsonSettingsForm(raw) {
   const form = el("form");
@@ -2890,17 +3029,280 @@ function jsonSettingsForm(raw) {
       if (form.dataset.dirty === "true") form.requestSubmit();
     }
   });
-  form.onsubmit = (event) => {
+  form.onsubmit = async (event) => {
     event.preventDefault();
     if (!parse()) {
       setSettingsStatus(form, "Fix the JSON error before saving.", "error");
       editor.focus();
       return;
     }
-    void submitSettings(form, { scope: "json", text: editor.value });
+    const text = editor.value;
+    if (!(await confirmJsonSave(raw.text, text))) return editor.focus();
+    void submitSettings(form, { scope: "json", text });
+  };
+  // History renders into its own slot so a new entry never resets the editor.
+  form.historySlot = el("div");
+  form.append(form.historySlot);
+  form.restoreSnapshot = (snapshot) => {
+    if (
+      form.dataset.dirty === "true" &&
+      !confirm("Replace your unsaved edits with this earlier version?")
+    )
+      return;
+    editor.value = snapshot.text;
+    parse();
+    changed({ target: editor });
+    setSettingsStatus(
+      form,
+      "Loaded the version replaced " +
+        time(snapshot.replacedAt) +
+        ". Review it, then choose Save changes.",
+    );
+    editor.focus({ preventScroll: true });
+    editor.setSelectionRange(0, 0);
+    editor.scrollTop = 0;
+    editor.scrollIntoView({ block: "nearest" });
   };
   return form;
 }
+function renderSettingsHistory() {
+  const form = settingsForms.json,
+    history = settingsHistory;
+  if (!form?.historySlot) return;
+  const key =
+    settingsJson.revision +
+    "\n" +
+    (history ? history.entries.map((e) => e.id).join(",") : "unavailable");
+  if (form.historySlot.dataset.key === key) return;
+  form.historySlot.dataset.key = key;
+  form.historySlot.replaceChildren();
+  const group = settingsGroup(
+    form.historySlot,
+    "History",
+    history
+      ? "Earlier versions of config.json, kept each time the CLI or this dashboard changes it. The newest " +
+          history.limit +
+          " are kept. Restore loads a version into the editor; nothing changes until you save."
+      : "History is unavailable. Reload settings to try again.",
+  );
+  if (!history) return;
+  if (!history.entries.length) {
+    group.append(el("p", "No earlier versions yet.", "hint group-action"));
+    return;
+  }
+  const list = el("ul", undefined, "history-list");
+  for (const entry of history.entries) {
+    const li = el("li"),
+      row = el("div", undefined, "history-row"),
+      label = el("span"),
+      at = el("time", time(entry.replacedAt));
+    at.dateTime = entry.replacedAt;
+    label.append(at, " · replaced by " + entry.source);
+    let diff = null;
+    const compare = button("Compare with current", async () => {
+      if (diff) {
+        diff.remove();
+        diff = null;
+        compare.textContent = "Compare with current";
+        compare.setAttribute("aria-expanded", "false");
+        return;
+      }
+      try {
+        const snapshot = await getJson("/api/settings/history/" + entry.id);
+        diff = diffView(snapshot.text, settingsJson.text);
+        li.append(diff);
+        compare.textContent = "Hide comparison";
+        compare.setAttribute("aria-expanded", "true");
+      } catch (error) {
+        setSettingsStatus(form, error.message, "error");
+      }
+    });
+    compare.setAttribute("aria-expanded", "false");
+    const load = button("Restore", async () => {
+      try {
+        form.restoreSnapshot(
+          await getJson("/api/settings/history/" + entry.id),
+        );
+      } catch (error) {
+        setSettingsStatus(form, error.message, "error");
+      }
+    });
+    row.append(label, compare, load);
+    li.append(row);
+    list.append(li);
+  }
+  group.append(list);
+}
+/** Line-level edit script from LCS; null when too large to compare here. */
+function diffLines(before, after) {
+  const a = before.split("\n"),
+    b = after.split("\n");
+  let start = 0;
+  while (start < a.length && start < b.length && a[start] === b[start]) start++;
+  let endA = a.length,
+    endB = b.length;
+  while (endA > start && endB > start && a[endA - 1] === b[endB - 1]) {
+    endA--;
+    endB--;
+  }
+  const n = endA - start,
+    m = endB - start;
+  if (n * m > 4000000) return null;
+  // lcs[i][j]: common lines in a[start+i..endA) and b[start+j..endB).
+  const lcs = new Uint32Array((n + 1) * (m + 1)),
+    at = (i, j) => i * (m + 1) + j;
+  for (let i = n - 1; i >= 0; i--)
+    for (let j = m - 1; j >= 0; j--)
+      lcs[at(i, j)] =
+        a[start + i] === b[start + j]
+          ? lcs[at(i + 1, j + 1)] + 1
+          : Math.max(lcs[at(i + 1, j)], lcs[at(i, j + 1)]);
+  const out = a.slice(0, start).map((text) => [" ", text]);
+  let i = 0,
+    j = 0;
+  while (i < n || j < m) {
+    if (i < n && j < m && a[start + i] === b[start + j]) {
+      out.push([" ", a[start + i]]);
+      i++;
+      j++;
+    } else if (i < n && (j === m || lcs[at(i + 1, j)] >= lcs[at(i, j + 1)])) {
+      out.push(["-", a[start + i]]);
+      i++;
+    } else {
+      out.push(["+", b[start + j]]);
+      j++;
+    }
+  }
+  return out.concat(a.slice(endA).map((text) => [" ", text]));
+}
+/** A diff of before→after with three lines of context around each change. */
+function diffView(before, after) {
+  const pre = el("pre", undefined, "diff");
+  pre.tabIndex = 0;
+  const lines = diffLines(before, after);
+  if (!lines) {
+    pre.append(el("span", "Too large to compare here.", "gap"));
+    return pre;
+  }
+  if (!lines.some(([kind]) => kind !== " ")) {
+    pre.append(el("span", "No differences.", "gap"));
+    return pre;
+  }
+  const near = lines.map(() => false);
+  lines.forEach(([kind], index) => {
+    if (kind === " ") return;
+    for (let k = Math.max(0, index - 3); k <= Math.min(lines.length - 1, index + 3); k++)
+      near[k] = true;
+  });
+  let hidden = 0;
+  const flush = () => {
+    if (hidden)
+      pre.append(
+        el("span", "… " + hidden + " unchanged line" + (hidden === 1 ? "" : "s"), "gap"),
+      );
+    hidden = 0;
+  };
+  lines.forEach(([kind, text], index) => {
+    if (!near[index]) return void hidden++;
+    flush();
+    pre.append(
+      el(
+        "span",
+        kind + " " + text,
+        kind === "+" ? "add" : kind === "-" ? "remove" : undefined,
+      ),
+    );
+  });
+  flush();
+  return pre;
+}
+const sorted = (value) =>
+  JSON.stringify(value, (key, v) =>
+    v && typeof v === "object" && !Array.isArray(v)
+      ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, v[k]]))
+      : v,
+  );
+// Fields whose values seshx runs as programs.
+const programKeys = new Set([
+  "codexCommand",
+  "harnessCommands",
+  "gpgProgram",
+  "setupCommands",
+  "sourceValidationCommands",
+  "integrationValidationCommands",
+  "postIntegrationCommands",
+  "validationTiers",
+]);
+/** Changed settings by name, or null when the saved file is not valid JSON. */
+function configChanges(before, after) {
+  let a, b;
+  try {
+    a = JSON.parse(before);
+    b = JSON.parse(after);
+  } catch {
+    return null;
+  }
+  const changed = (x, y) =>
+    Object.keys({ ...x, ...y }).filter((k) => sorted(x?.[k]) !== sorted(y?.[k]));
+  const changes = [],
+    programs = [];
+  for (const key of changed(a, b)) {
+    if (key === "repositories") continue;
+    changes.push(key);
+    if (programKeys.has(key)) programs.push(key);
+  }
+  const repos = (c) =>
+    Object.fromEntries(
+      (Array.isArray(c?.repositories) ? c.repositories : []).map((r) => [r?.path, r]),
+    );
+  const ra = repos(a),
+    rb = repos(b);
+  for (const path of Object.keys({ ...ra, ...rb })) {
+    const keys = changed(ra[path], rb[path]);
+    if (!keys.length) continue;
+    const name = String(path).split("/").filter(Boolean).pop() || String(path);
+    changes.push(name + ": " + keys.join(", "));
+    for (const key of keys)
+      if (programKeys.has(key)) programs.push(name + " " + key);
+  }
+  return { changes, programs };
+}
+let jsonConfirmDone = null;
+function confirmJsonSave(before, after) {
+  const summary = configChanges(before, after),
+    list = $("json-confirm-changes"),
+    warning = $("json-confirm-warning");
+  list.replaceChildren(
+    ...(summary
+      ? summary.changes.length
+        ? summary.changes.map((c) => el("li", c))
+        : [el("li", "Formatting only; no settings change.")]
+      : [el("li", "Replaces a file that is not valid JSON.")]),
+  );
+  warning.hidden = !summary?.programs.length;
+  warning.textContent = summary?.programs.length
+    ? "Changes programs that seshx runs: " + summary.programs.join(", ") + "."
+    : "";
+  $("json-confirm-diff").replaceWith(
+    Object.assign(diffView(before, after), { id: "json-confirm-diff" }),
+  );
+  $("json-confirm").showModal();
+  // Start on the diff, not Save, so a second Enter cannot save unseen changes.
+  $("json-confirm-diff").focus();
+  return new Promise((resolve) => (jsonConfirmDone = resolve));
+}
+$("json-confirm-form").onsubmit = (event) => {
+  event.preventDefault();
+  const done = jsonConfirmDone;
+  jsonConfirmDone = null;
+  $("json-confirm").close();
+  done?.(true);
+};
+$("json-confirm-cancel").onclick = () => $("json-confirm").close();
+$("json-confirm").addEventListener("close", () => {
+  jsonConfirmDone?.(false);
+  jsonConfirmDone = null;
+});
 async function refresh() {
   if (fetching) {
     again = true;

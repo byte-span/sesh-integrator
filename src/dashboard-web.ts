@@ -24,7 +24,9 @@ import {
 import { watchDashboard } from "./dashboard-watch.js";
 import {
   loadSettings,
+  loadSettingsHistory,
   loadSettingsJson,
+  loadSettingsSnapshot,
   maxSettingsJsonLength,
   parseSettingsJsonRequest,
   parseSettingsRequest,
@@ -242,6 +244,8 @@ export async function startWebDashboard(
       save: typeof saveSettings;
       loadJson: typeof loadSettingsJson;
       saveJson: typeof saveSettingsJson;
+      loadHistory: typeof loadSettingsHistory;
+      loadSnapshot: typeof loadSettingsSnapshot;
     };
     run?: WebRunner;
     watch?: typeof watchDashboard;
@@ -254,6 +258,8 @@ export async function startWebDashboard(
     save: saveSettings,
     loadJson: loadSettingsJson,
     saveJson: saveSettingsJson,
+    loadHistory: loadSettingsHistory,
+    loadSnapshot: loadSettingsSnapshot,
   };
   const clients = new Set<ServerResponse>();
   let origin = "";
@@ -342,6 +348,17 @@ export async function startWebDashboard(
         }
         if (req.url === "/api/settings/json") {
           json(res, 200, await settings.loadJson());
+          return;
+        }
+        if (req.url === "/api/settings/history") {
+          json(res, 200, await settings.loadHistory());
+          return;
+        }
+        const snapshot = /^\/api\/settings\/history\/([\w-]+)$/.exec(
+          req.url ?? "",
+        );
+        if (snapshot) {
+          json(res, 200, await settings.loadSnapshot(snapshot[1]!));
           return;
         }
         if (req.url === "/api/events") {

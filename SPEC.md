@@ -299,6 +299,7 @@ Create:
 ```text
 ~/.sesh-integrator/
 ├── config.json
+├── config-history/       # replaced config.json versions (newest 20)
 ├── state.json
 ├── codex-home/
 ├── sessions/

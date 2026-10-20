@@ -79,7 +79,7 @@ async function boot(rows: Record<string, unknown>[]) {
     }),
   );
   const state = { rows, job: null, refreshedAt: Date.now() };
-  runInNewContext(webScript, {
+  const context: Record<string, unknown> = {
     document,
     window: { innerWidth: 1400, addEventListener() {} },
     localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
@@ -95,7 +95,8 @@ async function boot(rows: Record<string, unknown>[]) {
     clearTimeout,
     setInterval: () => 0,
     clearInterval() {},
-  });
+  };
+  runInNewContext(webScript, context);
   await new Promise((resolve) => setImmediate(resolve));
   const shown = () =>
     byId("repositories").children.map((b) => b.dataset.repo ?? "");
@@ -103,7 +104,7 @@ async function boot(rows: Record<string, unknown>[]) {
     byId("repository-search").value = value;
     byId("repository-search").dispatch("input");
   };
-  return { byId, shown, type };
+  return { byId, shown, type, context };
 }
 
 const session = (id: string, repository: string) => ({
@@ -119,6 +120,10 @@ const session = (id: string, repository: string) => ({
   progress: "",
   tasks: [],
   actions: {},
+  // Everything the detail pane reads, so selecting any row renders it.
+  followUps: [],
+  activity: [],
+  details: [],
 });
 
 it("filters the repository panel by name, keeps the chosen one and reports no matches", async () => {
@@ -168,4 +173,65 @@ it("filters the repository panel by name, keeps the chosen one and reports no ma
   byId("repository-search").dispatch("keydown", { key: "Escape" });
   expect(byId("repository-search").value).toBe("");
   expect(shown()).toEqual(all);
+});
+
+it("diffs config text by line and names changed settings for the save confirmation", async () => {
+  expect(webHtml).toContain('id="json-confirm"');
+  const { context } = await boot([]);
+  const diffLines = context.diffLines as (
+    a: string,
+    b: string,
+  ) => [string, string][] | null;
+  const configChanges = context.configChanges as (
+    a: string,
+    b: string,
+  ) => { changes: string[]; programs: string[] } | null;
+  expect(diffLines("a\nb\nc", "a\nB\nc\nd")).toEqual([
+    [" ", "a"],
+    ["-", "b"],
+    ["+", "B"],
+    [" ", "c"],
+    ["+", "d"],
+  ]);
+  expect(diffLines("same", "same")).toEqual([[" ", "same"]]);
+  // Bounded: a pathological input is refused instead of freezing the page.
+  const many = (p: string) =>
+    Array.from({ length: 2100 }, (_, i) => p + i).join("\n");
+  expect(diffLines(many("x"), many("y"))).toBeNull();
+
+  const before = JSON.stringify({
+    lockWaitSeconds: 900,
+    harnessCommands: { claude: "claude" },
+    repositories: [
+      {
+        path: "/work/alpha",
+        setupCommands: [["pnpm", "install"]],
+        conflictInstructions: "",
+      },
+    ],
+  });
+  const after = JSON.stringify({
+    harnessCommands: { claude: "/opt/claude" },
+    lockWaitSeconds: 30,
+    repositories: [
+      {
+        conflictInstructions: "Keep both.",
+        setupCommands: [["npm", "ci"]],
+        path: "/work/alpha",
+      },
+    ],
+  });
+  expect(configChanges(before, after)).toEqual({
+    changes: [
+      "lockWaitSeconds",
+      "harnessCommands",
+      "alpha: setupCommands, conflictInstructions",
+    ],
+    programs: ["harnessCommands", "alpha setupCommands"],
+  });
+  // Key order alone is not a change.
+  expect(
+    configChanges('{"a":1,"b":{"c":2,"d":3}}', '{"b":{"d":3,"c":2},"a":1}'),
+  ).toEqual({ changes: [], programs: [] });
+  expect(configChanges("{ broken", "{}")).toBeNull();
 });

@@ -4,6 +4,7 @@ import {
   withCleanup,
   type FileLock,
 } from "./file-lock.js";
+import { recordConfigSnapshot } from "./config-history.js";
 import { validateHarnessConfig } from "./harness.js";
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
@@ -294,9 +295,34 @@ function isOptionalParticipantList(value: unknown): boolean {
   );
 }
 
-export async function writeConfig(config: Config): Promise<void> {
+/** `source` names what made the change in the configuration history. */
+export async function writeConfig(
+  config: Config,
+  source = "seshx",
+): Promise<void> {
   const paths = await ensureRuntime();
-  await writeJsonAtomic(paths.config, config);
+  await writeConfigFile(paths.config, config, source);
+}
+
+/** Replace config.json, first keeping the text it replaces in its history. */
+export async function writeConfigFile(
+  path: string,
+  config: Config,
+  source: string,
+): Promise<void> {
+  let previous: string | null = null;
+  try {
+    previous = await readFile(path, "utf8");
+  } catch (error) {
+    if (!isNodeError(error) || error.code !== "ENOENT") throw error;
+  }
+  await recordConfigSnapshot(
+    path,
+    previous,
+    `${JSON.stringify(config, null, 2)}\n`,
+    source,
+  );
+  await writeJsonAtomic(path, config);
 }
 
 export async function readSessions(readOnly = false): Promise<Session[]> {
