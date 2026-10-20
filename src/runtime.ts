@@ -301,7 +301,20 @@ export async function readSessions(readOnly = false): Promise<Session[]> {
   return sessions.sort((a, b) => a.startedAt.localeCompare(b.startedAt));
 }
 
-export async function writeSession(session: Session): Promise<void> {
+export interface SessionWriteOptions {
+  /**
+   * Whether this save records work on the session (the default for lifecycle
+   * saves). Bookkeeping performed while only observing a session, such as
+   * lazily rebuilding a legacy index, passes false so it never refreshes the
+   * `lastActivityAt` heartbeat.
+   */
+  activity?: boolean;
+}
+
+export async function writeSession(
+  session: Session,
+  options: SessionWriteOptions = {},
+): Promise<void> {
   await withSessionRecordLock(session.id, async () => {
     // Lifecycle commands hold snapshots while running checks. Checklist edits
     // made meanwhile belong to the task command and must not be overwritten.
@@ -316,7 +329,31 @@ export async function writeSession(session: Session): Promise<void> {
       if (latest.tasksUpdatedAt) session.tasksUpdatedAt = latest.tasksUpdatedAt;
       else delete session.tasksUpdatedAt;
     }
+    // Like the checklist, the heartbeat follows the saved record rather than
+    // a possibly stale snapshot unless this save itself records work.
+    const recorded = latest ? latest.lastActivityAt : session.lastActivityAt;
+    if (options.activity !== false)
+      session.lastActivityAt = new Date().toISOString();
+    else if (recorded) session.lastActivityAt = recorded;
+    else delete session.lastActivityAt;
     await writeSessionRecord(session);
+  });
+}
+
+/**
+ * Record work that does not otherwise save the session, such as a source
+ * commit. Returns the saved record, or undefined for an unknown session.
+ * Sessions already finished without changes are left untouched.
+ */
+export async function recordSessionActivity(
+  sessionId: string,
+): Promise<Session | undefined> {
+  return withSessionRecordLock(sessionId, async () => {
+    const session = await readSession(sessionId);
+    if (!session || session.status === "no_changes") return session;
+    session.lastActivityAt = new Date().toISOString();
+    await writeSessionRecord(session);
+    return session;
   });
 }
 
@@ -333,6 +370,7 @@ export async function updateSessionTasks(
       );
     session.tasks = update(session.tasks ?? []);
     session.tasksUpdatedAt = new Date().toISOString();
+    session.lastActivityAt = session.tasksUpdatedAt;
     await writeSessionRecord(session);
     return session;
   });
@@ -367,6 +405,7 @@ export async function finishNoChangesSession(
     await verify(session);
     session.status = "no_changes";
     session.closedAt = new Date().toISOString();
+    session.lastActivityAt = session.closedAt;
     await writeSessionRecord(session);
     return session;
   });
@@ -479,7 +518,8 @@ export async function findLatestSessionForWorktree(
         item.worktreePath === worktreePath && statuses.includes(item.status),
     )
     .at(-1);
-  if (session) await writeSession(session);
+  // Lazily index the legacy record. Locating a session is not work on it.
+  if (session) await writeSession(session, { activity: false });
   return session;
 }
 

@@ -62,6 +62,7 @@ import {
   readRepositorySessionIndex,
   readSession,
   readSessions,
+  recordSessionActivity,
   repoId,
   runtimePaths,
   writeConfig,
@@ -629,6 +630,15 @@ export async function commitCommand(
   );
   const committed = await inspectGit(source.worktreePath);
   process.stdout.write(`Committed ${session.id} source at ${committed.head}\n`);
+  // The commit already exists; a heartbeat failure must not report it failed.
+  try {
+    const saved = await recordSessionActivity(session.id);
+    if (saved?.lastActivityAt) session.lastActivityAt = saved.lastActivityAt;
+  } catch (error) {
+    process.stderr.write(
+      `Warning: commit succeeded but session activity was not recorded: ${errorMessage(error)}\n`,
+    );
+  }
   return session;
 }
 

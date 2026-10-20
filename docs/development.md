@@ -193,6 +193,12 @@ separate managed source session, validate and integrate that session, then
 continue the original task. Preserve pending sessions and dirty launch files;
 never bypass the pre-push ancestry guard.
 
+New optional session fields, such as `lastActivityAt`, keep the state contract
+when older coordinators still read, rewrite and resume records that carry them.
+To check a retained coordinator against the current build, run
+`SESH_COMPAT_CLI=<release>/dist/cli.js pnpm exec vitest run test/session-activity.test.ts`
+after `pnpm build`. Its disposable runtime and repository leave the real runtime untouched.
+
 Keep the pinned coordinator for unfinished self-development sessions. Compatible upgrades may be installed for new sessions; incompatible contracts are rejected before lifecycle mutation. Finish sessions with their retained coordinator before adopting incompatible runtime schemas. Install a new validated snapshot, explicitly refresh installed
 workflows with its `scripts/install-skill.sh --installed`, and use its path for
 new sessions. Retain old snapshots for recovery. Neither merge hooks nor health

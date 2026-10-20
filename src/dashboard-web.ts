@@ -87,6 +87,7 @@ export function webRow(row: DashboardRow) {
   const repository = row.repository?.path ?? s?.repositoryPath ?? "";
   const times = [
     s?.startedAt,
+    s?.lastActivityAt,
     s?.tasksUpdatedAt,
     s?.closedAt,
     s?.readyAt,

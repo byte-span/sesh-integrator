@@ -22,14 +22,23 @@
     {
       "id": "SI-002",
       "title": "Record a last-activity heartbeat on sessions",
-      "status": "ready",
+      "status": "completed",
       "order": 20,
       "executor": "automated",
       "device_requirement": [],
       "blocked_by": [],
       "acceptance": "Lifecycle and `seshx tasks` commands record a session `lastActivityAt` timestamp under the session record lock. Idle calculations use it, falling back to `tasksUpdatedAt`, `startedAt`, and worktree modification time for older records. Older coordinators can still read and resume sessions that carry the new field, and tests cover both new and legacy records.",
       "doc": "docs/commands.md",
-      "evidence": []
+      "evidence": [
+        "src/runtime.ts",
+        "src/handoff.ts",
+        "src/session-audit.ts",
+        "test/session-activity.test.ts",
+        "test/session-audit.test.ts",
+        "docs/commands.md",
+        "docs/development.md",
+        "SPEC.md"
+      ]
     },
     {
       "id": "SI-003",
