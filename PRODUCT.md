@@ -26,6 +26,8 @@ and explicitly run existing CLI lifecycle actions. Agents maintain checklist
 items and statuses through the CLI. Saved status does not establish
 agent process liveness. CLI safeguards and retained coordinators remain the
 mutation authority. Session/configuration changes invalidate stale confirmations.
+Settings edits a fixed set of global and per-repository `config.json` values
+with the same validation the CLI applies on load. Commands stay read-only.
 
 ## Interface brief
 

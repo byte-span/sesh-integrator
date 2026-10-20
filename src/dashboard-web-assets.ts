@@ -9,7 +9,7 @@ export const webHtml = String.raw`<!doctype html>
     <script src="/app.js" defer></script>
   </head>
   <body>
-    <a class="skip" href="#sessions">Skip to sessions</a>
+    <a id="skip" class="skip" href="#sessions">Skip to sessions</a>
     <header>
       <a class="brand" href="/">sesh<span> / </span>integrator</a>
       <div class="header-actions">
@@ -47,6 +47,23 @@ export const webHtml = String.raw`<!doctype html>
         <p id="repository-empty" class="repository-empty" role="status" hidden>
           No matching repositories
         </p>
+        <div class="sidebar-footer">
+          <button
+            id="settings-button"
+            class="sidebar-link"
+            type="button"
+            aria-current="false"
+            title="Global and repository settings"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1" />
+              <circle cx="15" cy="6" r="2" />
+              <circle cx="9" cy="12" r="2" />
+              <circle cx="17" cy="18" r="2" />
+            </svg>
+            <span>Settings</span>
+          </button>
+        </div>
         <div
           id="repository-resizer"
           role="separator"
@@ -170,6 +187,59 @@ export const webHtml = String.raw`<!doctype html>
           <pre id="output" tabindex="0"></pre>
         </section>
         <footer><span id="refreshed"></span></footer>
+      </main>
+      <main
+        id="settings"
+        class="settings"
+        tabindex="-1"
+        aria-labelledby="settings-title"
+        hidden
+      >
+        <div class="page-heading">
+          <div class="page-title">
+            <h1 id="settings-title">Settings</h1>
+          </div>
+        </div>
+        <p id="settings-source" class="settings-source"></p>
+        <div class="tabs" role="tablist" aria-label="Settings scope">
+          <button
+            id="tab-global"
+            class="tab"
+            role="tab"
+            type="button"
+            aria-selected="true"
+            aria-controls="panel-global"
+          >
+            Global</button
+          ><button
+            id="tab-repository"
+            class="tab"
+            role="tab"
+            type="button"
+            aria-selected="false"
+            aria-controls="panel-repository"
+            tabindex="-1"
+          >
+            Repository
+          </button>
+        </div>
+        <div id="settings-error" class="settings-error" role="alert" hidden></div>
+        <p id="settings-live" class="visually-hidden" role="status"></p>
+        <section
+          id="panel-global"
+          class="settings-panel"
+          role="tabpanel"
+          aria-labelledby="tab-global"
+          tabindex="-1"
+        ></section>
+        <section
+          id="panel-repository"
+          class="settings-panel"
+          role="tabpanel"
+          aria-labelledby="tab-repository"
+          tabindex="-1"
+          hidden
+        ></section>
       </main>
     </div>
     <dialog
@@ -569,6 +639,194 @@ html.page-hidden #connection.connected .signal {
   background: var(--selected);
   color: var(--accent);
 }
+/* Settings stays pinned below the scrolling repository list. */
+.sidebar-footer {
+  flex-shrink: 0;
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.sidebar-link {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  border-color: transparent;
+  background: transparent;
+  text-align: left;
+  font-size: 13px;
+}
+.sidebar-link svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  color: var(--muted);
+}
+.sidebar-link[aria-current="page"] {
+  background: var(--selected);
+  color: var(--accent);
+}
+.sidebar-link[aria-current="page"] svg {
+  color: var(--accent);
+}
+.settings-source {
+  margin: -6px 0 18px;
+  font-size: 12px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 24px;
+}
+.tab,
+.tab:hover:not(:disabled) {
+  margin-bottom: -1px;
+  padding: 10px 14px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: var(--radius) var(--radius) 0 0;
+  background: transparent;
+  color: var(--muted);
+}
+.tab:hover:not(:disabled) {
+  background: var(--hover);
+}
+.tab[aria-selected="true"],
+.tab[aria-selected="true"]:hover:not(:disabled) {
+  border-bottom-color: var(--accent);
+  color: var(--accent);
+}
+.settings-error {
+  max-width: 760px;
+  margin-bottom: 18px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--danger);
+  font-size: 13px;
+}
+.settings-panel {
+  max-width: 760px;
+}
+/* Panels take focus only programmatically, after a save replaces the form. */
+.settings-panel:focus,
+.settings-panel:focus-visible {
+  outline: none;
+}
+.settings-group {
+  margin-bottom: 28px;
+  padding: 20px 22px 6px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.settings-group h2 {
+  margin-bottom: 4px;
+  font-size: 15px;
+}
+.settings-group > p {
+  margin-bottom: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+.setting {
+  display: grid;
+  gap: 6px;
+  margin: 18px 0;
+}
+.setting label {
+  font-size: 13px;
+  font-weight: 600;
+}
+.setting input:not([type="checkbox"]),
+.setting select {
+  width: min(100%, 440px);
+}
+.setting .hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.setting.check {
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 10px;
+  align-items: center;
+}
+.setting.check input {
+  width: 18px;
+  height: 18px;
+  min-height: 0;
+  margin: 0;
+  accent-color: var(--accent);
+}
+.setting.check .hint {
+  grid-column: 2;
+}
+.repository-picker {
+  margin-top: 0;
+}
+.settings-facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 8px 18px;
+  margin: 16px 0 18px;
+  font-size: 13px;
+}
+.settings-facts dt {
+  color: var(--muted);
+}
+.settings-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.settings-facts code,
+.settings-group pre {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 12px;
+}
+.settings-group h3 {
+  margin: 18px 0 8px;
+}
+.settings-group pre {
+  margin: 0 0 14px;
+  padding: 12px;
+  border-radius: var(--radius);
+  background: var(--code);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.6;
+}
+.settings-actions {
+  position: sticky;
+  bottom: -12px;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  max-width: 760px;
+  padding: 14px 0 16px;
+  border-top: 1px solid var(--line);
+  background: var(--bg);
+}
+.settings-status {
+  font-size: 13px;
+  color: var(--muted);
+}
+.settings-status.error {
+  color: var(--danger);
+}
+.settings-status.saved {
+  color: var(--success);
+}
 main {
   display: flex;
   flex-direction: column;
@@ -579,6 +837,10 @@ main {
   width: 100%;
   margin: 0 auto;
   overflow: hidden;
+}
+/* Settings is one long form, so unlike the session view it scrolls. */
+main.settings {
+  overflow-y: auto;
 }
 main > * {
   flex-shrink: 0;
@@ -1130,10 +1392,44 @@ dialog p {
   }
   .repositories {
     flex-shrink: 0;
-    display: block;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
     padding: 14px 16px;
     border-right: 0;
     border-bottom: 1px solid var(--line);
+  }
+  .repositories nav {
+    flex: 1;
+    min-width: 0;
+  }
+  .repository-search {
+    flex-basis: 100%;
+    margin-bottom: 0;
+  }
+  .repository-empty {
+    order: 1;
+    flex-basis: 100%;
+  }
+  .sidebar-footer {
+    margin: 0;
+    padding: 0 0 0 8px;
+    border-top: 0;
+    border-left: 1px solid var(--line);
+  }
+  .sidebar-link {
+    width: auto;
+  }
+  .settings-group {
+    padding: 16px 16px 4px;
+  }
+  .settings-facts {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+  .settings-facts dd {
+    margin-bottom: 8px;
   }
   .repositories h2 {
     display: none;
@@ -1558,13 +1854,17 @@ function renderRepositories() {
         !abandoned(r),
     ).length;
     const b = button("", () => {
+      if (settingsOpen && !closeSettings()) return;
       repository = path;
       render();
     });
     b.className = "repo";
     b.dataset.repo = path;
     b.title = path || "All repositories";
-    b.setAttribute("aria-current", String(repository === path));
+    b.setAttribute(
+      "aria-current",
+      String(!settingsOpen && repository === path),
+    );
     b.append(
       el("span", path ? repositoryName(path) : "All repositories"),
       el("span", String(count)),
@@ -1901,6 +2201,576 @@ $("action-form").onsubmit = async (event) => {
     $("submit").disabled = false;
   }
 };
+// Settings view: Global and Repository tabs edit the central config.json.
+let settingsOpen = false,
+  settingsTab = "global",
+  settingsRepository = "",
+  settingsData = null,
+  settingsFetching = false,
+  settingsAgain = false;
+const settingsForms = { global: null, repository: null };
+try {
+  if (localStorage.getItem("sesh-settings-tab") === "repository")
+    settingsTab = "repository";
+} catch {}
+const listText = (values) => (values || []).join(", ");
+const parseList = (value) =>
+  value
+    .split(/[\s,]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+const targetSources = {
+  override: "repository setting",
+  "global default": "global default",
+  defaultBranch: "default branch",
+};
+function unsavedSettings() {
+  return Object.values(settingsForms).some((f) => f?.dataset.dirty === "true");
+}
+function showSettingsView(open) {
+  settingsOpen = open;
+  $("sessions").hidden = open;
+  $("settings").hidden = !open;
+  $("settings-button").setAttribute("aria-current", open ? "page" : "false");
+  $("skip").href = open ? "#settings" : "#sessions";
+  $("skip").textContent = open ? "Skip to settings" : "Skip to sessions";
+  renderRepositories();
+}
+function openSettings() {
+  if (repository) settingsRepository = repository;
+  showSettingsView(true);
+  renderSettings();
+  void loadSettings();
+  $("tab-" + settingsTab).focus();
+}
+function closeSettings() {
+  if (unsavedSettings() && !confirm("Discard unsaved settings changes?"))
+    return false;
+  settingsForms.global = settingsForms.repository = null;
+  showSettingsView(false);
+  render();
+  return true;
+}
+$("settings-button").onclick = () => {
+  if (!settingsOpen) openSettings();
+  else if (closeSettings()) $("sessions").focus();
+};
+function selectSettingsTab(tab, focus) {
+  settingsTab = tab;
+  try {
+    localStorage.setItem("sesh-settings-tab", tab);
+  } catch {}
+  for (const name of ["global", "repository"]) {
+    const selected = name === tab;
+    $("tab-" + name).setAttribute("aria-selected", String(selected));
+    $("tab-" + name).tabIndex = selected ? 0 : -1;
+    $("panel-" + name).hidden = !selected;
+  }
+  if (focus) $("tab-" + tab).focus();
+}
+for (const name of ["global", "repository"])
+  $("tab-" + name).onclick = () => selectSettingsTab(name);
+document
+  .querySelector('#settings [role="tablist"]')
+  .addEventListener("keydown", (event) => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    selectSettingsTab(
+      event.key === "Home"
+        ? "global"
+        : event.key === "End"
+          ? "repository"
+          : settingsTab === "global"
+            ? "repository"
+            : "global",
+      true,
+    );
+  });
+async function loadSettings() {
+  if (settingsFetching) {
+    settingsAgain = true;
+    return;
+  }
+  settingsFetching = true;
+  try {
+    const res = await fetch("/api/settings");
+    const result = await res.json();
+    if (!res.ok) throw Error(result.error);
+    settingsData = result;
+    $("settings-error").hidden = true;
+    renderSettings();
+  } catch (error) {
+    $("settings-error").textContent =
+      "Could not load settings: " +
+      error.message +
+      ". Fix config.json if it is invalid; this page reloads it when it changes.";
+    $("settings-error").hidden = false;
+  } finally {
+    settingsFetching = false;
+    if (settingsAgain) {
+      settingsAgain = false;
+      void loadSettings();
+    }
+  }
+}
+function renderSettings() {
+  selectSettingsTab(settingsTab);
+  const data = settingsData;
+  $("settings-source").textContent = data
+    ? "Saved in " +
+      data.configPath +
+      (data.exists ? "" : " · created when you first save")
+    : "Loading settings…";
+  if (!data) return;
+  if (!data.repositories.some((r) => r.path === settingsRepository))
+    settingsRepository = data.repositories[0]?.path || "";
+  renderSettingsForm("global", data.revision, () => globalSettingsForm(data));
+  renderSettingsForm("repository", data.revision + "\n" + settingsRepository, () =>
+    repositorySettingsForm(
+      data,
+      data.repositories.find((r) => r.path === settingsRepository),
+    ),
+  );
+}
+function renderSettingsForm(scope, key, build) {
+  const panel = $("panel-" + scope),
+    current = settingsForms[scope];
+  if (current?.dataset.key === key) return;
+  if (current?.dataset.dirty === "true") {
+    // Keep unsaved edits; the server refuses stale saves.
+    setSettingsStatus(
+      current,
+      "Settings changed elsewhere. Choose Discard changes to load them before saving.",
+      "error",
+    );
+    return;
+  }
+  const focus = document.activeElement?.id,
+    scroll = $("settings").scrollTop;
+  const form = build();
+  form.dataset.key = key;
+  form.dataset.dirty = "false";
+  panel.replaceChildren(form);
+  settingsForms[scope] = form;
+  const node = focus && document.getElementById(focus);
+  if (node && panel.contains(node)) node.focus({ preventScroll: true });
+  $("settings").scrollTop = scroll;
+}
+function settingsGroup(parent, title, description) {
+  const group = el("section", undefined, "settings-group");
+  group.append(el("h2", title));
+  if (description) group.append(el("p", description));
+  parent.append(group);
+  return group;
+}
+function settingField(parent, o) {
+  const id = "setting-" + o.name,
+    check = o.type === "checkbox",
+    wrap = el("div", undefined, "setting" + (check ? " check" : ""));
+  let input;
+  if (o.options) {
+    input = el("select");
+    for (const [value, label] of o.options) {
+      const option = el("option", label);
+      option.value = value;
+      input.append(option);
+    }
+  } else if (o.type === "textarea") input = el("textarea");
+  else {
+    input = el("input");
+    input.type = o.type || "text";
+    input.autocomplete = "off";
+    input.spellcheck = false;
+  }
+  input.id = id;
+  input.name = o.name;
+  if (check) input.checked = !!o.value;
+  else input.value = o.value ?? "";
+  for (const key of ["placeholder", "min", "max", "step"])
+    if (o[key] !== undefined) input.setAttribute(key, o[key]);
+  if (o.required) input.required = true;
+  if (o.track === false) input.dataset.track = "false";
+  const label = el("label", o.label);
+  label.htmlFor = id;
+  wrap.append(...(check ? [input, label] : [label, input]));
+  if (o.hint) {
+    const hint = el("p", o.hint, "hint");
+    hint.id = id + "-hint";
+    input.setAttribute("aria-describedby", hint.id);
+    wrap.append(hint);
+  }
+  parent.append(wrap);
+  return input;
+}
+function settingsFacts(parent, entries) {
+  const dl = el("dl", undefined, "settings-facts");
+  for (const [term, value] of entries) {
+    const dd = el("dd");
+    dd.append(el("code", value));
+    dl.append(el("dt", term), dd);
+  }
+  parent.append(dl);
+}
+function setSettingsStatus(form, text, kind) {
+  const node = form?.querySelector(".settings-status");
+  if (!node) return;
+  node.textContent = text;
+  node.className = "settings-status" + (kind ? " " + kind : "");
+  $("settings-live").textContent = text;
+}
+function settingsActions(form, scope) {
+  const bar = el("div", undefined, "settings-actions"),
+    save = el("button", "Save changes", "primary"),
+    discard = button("Discard changes", () => {
+      settingsForms[scope] = null;
+      renderSettings();
+      void loadSettings();
+      $("tab-" + scope).focus();
+    });
+  save.type = "submit";
+  save.disabled = discard.disabled = true;
+  bar.append(save, discard, el("span", "", "settings-status"));
+  form.append(bar);
+  const changed = (event) => {
+    if (event.target.dataset?.track === "false") return;
+    if (form.dataset.dirty !== "true")
+      setSettingsStatus(form, "Unsaved changes");
+    form.dataset.dirty = "true";
+    save.disabled = discard.disabled = false;
+  };
+  form.addEventListener("input", changed);
+  form.addEventListener("change", changed);
+}
+async function submitSettings(form, request) {
+  const buttons = form.querySelectorAll(".settings-actions button");
+  buttons.forEach((b) => (b.disabled = true));
+  setSettingsStatus(form, "Saving…");
+  try {
+    const res = await fetch("/api/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Sesh-Dashboard": "1" },
+      body: JSON.stringify({ ...request, revision: form.dataset.revision }),
+    });
+    const result = await res.json();
+    if (!res.ok) throw Error(result.error);
+    settingsData = result;
+    settingsForms[request.scope] = null;
+    renderSettings();
+    setSettingsStatus(settingsForms[request.scope], "Saved", "saved");
+    $("panel-" + request.scope).focus({ preventScroll: true });
+    void refresh();
+  } catch (error) {
+    setSettingsStatus(form, error.message, "error");
+    buttons.forEach((b) => (b.disabled = false));
+  }
+}
+function globalSettingsForm(data) {
+  const g = data.global,
+    form = el("form");
+  form.dataset.revision = data.revision;
+  let group = settingsGroup(
+    form,
+    "Branches and pull requests",
+    "Defaults for every registered repository. A repository's own setting takes precedence.",
+  );
+  const target = settingField(group, {
+    name: "global-target",
+    label: "Default target branch",
+    value: g.defaultTargetBranch,
+    placeholder: "Each repository's default branch",
+    hint: "Validated work is promoted here, for example dev. Leave empty to promote to each repository's default branch.",
+  });
+  const reviewers = settingField(group, {
+    name: "global-reviewers",
+    label: "Default reviewers",
+    value: listText(g.reviewers),
+    placeholder: "None",
+    hint: "GitHub users or teams, separated by commas. Pull-request promotion uses them when a repository lists none.",
+  });
+  const assignees = settingField(group, {
+    name: "global-assignees",
+    label: "Default assignees",
+    value: listText(g.assignees),
+    placeholder: "None",
+    hint: "GitHub users, separated by commas.",
+  });
+  group = settingsGroup(form, "Integration");
+  const wait = settingField(group, {
+    name: "global-lock-wait",
+    label: "Lock wait (seconds)",
+    type: "number",
+    value: String(g.lockWaitSeconds),
+    min: "0",
+    max: "86400",
+    step: "1",
+    required: true,
+    hint: "How long seshx integrate waits for another session to release the repository before stopping.",
+  });
+  const modes = [
+    ["current-session", "Current session — the agent running integrate resolves conflicts"],
+    ["nested-agent", "Nested agent — start a separate agent to resolve conflicts"],
+  ];
+  if (g.conflictResolutionMode === "nested-codex")
+    modes.push(["nested-codex", "Nested Codex (legacy)"]);
+  const conflicts = settingField(group, {
+    name: "global-conflicts",
+    label: "Conflict resolution",
+    options: modes,
+    value: g.conflictResolutionMode,
+  });
+  const policy = settingField(group, {
+    name: "global-policy",
+    label: "Delivery policy file",
+    value: g.deliveryPolicyFile,
+    placeholder: "None",
+    hint: "Used by seshx begin when --policy-file is not given. Relative paths start from the configuration folder.",
+  });
+  group = settingsGroup(
+    form,
+    "Agent commands",
+    "Read-only here. Edit harnessCommands in config.json to change them.",
+  );
+  settingsFacts(
+    group,
+    g.harnessCommands.map((h) => [h.harness, h.command]),
+  );
+  settingsActions(form, "global");
+  form.onsubmit = (event) => {
+    event.preventDefault();
+    void submitSettings(form, {
+      scope: "global",
+      values: {
+        defaultTargetBranch: target.value.trim(),
+        lockWaitSeconds: Number(wait.value),
+        conflictResolutionMode: conflicts.value,
+        reviewers: parseList(reviewers.value),
+        assignees: parseList(assignees.value),
+        deliveryPolicyFile: policy.value.trim(),
+      },
+    });
+  };
+  return form;
+}
+function repositorySettingsForm(data, r) {
+  const form = el("form");
+  form.dataset.revision = data.revision;
+  if (!r) {
+    const empty = el("div", undefined, "empty");
+    empty.append(
+      el("h2", "No registered repositories"),
+      el(
+        "p",
+        "Run seshx register --auto-config in a repository, then return here.",
+      ),
+    );
+    form.append(empty);
+    return form;
+  }
+  const picker = settingField(form, {
+    name: "repo-picker",
+    label: "Repository",
+    options: data.repositories.map((x) => [x.path, x.name]),
+    value: r.path,
+    hint: r.path,
+    track: false,
+  });
+  picker.parentElement.classList.add("repository-picker");
+  picker.onchange = () => {
+    if (
+      form.dataset.dirty === "true" &&
+      !confirm("Discard unsaved changes to " + r.name + "?")
+    ) {
+      picker.value = r.path;
+      return;
+    }
+    settingsRepository = picker.value;
+    settingsForms.repository = null;
+    renderSettings();
+  };
+  let group = settingsGroup(form, "Registration");
+  settingsFacts(group, [
+    ["Path", r.path],
+    ["Git directory", r.gitCommonDir],
+    ["Default branch", r.defaultBranch],
+    ["Staging branch", r.integrationBranch],
+    [
+      "Promotes to",
+      r.effectiveTargetBranch + " (" + targetSources[r.targetSource] + ")",
+    ],
+    ...(r.gpgProgram ? [["Signing program", r.gpgProgram]] : []),
+  ]);
+  const enabled = settingField(group, {
+    name: "repo-enabled",
+    type: "checkbox",
+    label: "Use sesh-integrator in this repository",
+    value: r.enabled,
+    hint: "When off, begin and integrate refuse to run here. Configuration, sessions and Git state are kept.",
+  });
+  group = settingsGroup(form, "Target and promotion");
+  const target = settingField(group, {
+    name: "repo-target",
+    label: "Target branch",
+    value: r.targetBranch,
+    placeholder: "Inherit: " + r.inheritedTargetBranch,
+    hint: "Leave empty to inherit the global default target branch.",
+  });
+  const p = r.promotion;
+  const type = settingField(group, {
+    name: "repo-promotion",
+    label: "Promotion",
+    options: [
+      ["none", "Local only — update the target branch on this machine"],
+      ["pull-request", "Pull request — push and open a pull request"],
+    ],
+    value: p.type,
+  });
+  const pullRequest = el("div");
+  group.append(pullRequest);
+  const mode = settingField(pullRequest, {
+    name: "repo-mode",
+    label: "Pull request mode",
+    options: [
+      ["shared-target", "Shared target — push the target branch and open one pull request"],
+      ["session-branch", "Session branch — open a pull request for each session"],
+    ],
+    value: p.mode,
+  });
+  const production = settingField(pullRequest, {
+    name: "repo-production",
+    label: "Production branch",
+    value: p.productionBranch,
+    placeholder: r.defaultBranch,
+    hint: "Pull requests merge into this branch. Leave empty to use " + r.defaultBranch + ".",
+  });
+  const remote = settingField(pullRequest, {
+    name: "repo-remote",
+    label: "Remote",
+    value: p.remote,
+    placeholder: "origin",
+    hint: "Leave empty to use origin.",
+  });
+  const inherited = (own, global) =>
+    own && !own.length
+      ? "None"
+      : global.length
+        ? "Inherit: " + listText(global)
+        : "None";
+  const reviewers = settingField(pullRequest, {
+    name: "repo-reviewers",
+    label: "Reviewers",
+    value: listText(p.reviewers),
+    placeholder: inherited(p.reviewers, data.global.reviewers),
+    hint: "Separate with commas. Leave empty to use the global default reviewers.",
+  });
+  const assignees = settingField(pullRequest, {
+    name: "repo-assignees",
+    label: "Assignees",
+    value: listText(p.assignees),
+    placeholder: inherited(p.assignees, data.global.assignees),
+    hint: "Separate with commas. Leave empty to use the global default assignees.",
+  });
+  const syncPromotion = () => {
+    pullRequest.hidden = type.value !== "pull-request";
+  };
+  type.addEventListener("change", syncPromotion);
+  syncPromotion();
+  group = settingsGroup(form, "Validation");
+  const cache = settingField(group, {
+    name: "repo-cache",
+    label: "Reuse passing checks",
+    options: [
+      ["session", "Session — for the same tree within one session"],
+      ["repository", "Repository — for the same tree across sessions"],
+      ["off", "Off — always run every check"],
+    ],
+    value: r.validationCache,
+  });
+  const setup = settingField(group, {
+    name: "repo-setup",
+    label: "Setup failures",
+    options: [
+      ["required", "Required — stop when setup fails"],
+      ["advisory", "Advisory — warn and continue"],
+    ],
+    value: r.setupCommandPolicy,
+    hint: "Applies to this repository's setup commands.",
+  });
+  group = settingsGroup(
+    form,
+    "Conflict instructions",
+    "Given to the agent that resolves merge conflicts, alongside the repository's AGENTS.md.",
+  );
+  const instructions = settingField(group, {
+    name: "repo-instructions",
+    label: "Instructions",
+    type: "textarea",
+    value: r.conflictInstructions,
+    placeholder: "Preserve compatible intent from both changes.",
+  });
+  group = settingsGroup(
+    form,
+    "Commands",
+    "Read-only here. Edit this repository's entry in config.json to change them.",
+  );
+  for (const c of r.commands) {
+    group.append(el("h3", c.label));
+    group.append(
+      c.lines.length ? el("pre", c.lines.join("\n")) : el("p", "None configured."),
+    );
+  }
+  for (const tier of r.validationTiers) {
+    group.append(el("h3", "Validation tier · " + tier.name));
+    group.append(
+      el(
+        "pre",
+        [
+          "Paths: " + tier.paths.join(", "),
+          "Source validation:",
+          ...(tier.source.length ? tier.source : ["(none)"]).map((l) => "  " + l),
+          "Integration validation:",
+          ...(tier.integration.length ? tier.integration : ["(none)"]).map(
+            (l) => "  " + l,
+          ),
+          ...(tier.bypassIntegrationWorktree
+            ? ["Skips the integration worktree"]
+            : []),
+        ].join("\n"),
+      ),
+    );
+  }
+  settingsActions(form, "repository");
+  const list = (input, original) => {
+    const names = parseList(input.value);
+    return names.length
+      ? names
+      : Array.isArray(original) && !original.length
+        ? []
+        : null;
+  };
+  form.onsubmit = (event) => {
+    event.preventDefault();
+    void submitSettings(form, {
+      scope: "repository",
+      repository: r.path,
+      values: {
+        enabled: enabled.checked,
+        targetBranch: target.value.trim(),
+        promotion: {
+          type: type.value,
+          mode: mode.value,
+          productionBranch: production.value.trim(),
+          remote: remote.value.trim(),
+          reviewers: list(reviewers, p.reviewers),
+          assignees: list(assignees, p.assignees),
+        },
+        validationCache: cache.value,
+        setupCommandPolicy: setup.value,
+        conflictInstructions: instructions.value,
+      },
+    });
+  };
+  return form;
+}
 async function refresh() {
   if (fetching) {
     again = true;
@@ -1914,6 +2784,7 @@ async function refresh() {
     state = result;
     $("error").hidden = true;
     render();
+    if (settingsOpen) void loadSettings();
   } catch (error) {
     $("error").textContent =
       "Could not refresh sessions: " +
@@ -1943,6 +2814,7 @@ $("repository-search").addEventListener("keydown", (event) => {
       match =
         query && repositoryPaths().find((p) => repositoryMatches(p, query));
     if (match) {
+      if (settingsOpen && !closeSettings()) return;
       repository = match;
       render();
     }
@@ -1952,6 +2824,7 @@ $("refresh").onclick = refresh;
 document.addEventListener("keydown", (event) => {
   if (
     event.key === "/" &&
+    !settingsOpen &&
     !$("confirm").open &&
     !["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName)
   ) {

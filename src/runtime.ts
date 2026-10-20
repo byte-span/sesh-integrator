@@ -145,7 +145,17 @@ export async function readConfig(readOnly = false): Promise<Config> {
       return defaultConfig();
     throw error;
   }
+  return validateConfig(value, paths.config);
+}
+
+/**
+ * Validate a parsed configuration in place: fill defaults that readers rely
+ * on and attach inherited global policy. Throws on invalid or ambiguous values.
+ */
+export function validateConfig(value: Config, source: string): Config {
   if (
+    !value ||
+    typeof value !== "object" ||
     !Array.isArray(value.repositories) ||
     (value.disabledRepositories !== undefined &&
       (!Array.isArray(value.disabledRepositories) ||
@@ -161,7 +171,7 @@ export async function readConfig(readOnly = false): Promise<Config> {
         value.deliveryPolicyFile.length === 0)) ||
     !isDefaultPromotionConfig(value.defaultPromotion)
   ) {
-    throw new Error(`Invalid configuration: ${paths.config}`);
+    throw new Error(`Invalid configuration: ${source}`);
   }
   for (const repository of value.repositories) {
     applyGlobalTargetPolicy(value, repository);
@@ -248,7 +258,7 @@ function isPromotionConfig(repository: RepositoryConfig): boolean {
   );
 }
 
-function isPlausibleBranchName(value: string): boolean {
+export function isPlausibleBranchName(value: string): boolean {
   return (
     value.length > 0 &&
     !value.startsWith("-") &&

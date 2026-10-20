@@ -22,6 +22,11 @@ import {
   type IntegrationInput,
 } from "./dashboard.js";
 import { watchDashboard } from "./dashboard-watch.js";
+import {
+  loadSettings,
+  parseSettingsRequest,
+  saveSettings,
+} from "./dashboard-settings.js";
 import { currentTask, taskProgress } from "./tasks.js";
 import { targetBranch } from "./promotion.js";
 import { webHtml, webCss, webScript } from "./dashboard-web-assets.js";
@@ -195,7 +200,7 @@ export const runWebCommand: WebRunner = async (row, args, output) => {
   });
 };
 
-async function readRequest(req: IncomingMessage): Promise<ActionRequest> {
+async function readBody(req: IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of req) {
@@ -204,7 +209,11 @@ async function readRequest(req: IncomingMessage): Promise<ActionRequest> {
     if (size > 16_384) throw new Error("Request too large");
     chunks.push(bytes);
   }
-  const value: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+}
+
+async function readRequest(req: IncomingMessage): Promise<ActionRequest> {
+  const value = await readBody(req);
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new Error("Invalid action request");
   const v = value as ActionRequest;
@@ -221,12 +230,20 @@ export async function startWebDashboard(
   options: {
     port?: number;
     load?: typeof loadDashboard;
+    settings?: {
+      load: typeof loadSettings;
+      save: typeof saveSettings;
+    };
     run?: WebRunner;
     watch?: typeof watchDashboard;
   } = {},
 ) {
   const load = options.load ?? loadDashboard;
   const run = options.run ?? runWebCommand;
+  const settings = options.settings ?? {
+    load: loadSettings,
+    save: saveSettings,
+  };
   const clients = new Set<ServerResponse>();
   let origin = "";
   let closing = false;
@@ -308,6 +325,10 @@ export async function startWebDashboard(
           });
           return;
         }
+        if (req.url === "/api/settings") {
+          json(res, 200, await settings.load());
+          return;
+        }
         if (req.url === "/api/events") {
           res.writeHead(200, {
             "Content-Type": "text/event-stream",
@@ -319,17 +340,27 @@ export async function startWebDashboard(
           return;
         }
       }
-      if (req.method === "POST" && req.url === "/api/action") {
-        if (
-          req.headers.origin !== origin ||
+      if (
+        req.method === "POST" &&
+        (req.url === "/api/action" || req.url === "/api/settings") &&
+        (req.headers.origin !== origin ||
           req.headers["x-sesh-dashboard"] !== "1" ||
-          req.headers["content-type"] !== "application/json"
-        ) {
-          json(res, 403, {
-            error: "Actions require a same-origin dashboard request",
-          });
-          return;
-        }
+          req.headers["content-type"] !== "application/json")
+      ) {
+        json(res, 403, {
+          error: "Changes require a same-origin dashboard request",
+        });
+        return;
+      }
+      if (req.method === "POST" && req.url === "/api/settings") {
+        const saved = await settings.save(
+          parseSettingsRequest(await readBody(req)),
+        );
+        json(res, 200, saved);
+        notify();
+        return;
+      }
+      if (req.method === "POST" && req.url === "/api/action") {
         if (reserved || job?.running) {
           json(res, 409, { error: "A dashboard command is already running" });
           return;
