@@ -65,9 +65,12 @@ navigation scrolling above it. Keep the existing compact mobile strip.
 
 Desktop uses a 70px header, a resizable repository sidebar (210px by default),
 and main content with 32px
-padding and a maximum width of 1800px. Search and filters precede a bordered
-list/detail split with independently scrolling panes. Its divider resizes the details
-panel with pointer dragging, arrow keys (10px; Shift: 40px), Home/End, and
+padding and a maximum width of 1800px. Main never scrolls: the page heading
+and footer stay in view while the list and detail panels shrink to fit. Search
+and filters precede two bordered panels separated by a 12px gap, each scrolling
+independently. The detail panel has a sticky "Selected session" heading that
+shares the table header's height and type so both panel headers line up. The gap
+holds the divider, which resizes the details panel with pointer dragging, arrow keys (10px; Shift: 40px), Home/End, and
 double-click reset. Remember the preferred width locally and clamp it to leave
 at least 240px for each pane. Hide the divider in the mobile detail view. Session rows use 18px
 padding; details use 24px. At 1600px and above, increase main and row spacing.
@@ -95,8 +98,8 @@ do not turn routine session content into floating cards.
 
 ## Shapes
 
-Controls and next-action insets use the control radius; the main split uses the
-panel radius. Rows remain rectangular and share horizontal dividers.
+Controls and next-action insets use the control radius; the list and detail
+panels use the panel radius. Rows remain rectangular and share horizontal dividers.
 
 ## Components
 
