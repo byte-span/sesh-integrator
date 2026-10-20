@@ -7,6 +7,7 @@ Commands below run from the repository root unless stated otherwise.
 - [`register`](#register)
 - [Optional pull-request promotion](#optional-pull-request-promotion)
 - [Stable default branch with a development target](#stable-default-branch-with-a-development-target)
+- [Central delivery policy](#central-delivery-policy)
 
 ### `register`
 
@@ -362,6 +363,156 @@ required local artifacts or external mutable inputs; see [reuse boundaries](buil
 setup is skipped only when its manifest/lockfile fingerprint matches and the
 worktree still has its dependency marker. Explicit required setup is never
 skipped.
+
+## Central delivery policy
+
+A delivery policy decides, for many repositories at once, which branch a
+session targets, how it is promoted, and when its work counts as landed. It is
+meant for automation (for example, workers that run every task through
+`seshx`) that should not depend on each machine's per-repository settings.
+This section is the canonical description of the policy format.
+
+### Choosing the policy
+
+`seshx begin` uses the first of:
+
+1. `--policy-file <path>` (relative to the current directory)
+2. the global `deliveryPolicyFile` in the runtime's `config.json` (a relative
+   path is resolved against the runtime directory)
+3. no policy: today's repository configuration applies and `delivery` is `null`
+
+When a policy is selected, `begin` fails before changing anything if the file
+is missing or unreadable (`policy_missing`) or invalid (`policy_invalid`).
+[Error documents →](commands.md#machine-readable-output)
+
+Check a file without starting a session:
+
+```bash
+seshx policy check --file delivery-policy.json
+seshx policy check --file delivery-policy.json --repository byte-span/sesh-integrator
+```
+
+The first prints the validated policy with defaults filled in; the second
+prints the rule `begin` would record for that repository.
+
+### Format `sesh-integrator/delivery-policy@1`
+
+```json
+{
+  "schema": "sesh-integrator/delivery-policy@1",
+  "version": "optional, for example the deploy commit",
+  "defaults": {
+    "targetBranch": "dev",
+    "promotion": {
+      "type": "pull-request",
+      "mode": "shared-target",
+      "productionBranch": "main",
+      "remote": "origin",
+      "reviewers": ["example-user"],
+      "assignees": ["example-user"]
+    },
+    "completion": "production-merged"
+  },
+  "repositories": {
+    "byte-span/secret-sync": {
+      "promotion": { "type": "none" },
+      "completion": "local"
+    }
+  }
+}
+```
+
+| Field                        | Rule                                                                                        |
+| ---------------------------- | ------------------------------------------------------------------------------------------- |
+| `schema`                     | Exactly `sesh-integrator/delivery-policy@1`.                                                |
+| `version`                    | Optional string, 1–128 characters. Recorded on sessions; `null` when omitted.               |
+| `defaults`                   | Required. Must set `targetBranch`, `promotion` and `completion`.                            |
+| `repositories`               | Optional. Keys are lowercase GitHub `owner/name`; values set any of the three fields.       |
+| `targetBranch`               | Branch name (letters, digits, `.`, `_`, `-`, `/`; no `..`, `//`, `@{` or `.lock` parts).    |
+| `promotion`                  | `{ "type": "none" }` or `{ "type": "pull-request", ... }`, as below.                        |
+| `promotion.mode`             | `shared-target` (default) or `session-branch`.                                              |
+| `promotion.productionBranch` | Pull-request base. Default `main`.                                                          |
+| `promotion.remote`           | Git remote name. Default `origin`.                                                          |
+| `promotion.reviewers`        | Optional, at most 15 GitHub logins or `org/team` names. Omitted: global `defaultPromotion`. |
+| `promotion.assignees`        | Optional, at most 10 GitHub logins. Omitted: global `defaultPromotion`.                     |
+| `completion`                 | `local`, `target-pushed` or `production-merged` (below).                                    |
+
+- A repository entry replaces whole top-level fields of `defaults`.
+  `promotion` is never deep-merged: an entry that sets `promotion` replaces all
+  of it.
+- Unknown fields anywhere are errors.
+- Every resolved rule (`defaults`, and each entry applied over `defaults`) must
+  be consistent, or the whole file is invalid:
+  - `promotion.type: none` requires `completion: local`;
+  - `mode: session-branch` never pushes the target, so it allows only `local`
+    or `production-merged`;
+  - `productionBranch` must differ from `targetBranch`.
+- The policy holds no secrets; never put credentials in it.
+
+`completion` says when work counts as landed. sesh-integrator records it; the
+consumer that reports completion evaluates it against the session's
+`readyCommit`, the exact task commit sesh-integrator merges:
+
+| Value               | Landed when `readyCommit` is an ancestor of             |
+| ------------------- | ------------------------------------------------------- |
+| `local`             | local `<targetBranch>` (true once the session succeeds) |
+| `target-pushed`     | `<remote>/<targetBranch>` after a fetch                 |
+| `production-merged` | `<remote>/<productionBranch>` after a fetch             |
+
+Ancestry only holds when pull requests from the target are merged with merge
+commits; squash merges are not supported by `production-merged`.
+
+### Repository identity
+
+`begin` identifies the repository from the configured fetch URL
+(`remote.<name>.url`, before any `insteadOf` rewriting) of the remote named by
+`defaults.promotion.remote`, or `origin` when the default promotion is `none`
+or that remote is not configured. Accepted forms, lowercased:
+`https://github.com/O/N(.git)`, `git@github.com:O/N(.git)` and
+`ssh://git@github.com/O/N(.git)`. A repository without an entry uses
+`defaults`. If the URL is not a GitHub URL, or no such remote exists, `begin`
+fails with `repository_unidentified`.
+
+### What a session records and uses
+
+`begin` records the resolved rule on the session as `delivery`:
+
+```json
+{
+  "version": "policy version or null",
+  "sha256": "<SHA-256 hex of the policy file bytes read>",
+  "repository": "owner/name",
+  "targetBranch": "dev",
+  "promotion": {
+    "type": "pull-request",
+    "mode": "shared-target",
+    "productionBranch": "main",
+    "remote": "origin"
+  },
+  "completion": "production-merged",
+  "source": "defaults"
+}
+```
+
+`promotion` is stored normalized (defaults filled in); `source` is `repository`
+when an entry matched. The session's `targetBranch` is set at `begin`.
+
+- `begin` creates the worktree from the policy's `targetBranch`. A missing
+  local target is created like a global default target: it tracks
+  `<remote>/<targetBranch>` when fetched, otherwise starts at the registered
+  default branch. `--sync-target` can fast-forward it first
+  ([outcomes](commands.md#begin)).
+- `integrate`, `resume` and the other source lifecycle commands use the
+  recorded `targetBranch` and `promotion` instead of the repository's. Omitted
+  `reviewers` and `assignees` fall back to the global `defaultPromotion`.
+- Policy changes affect new sessions only.
+- The staging integration branch is shared by all sessions of a repository, so
+  keep a repository's policy target consistent with its other sessions. A
+  policy target equal to the repository's `integrationBranch` fails `begin`
+  with `policy_conflict`.
+- Sessions with a delivery rule record coordinator state contract 2. Older
+  coordinators, which would ignore the rule, refuse them; current builds
+  accept contracts 1 and 2.
 
 ## Machine-local build capacity
 

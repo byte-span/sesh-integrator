@@ -36,9 +36,52 @@ import { webDashboardCommand } from "./dashboard-web.js";
 import { tasksCommand } from "./tasks.js";
 import { sessionsCommand } from "./session-audit.js";
 import { abandonCommand, restoreCommand } from "./abandon.js";
+import { CodedError, policyCommand } from "./delivery-policy.js";
+import {
+  divertStdout,
+  errorDocument,
+  sessionStatusDocument,
+  sessionStatusJson,
+} from "./json-output.js";
 
 export async function main(argv = process.argv.slice(2)): Promise<void> {
-  const [command, ...args] = argv;
+  const [command, ...rawArgs] = argv;
+  // JSON commands print exactly one document on stdout; human output,
+  // including relayed child output, goes to stderr.
+  const json =
+    command === "policy" ||
+    ((command === "begin" || command === "status") &&
+      rawArgs.includes("--json"));
+  if (!json) {
+    await dispatch(command, rawArgs, false);
+    return;
+  }
+  const output = divertStdout();
+  let document: unknown;
+  try {
+    document = await dispatch(
+      command,
+      rawArgs.filter((argument) => argument !== "--json"),
+      true,
+    );
+  } catch (error) {
+    output.restore();
+    output.write(
+      `${JSON.stringify(errorDocument(error, `${command}_failed`), null, 2)}\n`,
+    );
+    throw error;
+  }
+  output.restore();
+  output.write(`${JSON.stringify(document, null, 2)}\n`);
+}
+
+/** Run one command; with `json`, return its document instead of printing it. */
+async function dispatch(
+  command: string | undefined,
+  args: string[],
+  json: boolean,
+): Promise<unknown> {
+  let document: unknown;
   const instrument = new Set([
     "begin",
     "commit",
@@ -189,15 +232,23 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
         break;
       case "begin": {
         const options = parseOptions(args, true);
-        await beginCommand(
+        const result = await beginCommand(
           options.summary,
           options.dependsOn,
           options.autoBranch,
           options.createWorktree,
           options.harness,
+          {
+            ...(options.policyFile ? { policyFile: options.policyFile } : {}),
+            syncTarget: options.syncTarget,
+          },
         );
+        if (json) document = sessionStatusDocument(result.session, result.sync);
         break;
       }
+      case "policy":
+        document = await policyCommand(args);
+        break;
       case "integrate": {
         const options = parseOptions(args, false);
         await integrateCommand(
@@ -234,7 +285,9 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
         await queueCommand(args);
         break;
       case "status": {
-        await statusCommand(parseSessionOption(args));
+        const sessionId = parseSessionOption(args);
+        if (json) document = await sessionStatusJson(sessionId);
+        else await statusCommand(sessionId);
         break;
       }
       case "incident": {
@@ -281,6 +334,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
         throw new Error(`Unknown command: ${command}\n\n${helpText}`);
     }
     if (instrument) await finishPerformance("succeeded");
+    return document;
   } catch (error) {
     try {
       if (instrument) await finishPerformance("failed", error);
@@ -336,8 +390,12 @@ function parseOptions(
   sessionId?: string;
   rolloutDisposition?: RolloutDisposition;
   rolloutFollowUps: string[];
+  policyFile?: string;
+  syncTarget: boolean;
 } {
   let summary = "";
+  let policyFile: string | undefined;
+  let syncTarget = false;
   const dependsOn: string[] = [];
   let autoBranch = true;
   let createWorktree = false;
@@ -368,6 +426,16 @@ function parseOptions(
       autoBranch = false;
     } else if (allowDependencies && argument === "--create-worktree") {
       createWorktree = true;
+    } else if (allowDependencies && argument === "--sync-target") {
+      syncTarget = true;
+    } else if (allowDependencies && argument === "--policy-file" && value) {
+      if (policyFile)
+        throw new CodedError(
+          "usage",
+          "--policy-file may be specified only once",
+        );
+      policyFile = value;
+      index += 1;
     } else if (!allowDependencies && argument === "--session" && value) {
       if (sessionId) throw new Error("--session may be specified only once");
       sessionId = value;
@@ -386,7 +454,10 @@ function parseOptions(
       rolloutFollowUps.push(value.trim());
       index += 1;
     } else {
-      throw new Error(`Unknown or incomplete option: ${argument}`);
+      throw new CodedError(
+        "usage",
+        `Unknown or incomplete option: ${argument}`,
+      );
     }
   }
   return {
@@ -394,6 +465,8 @@ function parseOptions(
     dependsOn,
     autoBranch,
     createWorktree,
+    syncTarget,
+    ...(policyFile ? { policyFile } : {}),
     ...(harness ? { harness } : {}),
     rolloutFollowUps,
     ...(rolloutDisposition ? { rolloutDisposition } : {}),
@@ -435,7 +508,10 @@ function parseCommitOptions(args: string[]): {
 function parseSessionOption(args: string[]): string | undefined {
   if (args.length === 0) return undefined;
   if (args.length === 2 && args[0] === "--session" && args[1]) return args[1];
-  throw new Error("Expected at most one --session <session-id> option");
+  throw new CodedError(
+    "usage",
+    "Expected at most one --session <session-id> option",
+  );
 }
 
 function parseRegisterOptions(args: string[]): {
@@ -518,13 +594,15 @@ Usage:
   seshx disable [repo-path]
   seshx enable [repo-path]
   seshx register [repo-path] [--auto-config] [--setup-command '<json-array>']...
-  seshx begin --summary "..." [--harness codex|claude|antigravity|grok] [--create-worktree] [--no-auto-branch] [--depends-on <session-id>]...
+  seshx begin --summary "..." [--harness codex|claude|antigravity|grok] [--create-worktree] [--no-auto-branch] [--depends-on <session-id>]... [--policy-file <path>] [--sync-target] [--json]
   seshx commit --message "..." [--session <session-id>]
   seshx validate [--session <session-id>]
   seshx integrate --summary "..." --rollout <none|applied|automated|manual> [--follow-up "<TASK-ID>: <action, destination, exact configuration names; no secret values>"]... [--session <session-id>]
   seshx resume [--session <session-id>] [--accept-staged-resolution]
   seshx queue [status | configure --concurrency <unlimited|auto|1-64> | configure --wait-seconds <1-86400> | recover <entry-id> --confirmed-stopped]
   seshx status [--session <session-id>]
+  seshx status --session <session-id> --json
+  seshx policy check --file <path> [--repository <owner/name>]
   seshx dashboard [--web [--no-open] [--port <port>]]
   seshx finish --no-changes --summary "..." [--session <session-id>] [--satisfied-by <session-id>]
   seshx tasks list [--session <session-id>]

@@ -83,6 +83,28 @@
         "docs/commands.md",
         "SPEC.md"
       ]
+    },
+    {
+      "id": "SI-005",
+      "title": "Support a central delivery policy, target sync and JSON session output",
+      "status": "completed",
+      "order": 50,
+      "executor": "automated",
+      "device_requirement": [],
+      "blocked_by": [],
+      "acceptance": "`seshx begin --policy-file <path>` (else global `deliveryPolicyFile`) strictly validates a `sesh-integrator/delivery-policy@1` file, fails with `policy_missing` or `policy_invalid` before changing anything, resolves the repository rule from the GitHub fetch URL, and records `delivery` with the file's SHA-256 on the session; `integrate` and `resume` use the recorded target and promotion. `begin --sync-target` fast-forwards the local target from its remote under the repository lock with the documented outcomes and never resets or forces. `begin --json` and `status --session <id> --json` print one `sesh-integrator/session-status@1` document, failures print `sesh-integrator/error@1`, and `seshx policy check` validates a file. Tests with disposable repositories cover every sync outcome, policy errors, promotion override and the JSON documents.",
+      "doc": "docs/configuration.md",
+      "evidence": [
+        "src/delivery-policy.ts",
+        "src/sync-target.ts",
+        "src/json-output.ts",
+        "src/handoff.ts",
+        "src/cli.ts",
+        "test/delivery-policy.test.ts",
+        "docs/configuration.md",
+        "docs/commands.md",
+        "SPEC.md"
+      ]
     }
   ]
 }

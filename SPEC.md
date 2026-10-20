@@ -248,6 +248,10 @@ existing registrations that omit `targetBranch` without rewriting them, while
 preserving explicit per-repository exceptions. Omitting the global setting
 retains the backward-compatible default-branch behavior.
 
+Optional global `deliveryPolicyFile` names a central delivery policy that
+`begin` applies when `--policy-file` is not given; see
+[Central delivery policy](#central-delivery-policy-and-machine-readable-output).
+
 Remote promotion defaults to `{ "type": "none" }`. A repository may opt into
 `pull-request` promotion after successful local promotion and post-integration
 checks. The tool pushes the effective target to `origin` by default, then
@@ -446,6 +450,9 @@ Requirements:
 - no active session already attached to the selected source worktree
 - active sessions launched earlier from the same ordinary checkout do not block
   another `--create-worktree` task; each receives a unique branch and worktree
+
+- optional `--policy-file <path>`, `--sync-target` and `--json` behave as in
+  [Central delivery policy](#central-delivery-policy-and-machine-readable-output)
 
 Source lifecycle commands infer the session from the current source worktree for
 backward compatibility. `commit`, `validate`, `integrate`, and `resume` also
@@ -752,8 +759,10 @@ Show:
 - start time / ready time / integrated time
 - latest error
 - target branch, expected target commit, promoted commit, and recovery phase
+- the recorded delivery rule, when present
 
-Keep it simple.
+Keep it simple. `status --session <id> --json` prints the session's
+machine-readable status document instead.
 
 ## 13. `doctor`
 
@@ -996,6 +1005,69 @@ filter with actions disabled. The status needs no state-contract change: older
 coordinators treat it as an unknown unfinished status, display it, defer
 uninstall for it, and match only their known statuses for mutation, so they
 neither crash on nor reopen it.
+
+## Central delivery policy and machine-readable output
+
+General features for automation that runs many repositories through `seshx`.
+The canonical formats are in
+[docs/configuration.md](docs/configuration.md#central-delivery-policy) (policy
+file and recorded rule) and
+[docs/commands.md](docs/commands.md#machine-readable-output) (status and error
+documents); this section states the requirements.
+
+Policy file `sesh-integrator/delivery-policy@1`: required `defaults` with
+`targetBranch`, `promotion` (the existing `PromotionConfig`, normalized with
+`mode` `shared-target`, `productionBranch` `main` and `remote` `origin`) and
+`completion` (`local`, `target-pushed`, `production-merged`); optional
+`version`; optional `repositories` keyed by lowercase GitHub `owner/name`,
+whose entries replace whole top-level fields (no deep merge). Unknown fields
+are errors. Every resolved rule must be consistent: `promotion.type: none`
+requires `completion: local`; `session-branch` mode forbids `target-pushed`;
+`productionBranch` differs from `targetBranch`. Validation is a small strict
+validator without new dependencies.
+
+`begin`:
+
+- selects `--policy-file`, else global `deliveryPolicyFile`, else no policy;
+  a selected file that is missing/unreadable (`policy_missing`) or invalid
+  (`policy_invalid`) fails before any change
+- identifies the repository from the configured fetch URL of the default
+  promotion remote, else `origin` (GitHub https, `git@` or `ssh://` forms);
+  otherwise fails with `repository_unidentified`; entries fall back to
+  `defaults`
+- records the resolved rule as `delivery` (`version`, `sha256`, `repository`,
+  `targetBranch`, `promotion`, `completion`, `source`) with the SHA-256 of the
+  file bytes read, and sets the session target; a target equal to the staging
+  branch fails with `policy_conflict`
+- creates a missing policy target like a global default target
+- marks delivery sessions with coordinator state contract 2 so earlier
+  coordinators refuse them; this build accepts contracts 1 and 2
+
+`integrate`, `resume` and the other source lifecycle commands replace the
+repository's `targetBranch` and `promotion` with the recorded rule. Omitted
+reviewers and assignees fall back to global `defaultPromotion`. Policy changes
+affect new sessions only. sesh-integrator records `completion` but does not
+evaluate it.
+
+`begin --sync-target`, before the worktree is created and under the repository
+integration lock, fetches `<remote>/<targetBranch>` (remote from the effective
+pull-request promotion, else `origin`) and moves the local target only by
+fast-forward: an unchecked-out ref by an atomic expected-old `update-ref`
+(creating it when absent), a clean checked-out target worktree by
+`merge --ff-only` in place. Results `fast-forwarded`, `up-to-date`,
+`local-ahead` and `no-remote-branch` (also when the remote is not configured)
+continue. `target_diverged`, `target_dirty` (only when the target must move)
+and `fetch_failed` fail with nothing changed. It never resets or forces.
+
+`begin --json` and `status --session <id> --json` print exactly one
+`sesh-integrator/session-status@1` document on stdout and send human and
+relayed child output to stderr; `begin` adds `sync` only with `--sync-target`.
+`resumeCommand` is `["seshx", "resume", "--session", "<id>"]` for
+`needs_review`, `validation_pending` and `promotion_pending`, else `null`.
+Failures print `sesh-integrator/error@1` (`{ error: { code, message } }`) with
+a non-zero exit. `seshx policy check --file <path> [--repository owner/name]`
+prints the normalized policy or resolved rule with the same error document.
+Within `@1`, fields may be added but never removed or retyped.
 
 ## Coding harness support
 

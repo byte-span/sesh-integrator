@@ -6,6 +6,7 @@ import { worktreePaths } from "./worktree-location.js";
 import { requireCapabilities } from "./capabilities.js";
 import { withCleanup } from "./file-lock.js";
 import {
+  DELIVERY_STATE_CONTRACT,
   retainCoordinator,
   enrollmentStopped,
   unfinished,
@@ -82,6 +83,7 @@ import type {
   RepositoryConfig,
   RolloutDisposition,
   Session,
+  SessionDelivery,
   SessionIndexEntry,
 } from "./types.js";
 import { selectValidation, type SelectedValidation } from "./validation.js";
@@ -109,6 +111,13 @@ import {
   snapshotRecoveryState,
 } from "./recovery.js";
 import { recordIncident, writeIncidentSummary } from "./incident.js";
+import {
+  deliveryPolicyPath,
+  resolveSessionDelivery,
+  syncRemote,
+  withDelivery,
+} from "./delivery-policy.js";
+import { syncTargetBranch, type TargetSync } from "./sync-target.js";
 
 export async function initCommand(): Promise<void> {
   await requireCapabilities();
@@ -302,26 +311,28 @@ async function autoConfigureRepository(
   }
 }
 
+export interface BeginOptions {
+  /** Delivery policy file; overrides the global `deliveryPolicyFile`. */
+  policyFile?: string;
+  /** Fast-forward the local target from its remote before branching. */
+  syncTarget?: boolean;
+}
+
+export interface BeginResult {
+  session: Session;
+  /** Present only with `--sync-target`. */
+  sync?: TargetSync;
+}
+
 export async function beginCommand(
   summary: string,
   dependsOn: string[],
   autoBranch = true,
   createWorktree = false,
   harness: Harness = "codex",
-): Promise<Session> {
+  options: BeginOptions = {},
+): Promise<BeginResult> {
   await requireCapabilities();
-  return withConfigLock(() =>
-    beginUnlocked(summary, dependsOn, autoBranch, createWorktree, harness),
-  );
-}
-
-async function beginUnlocked(
-  summary: string,
-  dependsOn: string[],
-  autoBranch = true,
-  createWorktree = false,
-  harness: Harness = "codex",
-): Promise<Session> {
   parseHarness(harness);
   if (await enrollmentStopped(harness))
     throw new Error(
@@ -333,12 +344,84 @@ async function beginUnlocked(
       "--create-worktree cannot be combined with --no-auto-branch",
     );
   }
+  const sessionId = makeSessionId();
+  const config = await readConfig();
+  const policyPath = deliveryPolicyPath(
+    options.policyFile,
+    config,
+    runtimePaths().config,
+  );
+  let delivery: SessionDelivery | undefined;
+  let sync: TargetSync | undefined;
+  if (policyPath || options.syncTarget) {
+    assertRepositoryEnabled(config, await repositoryCommonDir(process.cwd()));
+    const registered = findRepository(
+      config,
+      (await inspectGit(process.cwd())).gitCommonDir,
+    );
+    // Policy errors fail begin before anything changes.
+    if (policyPath)
+      delivery = await resolveSessionDelivery(policyPath, registered);
+    if (delivery)
+      process.stdout.write(
+        `Delivery policy ${delivery.version ?? "(unversioned)"} sha256 ${delivery.sha256}: ${delivery.repository} (${delivery.source}) -> target ${delivery.targetBranch}, promotion ${describePromotion(delivery)}, completion ${delivery.completion}\n`,
+      );
+    if (options.syncTarget) {
+      const repository = withDelivery(registered, delivery);
+      sync = await measurePhase("sync_target", async () =>
+        syncTargetBranch(
+          repository,
+          syncRemote(repository),
+          sessionId,
+          config.lockWaitSeconds,
+        ),
+      );
+      process.stdout.write(
+        `Target sync: ${sync.branch} ${sync.result}${sync.remote ? ` from ${sync.remote}` : " (no remote configured)"}${sync.before !== sync.after ? ` (${sync.before ?? "absent"} -> ${sync.after})` : ""}\n`,
+      );
+    }
+  }
+  const session = await withConfigLock(() =>
+    beginUnlocked(
+      summary,
+      dependsOn,
+      autoBranch,
+      createWorktree,
+      harness,
+      sessionId,
+      delivery,
+    ),
+  );
+  return { session, ...(sync ? { sync } : {}) };
+}
+
+function describePromotion(delivery: SessionDelivery): string {
+  const promotion = delivery.promotion;
+  return promotion.type === "pull-request"
+    ? `pull-request (${promotion.mode ?? "shared-target"}) to ${promotion.productionBranch ?? "main"} via ${promotion.remote ?? "origin"}`
+    : "none";
+}
+
+async function beginUnlocked(
+  summary: string,
+  dependsOn: string[],
+  autoBranch: boolean,
+  createWorktree: boolean,
+  harness: Harness,
+  sessionId: string,
+  delivery: SessionDelivery | undefined,
+): Promise<Session> {
   const config = await readConfig();
   assertRepositoryEnabled(config, await repositoryCommonDir(process.cwd()));
   const launchContext = await inspectGit(process.cwd());
-  const repository = findRepository(config, launchContext.gitCommonDir);
+  const repository = withDelivery(
+    findRepository(config, launchContext.gitCommonDir),
+    delivery,
+  );
   await reportAdoption(launchContext.worktreePath, launchContext.gitCommonDir);
-  await ensureGlobalTargetBranch(repository);
+  if (delivery)
+    await ensureGlobalTargetBranch(repository, true, syncRemote(repository));
+  else await ensureGlobalTargetBranch(repository);
   if (launchContext.branch === repository.integrationBranch) {
     throw new Error(
       `Cannot begin on integration branch ${launchContext.branch}`,
@@ -364,8 +447,12 @@ async function beginUnlocked(
       throw new Error(`Unknown dependency session: ${dependency}`);
     }
   }
-  const coordinator = await retainCoordinator();
-  const sessionId = makeSessionId();
+  const retained = await retainCoordinator();
+  // Earlier coordinators would ignore a recorded delivery rule, so such
+  // sessions carry a contract only delivery-aware coordinators accept.
+  const coordinator = delivery
+    ? { ...retained, stateContract: DELIVERY_STATE_CONTRACT }
+    : retained;
   let context = launchContext;
   let managedSourceWorktree = false;
   let branch = context.branch;
@@ -475,6 +562,7 @@ async function beginUnlocked(
       harness,
       coordinator,
       dependsOn: [...new Set(dependsOn)],
+      ...(delivery ? { delivery, targetBranch: delivery.targetBranch } : {}),
       gitBaseline: baseline,
     };
     await writeSession(session);
@@ -504,10 +592,34 @@ async function findSessionsLaunchedFrom(
   );
 }
 
+/**
+ * Locate the session for a source lifecycle command. The returned repository
+ * configuration applies the session's recorded delivery rule, if any.
+ */
 export async function resolveSourceSession(
   statuses: Session["status"][],
   sessionId?: string,
   requireEnabled = true,
+): Promise<{
+  source: Awaited<ReturnType<typeof inspectGit>>;
+  repository: RepositoryConfig;
+  session: Session;
+}> {
+  const resolved = await resolveRegisteredSourceSession(
+    statuses,
+    sessionId,
+    requireEnabled,
+  );
+  return {
+    ...resolved,
+    repository: withDelivery(resolved.repository, resolved.session.delivery),
+  };
+}
+
+async function resolveRegisteredSourceSession(
+  statuses: Session["status"][],
+  sessionId: string | undefined,
+  requireEnabled: boolean,
 ): Promise<{
   source: Awaited<ReturnType<typeof inspectGit>>;
   repository: RepositoryConfig;
@@ -1079,7 +1191,7 @@ export async function resumeCommand(
   const config = await readConfig();
   assertRepositoryEnabled(config, await repositoryCommonDir(process.cwd()));
   const current = await inspectGit(process.cwd());
-  const repository = findRepository(config, current.gitCommonDir);
+  const registered = findRepository(config, current.gitCommonDir);
   let session = sessionId
     ? await readSession(sessionId)
     : await findLatestSessionForWorktree(current.worktreePath, [
@@ -1088,7 +1200,7 @@ export async function resumeCommand(
         "promotion_pending",
       ]);
   if (sessionId && !session) throw new Error(`Unknown session: ${sessionId}`);
-  if (session && session.repositoryId !== repoId(repository.gitCommonDir))
+  if (session && session.repositoryId !== repoId(registered.gitCommonDir))
     throw new Error(`Session ${session.id} belongs to a different repository`);
   if (
     sessionId &&
@@ -1137,7 +1249,7 @@ export async function resumeCommand(
       ]));
     if (orphaned) {
       const integrationWorktree = join(
-        (await worktreePaths(repository.path)).worktrees,
+        (await worktreePaths(registered.path)).worktrees,
         orphaned.repositoryId,
       );
       if (await pathExists(integrationWorktree)) {
@@ -1146,8 +1258,8 @@ export async function resumeCommand(
           cwd: integrationWorktree,
         });
         if (
-          context.gitCommonDir === repository.gitCommonDir &&
-          context.branch === repository.integrationBranch &&
+          context.gitCommonDir === registered.gitCommonDir &&
+          context.branch === registered.integrationBranch &&
           mergeHead.code === 0 &&
           mergeHead.stdout.trim() === source.head
         ) {
@@ -1155,7 +1267,9 @@ export async function resumeCommand(
           orphaned.readyCommit = source.head;
           orphaned.readyAt ??= new Date().toISOString();
           orphaned.completionSummary ??= orphaned.taskSummary;
-          orphaned.targetBranch ??= targetBranch(repository);
+          orphaned.targetBranch ??= targetBranch(
+            withDelivery(registered, orphaned.delivery),
+          );
           orphaned.conflictIntegrationHead = context.head;
           orphaned.awaitingConflictResolution = true;
           orphaned.latestError =
@@ -1172,6 +1286,7 @@ export async function resumeCommand(
   if (!session) {
     throw new Error("No resumable integration exists for this worktree");
   }
+  const repository = withDelivery(registered, session.delivery);
   if (
     !["needs_review", "validation_pending", "promotion_pending"].includes(
       session.status,

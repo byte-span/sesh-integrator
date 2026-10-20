@@ -68,6 +68,31 @@ export interface DefaultPromotionConfig {
   assignees?: string[];
 }
 
+/** When a delivery policy counts a session's work as landed. */
+export type DeliveryCompletion =
+  "local" | "target-pushed" | "production-merged";
+
+/**
+ * The delivery rule `begin` resolved from a `sesh-integrator/delivery-policy@1`
+ * file and recorded on the session. `integrate` and `resume` use it instead of
+ * the repository's `targetBranch` and `promotion`; policy changes affect only
+ * new sessions.
+ */
+export interface SessionDelivery {
+  /** The policy's optional `version`, or null. */
+  version: string | null;
+  /** SHA-256 (lowercase hex) of the policy file bytes read by `begin`. */
+  sha256: string;
+  /** Lowercase GitHub `owner/name` the rule was resolved for. */
+  repository: string;
+  targetBranch: string;
+  /** Normalized: pull-request rules always carry mode, productionBranch and remote. */
+  promotion: PromotionConfig;
+  completion: DeliveryCompletion;
+  /** Whether a `repositories` entry matched or only `defaults` applied. */
+  source: "repository" | "defaults";
+}
+
 export interface Config {
   /** Canonical Git common directories, independent of registration. */
   disabledRepositories?: string[];
@@ -78,6 +103,8 @@ export interface Config {
   conflictResolutionMode?: "current-session" | "nested-agent" | "nested-codex";
   defaultTargetBranch?: string;
   defaultPromotion?: DefaultPromotionConfig;
+  /** Delivery policy used by `begin` when `--policy-file` is not given. */
+  deliveryPolicyFile?: string;
   repositories: RepositoryConfig[];
 }
 
@@ -177,6 +204,8 @@ export interface Session {
   startedAt: string;
   taskSummary: string;
   dependsOn: string[];
+  /** Delivery rule recorded by `begin` from a delivery policy; absent without one. */
+  delivery?: SessionDelivery;
   readyCommit?: string;
   readyAt?: string;
   completionSummary?: string;

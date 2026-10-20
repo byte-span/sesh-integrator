@@ -156,6 +156,9 @@ export async function readConfig(readOnly = false): Promise<Config> {
     (value.defaultTargetBranch !== undefined &&
       (typeof value.defaultTargetBranch !== "string" ||
         value.defaultTargetBranch.length === 0)) ||
+    (value.deliveryPolicyFile !== undefined &&
+      (typeof value.deliveryPolicyFile !== "string" ||
+        value.deliveryPolicyFile.length === 0)) ||
     !isDefaultPromotionConfig(value.defaultPromotion)
   ) {
     throw new Error(`Invalid configuration: ${paths.config}`);

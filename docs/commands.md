@@ -14,6 +14,7 @@ Commands below run from the repository root unless stated otherwise.
 - [`integrate`](#integrate)
 - [`resume`](#resume)
 - [`status`](#status)
+- [Machine-readable output](#machine-readable-output)
 - [`sessions audit`](#sessions-audit)
 - [`abandon` / `restore`](#abandon--restore)
 - [Failure incidents](#failure-incidents)
@@ -30,13 +31,15 @@ seshx init
 seshx disable [repo-path]
 seshx enable [repo-path]
 seshx register [repo-path] [--auto-config] [--setup-command '<json-array>']...
-seshx begin --summary "Implement feature" [--create-worktree] [--no-auto-branch] [--depends-on <session-id>]...
+seshx begin --summary "Implement feature" [--create-worktree] [--no-auto-branch] [--depends-on <session-id>]... [--policy-file <path>] [--sync-target] [--json]
 seshx commit --message "Implement feature" [--session <session-id>]
 seshx validate [--session <session-id>]
 seshx integrate --summary "Implemented feature and tests" --rollout <none|applied|automated|manual> [--follow-up "<TASK-ID>: ..."]... [--session <session-id>]
 seshx resume [--session <session-id>]
 seshx incident <ticket-id>
 seshx status [--session <session-id>]
+seshx status --session <session-id> --json
+seshx policy check --file <path> [--repository <owner/name>]
 seshx dashboard
 seshx finish --no-changes --summary "..." [--session <session-id>] [--satisfied-by <session-id>]
 seshx tasks list [--session <session-id>]
@@ -381,6 +384,42 @@ Sessions created by versions that did not record an observable Git baseline
 fail validation/integration with a migration message asking you to begin a new
 session; they are never silently interpreted using weaker cleanliness rules.
 
+#### Delivery policy, target sync and JSON output
+
+```bash
+seshx begin --create-worktree --sync-target --json \
+  --policy-file delivery-policy.json --harness claude --summary "PC-1: Add search"
+```
+
+- `--policy-file <path>` applies a
+  [central delivery policy](configuration.md#central-delivery-policy) and
+  records the repository's resolved rule on the session as `delivery`. Without
+  it, the global `deliveryPolicyFile` applies when configured. A missing or
+  invalid file fails `begin` before anything changes.
+- `--sync-target` fetches the target branch from its remote and moves the local
+  target only by fast-forward, before the worktree is created. It runs under
+  the repository integration lock. The remote is the policy's (or the
+  repository's) pull-request `remote`, else `origin`.
+- `--json` prints one [status document](#machine-readable-output) with `sync`
+  on stdout; all human output, including setup output, goes to stderr.
+
+`--sync-target` never resets, forces or discards anything:
+
+| Result             | Meaning                                                                          | `begin`   |
+| ------------------ | -------------------------------------------------------------------------------- | --------- |
+| `fast-forwarded`   | Local target moved to the remote commit, or was created there when absent.       | continues |
+| `up-to-date`       | Local target already equals the remote.                                          | continues |
+| `local-ahead`      | Local target already contains the remote commit; it is left unchanged.           | continues |
+| `no-remote-branch` | The remote has no such branch, or the remote is not configured (`remote: null`). | continues |
+| `target_diverged`  | Local and remote targets have diverged.                                          | fails     |
+| `target_dirty`     | The checked-out target worktree has changes or an unfinished operation.          | fails     |
+| `fetch_failed`     | The remote could not be inspected or fetched.                                    | fails     |
+
+A clean checked-out target worktree is fast-forwarded in place with
+`git merge --ff-only`; an unchecked-out target ref is updated atomically
+against its previous value. A dirty checkout fails only when the target must
+move. Failures change no ref, worktree or session.
+
 ### Explicit session selection
 
 Lifecycle commands continue to infer a session when run in its source worktree.
@@ -549,6 +588,112 @@ Abandoned sessions are listed after the others under `Abandoned sessions: N`,
 with the abandon time, reason and restore command; `Sessions: N` counts only
 the rest. `status --session <id>` shows one session in full, including the
 evidence recorded when it was abandoned and any earlier restores.
+
+`status --session <id> --json` prints only that session's
+[status document](#machine-readable-output). `--json` requires `--session`.
+
+### Machine-readable output
+
+`begin --json`, `status --session <id> --json` and `policy check` print exactly
+one JSON document on stdout. Human output goes to stderr. This section is the
+canonical description of these formats. Within a schema version, fields may be
+added but never removed or retyped; consumers should ignore unknown fields.
+
+Status document, `sesh-integrator/session-status@1`:
+
+```json
+{
+  "schema": "sesh-integrator/session-status@1",
+  "session": {
+    "id": "session_…",
+    "status": "succeeded",
+    "harness": "claude",
+    "repositoryPath": "/path/to/repo",
+    "worktreePath": "/path/to/source-worktree",
+    "branch": "codex/session-…",
+    "startCommit": "<sha>",
+    "dependsOn": [],
+    "readyCommit": "<sha>",
+    "integratedCommit": "<sha>",
+    "promotedCommit": "<sha>",
+    "targetBranch": "dev",
+    "pullRequestUrl": "https://github.com/owner/name/pull/1",
+    "remotePromotedAt": "<ISO time>",
+    "recoveryPhase": null,
+    "latestError": null,
+    "awaitingConflictResolution": false,
+    "integrationWorktreePath": null,
+    "conflictPromptPath": null,
+    "rolloutDisposition": "none",
+    "rolloutFollowUps": [],
+    "delivery": {
+      "version": "…",
+      "sha256": "<hex>",
+      "repository": "owner/name",
+      "targetBranch": "dev",
+      "promotion": {
+        "type": "pull-request",
+        "mode": "shared-target",
+        "productionBranch": "main",
+        "remote": "origin"
+      },
+      "completion": "production-merged",
+      "source": "defaults"
+    }
+  },
+  "resumeCommand": null,
+  "sync": {
+    "remote": "origin",
+    "result": "fast-forwarded",
+    "branch": "dev",
+    "before": "<sha>",
+    "after": "<sha>"
+  }
+}
+```
+
+| Field                                                   | Type and meaning                                                                                                                                                                                                                       |
+| ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `session.status`                                        | `active`, `ready`, `validation_pending`, `promotion_pending`, `succeeded`, `no_changes`, `abandoned` or `needs_review`.                                                                                                                |
+| `session.harness`                                       | String, or `null` for legacy sessions (treated as `codex`).                                                                                                                                                                            |
+| `session.startCommit`                                   | Commit the task branch started from.                                                                                                                                                                                                   |
+| `session.readyCommit`                                   | Exact task commit being integrated, or `null` before `integrate`.                                                                                                                                                                      |
+| `session.integratedCommit`, `promotedCommit`            | Validated staging commit and promoted target commit, or `null`.                                                                                                                                                                        |
+| `session.targetBranch`                                  | Recorded target, or `null` until `integrate` for sessions without a delivery rule.                                                                                                                                                     |
+| `session.pullRequestUrl`, `remotePromotedAt`            | Pull-request URL and time of remote promotion, or `null`.                                                                                                                                                                              |
+| `session.recoveryPhase`                                 | `merge`, `post_integration`, `promotion`, `pull_request`, `remote_promotion`, `local_target`, or `null`.                                                                                                                               |
+| `session.latestError`                                   | Last recorded failure, or `null`.                                                                                                                                                                                                      |
+| `session.awaitingConflictResolution`                    | `true` while a conflict waits to be resolved and staged in `integrationWorktreePath`.                                                                                                                                                  |
+| `session.integrationWorktreePath`, `conflictPromptPath` | Paths for conflict recovery, or `null`.                                                                                                                                                                                                |
+| `session.rolloutDisposition`, `rolloutFollowUps`        | `none`, `applied`, `automated`, `manual` or `null`; recorded follow-up actions.                                                                                                                                                        |
+| `session.delivery`                                      | [Recorded delivery rule](configuration.md#what-a-session-records-and-uses), or `null` without a policy.                                                                                                                                |
+| `resumeCommand`                                         | Argument array such as `["seshx", "resume", "--session", "<id>"]` for `needs_review`, `validation_pending` and `promotion_pending` sessions; otherwise `null`. Run it from the session worktree or another checkout of the repository. |
+| `sync`                                                  | `begin --sync-target --json` only: `remote` (or `null`), `result`, `branch`, and the local target commits `before` and `after` (`null` when absent).                                                                                   |
+
+Error document, `sesh-integrator/error@1`, printed with a non-zero exit status:
+
+```json
+{
+  "schema": "sesh-integrator/error@1",
+  "error": { "code": "policy_invalid", "message": "Invalid delivery policy …" }
+}
+```
+
+| Code                                             | Cause                                                                  |
+| ------------------------------------------------ | ---------------------------------------------------------------------- |
+| `policy_missing`                                 | The selected policy file does not exist or cannot be read.             |
+| `policy_invalid`                                 | The policy file is not valid JSON or breaks the format rules.          |
+| `policy_conflict`                                | The policy target equals the repository's staging `integrationBranch`. |
+| `repository_unidentified`                        | No GitHub repository identity could be read from the remote fetch URL. |
+| `target_diverged`                                | `--sync-target`: local and remote targets diverged.                    |
+| `target_dirty`                                   | `--sync-target`: the checked-out target worktree is not clean.         |
+| `fetch_failed`                                   | `--sync-target`: the remote could not be inspected or fetched.         |
+| `unknown_session`                                | `status --session <id> --json` names no recorded session.              |
+| `usage`                                          | Invalid or missing arguments.                                          |
+| `begin_failed`, `status_failed`, `policy_failed` | Any other failure; `message` explains it.                              |
+
+`policy check` prints the normalized policy, or with `--repository` the rule
+object recorded as `delivery`, and uses the same error document.
 
 ### `sessions audit`
 

@@ -18,6 +18,16 @@ import type { CoordinatorIdentity, Session } from "./types.js";
 
 // Bump when a writer introduces state that earlier contract readers cannot recover.
 export const STATE_CONTRACT = 1;
+/**
+ * Contract recorded only on sessions that carry a delivery rule. Coordinators
+ * that predate delivery policies would ignore the rule, so they must refuse
+ * these sessions; this build accepts both contracts.
+ */
+export const DELIVERY_STATE_CONTRACT = 2;
+const SUPPORTED_STATE_CONTRACTS: readonly number[] = [
+  STATE_CONTRACT,
+  DELIVERY_STATE_CONTRACT,
+];
 const assets = [
   "dist",
   "skill",
@@ -40,7 +50,7 @@ export const unfinished = (s: Session): boolean =>
 export function assertCompatible(s: Session): void {
   if (
     s.coordinator &&
-    (s.coordinator.stateContract !== STATE_CONTRACT ||
+    (!SUPPORTED_STATE_CONTRACTS.includes(s.coordinator.stateContract) ||
       s.coordinator.recoveryContract !== 1)
   )
     throw new Error(
