@@ -141,6 +141,18 @@
       "acceptance": "Machines without an explicit build queue setting default to concurrency auto instead of unlimited, after reviewing why docs/build-queue.md currently restores unlimited; explicit machine settings are preserved and --concurrency unlimited still restores the old behavior. Queue waiting is progress-based by default: the deadline resets whenever a running entry finishes or the waiter moves up, so a busy but moving queue never times out, and --wait-seconds (default 900) limits time without progress rather than total wait. When a running entry's owner is dead, waiters fail promptly instead of waiting out the timeout, with a message naming the entry and the exact seshx queue recover <entry-id> --confirmed-stopped command. seshx queue status shows the effective settings, docs/build-queue.md and docs/configuration.md describe the new defaults and how to restore the old ones, the next release notes call out the default change for existing users, and tests cover the auto default, the deadline reset on progress, the timeout after no progress, and the dead-owner fail-fast.",
       "doc": "docs/build-queue.md",
       "evidence": []
+    },
+    {
+      "id": "SI-009",
+      "title": "Let lightweight commands bypass the build queue",
+      "status": "ready",
+      "order": 90,
+      "executor": "automated",
+      "device_requirement": [],
+      "blocked_by": [],
+      "acceptance": "A validation tier can mark its commands as lightweight with an explicit, validated configuration option, and those commands run at once without waiting for or using a build queue slot, so a TASKS.json-only change no longer waits minutes behind full test suites for a two-second qtask and prettier check. Repository setup commands can opt in the same way for quick steps such as a warm-cache pnpm install --frozen-lockfile. Tiers and setup commands without the option, mixed changes that select a code tier or the full fallback, and post-integration checks still use the queue. Command output and seshx queue status say when a command bypassed the queue. Invalid option values are rejected, older pinned coordinators that read the same config keep queueing without failing, docs/build-queue.md and docs/configuration.md explain when to use the option and that it is not for builds or test suites, and tests cover a lightweight tier running while the queue is full, a normal tier still waiting, and a mixed change using the queued full fallback.",
+      "doc": "docs/build-queue.md",
+      "evidence": []
     }
   ]
 }
