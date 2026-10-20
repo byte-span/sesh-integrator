@@ -24,8 +24,12 @@ import {
 import { watchDashboard } from "./dashboard-watch.js";
 import {
   loadSettings,
+  loadSettingsJson,
+  maxSettingsJsonLength,
+  parseSettingsJsonRequest,
   parseSettingsRequest,
   saveSettings,
+  saveSettingsJson,
 } from "./dashboard-settings.js";
 import { currentTask, taskProgress } from "./tasks.js";
 import { targetBranch } from "./promotion.js";
@@ -200,13 +204,16 @@ export const runWebCommand: WebRunner = async (row, args, output) => {
   });
 };
 
-async function readBody(req: IncomingMessage): Promise<unknown> {
+async function readBody(
+  req: IncomingMessage,
+  limit = 16_384,
+): Promise<unknown> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of req) {
     const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     size += bytes.length;
-    if (size > 16_384) throw new Error("Request too large");
+    if (size > limit) throw new Error("Request too large");
     chunks.push(bytes);
   }
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
@@ -233,6 +240,8 @@ export async function startWebDashboard(
     settings?: {
       load: typeof loadSettings;
       save: typeof saveSettings;
+      loadJson: typeof loadSettingsJson;
+      saveJson: typeof saveSettingsJson;
     };
     run?: WebRunner;
     watch?: typeof watchDashboard;
@@ -243,6 +252,8 @@ export async function startWebDashboard(
   const settings = options.settings ?? {
     load: loadSettings,
     save: saveSettings,
+    loadJson: loadSettingsJson,
+    saveJson: saveSettingsJson,
   };
   const clients = new Set<ServerResponse>();
   let origin = "";
@@ -329,6 +340,10 @@ export async function startWebDashboard(
           json(res, 200, await settings.load());
           return;
         }
+        if (req.url === "/api/settings/json") {
+          json(res, 200, await settings.loadJson());
+          return;
+        }
         if (req.url === "/api/events") {
           res.writeHead(200, {
             "Content-Type": "text/event-stream",
@@ -342,7 +357,9 @@ export async function startWebDashboard(
       }
       if (
         req.method === "POST" &&
-        (req.url === "/api/action" || req.url === "/api/settings") &&
+        (req.url === "/api/action" ||
+          req.url === "/api/settings" ||
+          req.url === "/api/settings/json") &&
         (req.headers.origin !== origin ||
           req.headers["x-sesh-dashboard"] !== "1" ||
           req.headers["content-type"] !== "application/json")
@@ -355,6 +372,17 @@ export async function startWebDashboard(
       if (req.method === "POST" && req.url === "/api/settings") {
         const saved = await settings.save(
           parseSettingsRequest(await readBody(req)),
+        );
+        json(res, 200, saved);
+        notify();
+        return;
+      }
+      if (req.method === "POST" && req.url === "/api/settings/json") {
+        // JSON string escaping can expand each character to six bytes.
+        const saved = await settings.saveJson(
+          parseSettingsJsonRequest(
+            await readBody(req, maxSettingsJsonLength * 6 + 1024),
+          ),
         );
         json(res, 200, saved);
         notify();

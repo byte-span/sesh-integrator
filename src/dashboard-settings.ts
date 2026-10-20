@@ -4,7 +4,7 @@ import { basename, join } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { withCleanup } from "./file-lock.js";
 import { harnessCommand, harnessInfo, harnesses } from "./harness.js";
-import { acquireRepoLock, releaseRepoLock } from "./lock.js";
+import { acquireRepoLock, releaseRepoLock, type LockHandle } from "./lock.js";
 import { targetBranch, targetBranchSource } from "./promotion.js";
 import {
   defaultConfig,
@@ -71,27 +71,43 @@ interface StoredConfig {
   config: Config;
 }
 
-async function readStoredConfig(): Promise<StoredConfig> {
-  const path = runtimePaths().config;
-  let text: string | null = null;
+async function readConfigText(): Promise<string | null> {
   try {
-    text = await readFile(path, "utf8");
+    return await readFile(runtimePaths().config, "utf8");
   } catch (error) {
     if (!isNodeError(error) || error.code !== "ENOENT") throw error;
+    return null;
   }
+}
+
+async function readStoredConfig(): Promise<StoredConfig> {
+  const text = await readConfigText();
   if (text === null) return { text, config: defaultConfig() };
   try {
     return { text, config: JSON.parse(text) as Config };
   } catch {
-    throw new Error(`Invalid configuration: ${path}`);
+    throw new Error(`Invalid configuration: ${runtimePaths().config}`);
   }
 }
+
+const defaultConfigText = () => `${JSON.stringify(defaultConfig(), null, 2)}\n`;
 
 /** Identifies the exact stored bytes so a stale form never overwrites newer edits. */
 export function settingsRevision(text: string | null): string {
   return createHash("sha256")
     .update(text ?? "\0absent")
     .digest("hex");
+}
+
+function assertCurrent(text: string | null, revision: string): void {
+  // Taking the config lock writes the default file into a fresh runtime;
+  // that untouched default still matches a form loaded before it existed.
+  const createdDefault =
+    revision === settingsRevision(null) && text === defaultConfigText();
+  if (settingsRevision(text) !== revision && !createdDefault)
+    throw new Error(
+      "Settings changed since this form was loaded. Choose Discard changes to load the latest values, then reapply your edits.",
+    );
 }
 
 function quote(argument: string): string {
@@ -498,37 +514,193 @@ export async function saveSettings(
 ): Promise<SettingsView> {
   return withConfigLock(async () => {
     const stored = await readStoredConfig();
-    // Taking the config lock writes the default file into a fresh runtime;
-    // that untouched default still matches a form loaded before it existed.
-    const createdDefault =
-      request.revision === settingsRevision(null) &&
-      stored.text === `${JSON.stringify(defaultConfig(), null, 2)}\n`;
-    if (settingsRevision(stored.text) !== request.revision && !createdDefault)
-      throw new Error(
-        "Settings changed since this form was loaded. Choose Discard changes to load the latest values, then reapply your edits.",
-      );
+    assertCurrent(stored.text, request.revision);
     const next = applySettings(stored.config, request);
     if (stored.text !== null && isDeepStrictEqual(next, stored.config))
       return settingsView(stored.text, stored.config);
-    const path = runtimePaths().config;
-    const write = () => writeJsonAtomic(path, next);
-    if (request.scope === "repository") {
-      // Like seshx enable/disable: never change a repository mid-integration.
-      const repository = stored.config.repositories.find(
-        (r) => r.path === request.repository,
-      )!;
-      const id = repoId(repository.gitCommonDir);
-      const lock = await acquireRepoLock(
-        id,
-        "dashboard-settings",
-        0,
-        join(runtimePaths().worktrees, id),
-        true,
-        "change repository settings",
-      );
-      await withCleanup(write, () => releaseRepoLock(lock));
-    } else await write();
+    await withRepositoryLocks(
+      request.scope === "repository"
+        ? stored.config.repositories.filter(
+            (r) => r.path === request.repository,
+          )
+        : [],
+      () => writeJsonAtomic(runtimePaths().config, next),
+    );
     const saved = await readStoredConfig();
     return settingsView(saved.text, saved.config);
+  });
+}
+
+/** Like seshx enable/disable: never change a repository mid-integration. */
+async function withRepositoryLocks<T>(
+  repositories: RepositoryConfig[],
+  action: () => Promise<T>,
+): Promise<T> {
+  const locks: LockHandle[] = [];
+  return withCleanup(
+    async () => {
+      for (const repository of repositories) {
+        const id = repoId(repository.gitCommonDir);
+        locks.push(
+          await acquireRepoLock(
+            id,
+            "dashboard-settings",
+            0,
+            join(runtimePaths().worktrees, id),
+            true,
+            "change repository settings",
+          ),
+        );
+      }
+      return action();
+    },
+    async () => {
+      for (const lock of locks.reverse()) await releaseRepoLock(lock);
+    },
+  );
+}
+
+// The JSON tab edits the whole config.json. It loads the stored text without
+// parsing it, so an invalid file can be repaired from the dashboard.
+export const maxSettingsJsonLength = 1_048_576;
+
+export interface SettingsJson {
+  revision: string;
+  configPath: string;
+  exists: boolean;
+  text: string;
+}
+
+export interface SettingsJsonRequest {
+  revision: string;
+  text: string;
+}
+
+function settingsJson(text: string | null): SettingsJson {
+  return {
+    revision: settingsRevision(text),
+    configPath: runtimePaths().config,
+    exists: text !== null,
+    text: text ?? defaultConfigText(),
+  };
+}
+
+export async function loadSettingsJson(): Promise<SettingsJson> {
+  return settingsJson(await readConfigText());
+}
+
+export function parseSettingsJsonRequest(value: unknown): SettingsJsonRequest {
+  const request = object(value, "settings request");
+  exactKeys(request, ["revision", "text"], "settings request");
+  if (
+    typeof request.revision !== "string" ||
+    !/^[0-9a-f]{64}$/.test(request.revision)
+  )
+    throw new Error("Invalid settings revision");
+  if (
+    typeof request.text !== "string" ||
+    request.text.length > maxSettingsJsonLength
+  )
+    throw new Error(
+      `Configuration must be text up to ${maxSettingsJsonLength} characters`,
+    );
+  return { revision: request.revision, text: request.text };
+}
+
+/** The stored configuration when the CLI could load it, otherwise `null`. */
+function loadableConfig(text: string | null): Config | null {
+  if (text === null) return defaultConfig();
+  try {
+    const config = JSON.parse(text) as Config;
+    validateConfig(structuredClone(config), "configuration");
+    return config;
+  } catch {
+    return null;
+  }
+}
+
+const registration = (r: RepositoryConfig) => `${r.path}\0${r.gitCommonDir}`;
+
+/**
+ * Parse edited config.json text. Refuse anything the CLI would refuse to
+ * load, and, unless repairing an unloadable file, any added, removed or moved
+ * repository: sessions and locks are keyed by those registrations.
+ */
+export function parseConfigText(text: string, stored: Config | null): Config {
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch (error) {
+    throw new Error(`Invalid JSON: ${(error as Error).message}`);
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new Error("Configuration must be a JSON object");
+  const config = value as Config;
+  if (
+    Array.isArray(config.repositories) &&
+    !config.repositories.every(
+      (r) =>
+        r &&
+        typeof r === "object" &&
+        !Array.isArray(r) &&
+        typeof r.path === "string" &&
+        typeof r.gitCommonDir === "string",
+    )
+  )
+    throw new Error(
+      "Each repository must be an object with path and gitCommonDir",
+    );
+  const checked = validateConfig(
+    structuredClone(config),
+    "edited configuration",
+  );
+  for (const repository of checked.repositories) {
+    const target = targetBranch(repository);
+    if (target === repository.integrationBranch)
+      throw new Error(
+        `Target branch ${target} for ${repository.path} must differ from the staging branch ${repository.integrationBranch}`,
+      );
+  }
+  if (
+    stored &&
+    !isDeepStrictEqual(
+      stored.repositories.map(registration).sort(),
+      config.repositories.map(registration).sort(),
+    )
+  )
+    throw new Error(
+      "Repositories cannot be added, removed or moved here. Register with seshx register --auto-config; keep each path and gitCommonDir unchanged.",
+    );
+  return config;
+}
+
+export async function saveSettingsJson(
+  request: SettingsJsonRequest,
+): Promise<SettingsJson> {
+  return withConfigLock(async () => {
+    const text = await readConfigText();
+    assertCurrent(text, request.revision);
+    const stored = loadableConfig(text);
+    const next = parseConfigText(request.text, stored);
+    if (text !== null && stored && isDeepStrictEqual(next, stored))
+      return settingsJson(text);
+    const disabled = (config: Config, r: RepositoryConfig) =>
+      (config.disabledRepositories ?? []).includes(r.gitCommonDir);
+    // Lock every repository whose entry or enablement changes; all of them
+    // when repairing, since the previous values are unknown.
+    const changed = next.repositories.filter((repository) => {
+      const before = stored?.repositories.find(
+        (r) => registration(r) === registration(repository),
+      );
+      return (
+        !stored ||
+        !isDeepStrictEqual(before, repository) ||
+        disabled(stored, repository) !== disabled(next, repository)
+      );
+    });
+    await withRepositoryLocks(changed, () =>
+      writeJsonAtomic(runtimePaths().config, next),
+    );
+    return settingsJson(await readConfigText());
   });
 }
