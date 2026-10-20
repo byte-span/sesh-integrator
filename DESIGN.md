@@ -62,6 +62,8 @@ tabular numerals. Long titles and paths wrap rather than widen the workspace.
 
 Pin the desktop sidebar progress note to the viewport bottom, with repository
 navigation scrolling above it. Keep the existing compact mobile strip.
+Settings sits at the bottom of the sidebar, below a divider; on mobile it ends
+the horizontal strip.
 
 Desktop uses a 70px header, a resizable repository sidebar (210px by default),
 and main content with 32px
@@ -106,6 +108,12 @@ panel radius. Rows remain rectangular and share horizontal dividers.
 - Keep the skip link, semantic buttons, selected-state attributes, status/error
   announcements, and 2px accent focus outline with 3px offset. `/` focuses search
   outside forms and dialogs. Preserve focus and detail scroll during updates.
+- Settings replaces the session view in the main area, with Global and
+  Repository tabs (arrow keys, Home/End). Tabs hold bordered groups of labelled
+  fields with hints, capped at 760px wide, and a sticky Save/Discard bar.
+  Repository opens on the sidebar's selected repository and offers a picker.
+  Commands and harness executables are read-only. Unsaved edits survive live
+  updates, and leaving with unsaved edits asks for confirmation.
 - Empty, disconnected, and error states explain what happened and the next step.
   Command output remains selectable and keyboard-scrollable. No decorative
   animation is required.

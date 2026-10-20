@@ -190,6 +190,24 @@ command at a time. Resolve and stage conflicts outside the dashboard before
 Resume. Browser output shows the most recent 128K characters of command output; normal
 CLI evidence remains in the runtime. Closing a tab does not cancel a command.
 
+Settings, at the bottom of the repository panel, opens two tabs:
+
+- **Global**: default target branch, default pull-request reviewers and
+  assignees, lock wait, conflict resolution mode, and delivery policy file.
+  Agent harness commands are shown read-only.
+- **Repository**: choose a registered repository (the panel's selection by
+  default). Edit enablement, target branch override, pull-request promotion
+  (mode, production branch, remote, reviewers, assignees), validation reuse,
+  setup failure policy, and conflict instructions. Registration facts,
+  setup/validation/post-integration commands, and validation tiers are
+  read-only.
+
+Save changes writes only the fields you changed to the runtime `config.json`,
+under the configuration lock. The server refuses values the CLI would reject,
+forms loaded before another edit, and repository changes while that
+repository's integration lock is held. Leave a field empty to inherit its
+default. Discard changes reloads the saved values.
+
 The server rejects foreign Host/Origin headers and cross-site requests. It has
 no remote-listening or tunnel option. If a browser cannot be opened, use the
 printed URL on the same machine. Existing terminal dashboard behavior is unchanged.
