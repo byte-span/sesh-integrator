@@ -23,6 +23,7 @@ import {
   actionReason,
   detailLines,
   detailFieldLines,
+  idleLabel,
   taskTableLines,
   loadDashboard,
   renderDashboard,
@@ -610,9 +611,34 @@ it("wraps every task and follow-up within an independently scrollable pane with 
   }
 });
 
+it("labels active sessions idle for a day without changing their status", () => {
+  const now = new Date("2026-10-20T12:00:00Z");
+  const r = row();
+  r.session!.lastActivityAt = "2026-10-19T13:00:00Z";
+  expect(idleLabel(r.session!, now)).toBeUndefined();
+  r.session!.lastActivityAt = "2026-10-17T11:00:00Z";
+  expect(idleLabel(r.session!, now)).toBe("Idle 3d");
+  const screen = renderDashboard(
+    [r],
+    0,
+    180,
+    36,
+    now,
+    { sessions: 0 },
+    defaultDashboardView,
+    now,
+  ).join("\n");
+  expect(screen).toContain("Idle 3d");
+  expect(screen).not.toContain("In progress");
+  expect(r.session!.status).toBe("active");
+  r.session!.status = "ready";
+  expect(idleLabel(r.session!, now)).toBeUndefined();
+});
+
 it("defaults to all sessions and separates session purpose, current task and progress", () => {
   const active = row();
   active.session!.taskSummary = "Add login flow";
+  active.session!.lastActivityAt = new Date().toISOString();
   active.session!.tasks = editTasks([], {
     action: "add",
     titles: ["Design form", "Test reset"],
