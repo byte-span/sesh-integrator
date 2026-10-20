@@ -153,6 +153,18 @@
       "acceptance": "A validation tier can mark its commands as lightweight with an explicit, validated configuration option, and those commands run at once without waiting for or using a build queue slot, so a TASKS.json-only change no longer waits minutes behind full test suites for a two-second qtask and prettier check. Repository setup commands can opt in the same way for quick steps such as a warm-cache pnpm install --frozen-lockfile. Tiers and setup commands without the option, mixed changes that select a code tier or the full fallback, and post-integration checks still use the queue. Command output and seshx queue status say when a command bypassed the queue. Invalid option values are rejected, older pinned coordinators that read the same config keep queueing without failing, docs/build-queue.md and docs/configuration.md explain when to use the option and that it is not for builds or test suites, and tests cover a lightweight tier running while the queue is full, a normal tier still waiting, and a mixed change using the queued full fallback.",
       "doc": "docs/build-queue.md",
       "evidence": []
+    },
+    {
+      "id": "SI-010",
+      "title": "Keep concurrent full validations reliable and preserve failing test output",
+      "status": "ready",
+      "order": 100,
+      "executor": "automated",
+      "device_requirement": [],
+      "blocked_by": [],
+      "acceptance": "On 2026-10-20 five sessions ran full validation at once (before the machine had a queue setting, so concurrency was unlimited); each run took 430-817s instead of the usual 290-320s and corepack pnpm run test exited 1 on every attempt, with no preserved output to tell resource contention from a code defect. Full validation stays reliable when the build queue runs two full validations at once on a 16-core, 11 GB host: vitest worker count is bounded (for example maxWorkers derived from available CPUs divided by the effective queue concurrency, overridable by an environment variable) instead of each run using every core, and the existing 30s test and hook timeouts are reviewed against measured durations under that load. When a validation command fails, the session validationFailure and its incident keep a bounded, secret-redacted tail of that command output plus the path to a full log under the runtime logs directory, so an exit code is never the only evidence. The incident fingerprint includes the failing test names or first error line, not only the command and exit code (fingerprint f40f8da879f4 currently groups 70 unrelated pnpm test failures). The failure record notes the number of running queue entries at failure time so diagnosis can tell resource contention from a code defect. docs/build-queue.md and docs/configuration.md describe the worker bound and override, and tests cover the worker bound, output tail capture and redaction, the fingerprint change, and the queue-load note.",
+      "doc": "docs/build-queue.md",
+      "evidence": []
     }
   ]
 }
