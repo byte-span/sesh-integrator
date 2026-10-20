@@ -5,8 +5,12 @@ import { join } from "node:path";
 import {
   applySettings,
   loadSettings,
+  loadSettingsJson,
+  parseConfigText,
+  parseSettingsJsonRequest,
   parseSettingsRequest,
   saveSettings,
+  saveSettingsJson,
   settingsRevision,
   settingsView,
   type GlobalSettings,
@@ -367,4 +371,164 @@ it("serves settings without creating state and requires same-origin saves", asyn
     body: JSON.stringify({ scope: "global", revision, values: {} }),
   });
   expect(invalid.status).toBe(400);
+});
+
+const text = (value: Config) => JSON.stringify(value, null, 2);
+
+it("parses edited config text with CLI validation and fixed registrations", () => {
+  const stored = config();
+  const edited = config();
+  edited.lockWaitSeconds = 30;
+  edited.repositories[0]!.setupCommands = [["npm", "ci"]];
+  expect(parseConfigText(text(edited), stored)).toEqual(edited);
+  expect(() => parseConfigText("{", stored)).toThrow("Invalid JSON");
+  expect(() => parseConfigText("[]", stored)).toThrow("must be a JSON object");
+  expect(() => parseConfigText('{"repositories":[1]}', stored)).toThrow(
+    "path and gitCommonDir",
+  );
+  const invalid = config() as unknown as Record<string, unknown>;
+  delete invalid.lockWaitSeconds;
+  expect(() => parseConfigText(JSON.stringify(invalid), stored)).toThrow(
+    "Invalid configuration: edited configuration",
+  );
+  const staging = config();
+  staging.repositories[0]!.targetBranch = "sesh-integrator/integration";
+  expect(() => parseConfigText(text(staging), stored)).toThrow(
+    "must differ from the staging branch",
+  );
+  const moved = config();
+  moved.repositories[0]!.path = "/work/beta";
+  const added = config();
+  added.repositories.push({
+    ...added.repositories[0]!,
+    path: "/work/beta",
+    gitCommonDir: "/work/beta/.git",
+  });
+  const removed = { ...config(), repositories: [] };
+  for (const changed of [moved, added, removed])
+    expect(() => parseConfigText(text(changed), stored)).toThrow(
+      "cannot be added, removed or moved",
+    );
+  // Repairing an unloadable file accepts any loadable configuration.
+  expect(parseConfigText(text(moved), null)).toEqual(moved);
+  expect(() =>
+    parseSettingsJsonRequest({ revision, text: "{}", extra: true }),
+  ).toThrow("Invalid settings request");
+  expect(() => parseSettingsJsonRequest({ revision: "x", text: "{}" })).toThrow(
+    "Invalid settings revision",
+  );
+  expect(() =>
+    parseSettingsJsonRequest({ revision, text: "x".repeat(1_048_577) }),
+  ).toThrow("Configuration must be text");
+});
+
+it("saves edited JSON under locks, rejects stale text and repairs invalid files", async () => {
+  const root = await runtime(config());
+  const path = join(root, "config.json");
+  const before = await readFile(path, "utf8");
+  const loaded = await loadSettingsJson();
+  expect(loaded).toEqual({
+    revision: settingsRevision(before),
+    configPath: path,
+    exists: true,
+    text: before,
+  });
+  await expect(
+    saveSettingsJson({ revision: settingsRevision("other"), text: before }),
+  ).rejects.toThrow("changed since this form was loaded");
+  // Equivalent text never rewrites the file.
+  await saveSettingsJson({
+    revision: loaded.revision,
+    text: JSON.stringify(config()),
+  });
+  expect(await readFile(path, "utf8")).toBe(before);
+
+  const lock = await acquireRepoLock(
+    repoId("/work/alpha/.git"),
+    "integrating",
+    0,
+    join(root, "worktrees", "x"),
+  );
+  const global = config();
+  global.lockWaitSeconds = 30;
+  const saved = await saveSettingsJson({
+    revision: loaded.revision,
+    text: text(global),
+  });
+  expect(saved.text).toBe(text(global) + "\n");
+  const edited = structuredClone(global);
+  edited.repositories[0]!.postIntegrationCommands = [["pnpm", "smoke"]];
+  await expect(
+    saveSettingsJson({ revision: saved.revision, text: text(edited) }),
+  ).rejects.toThrow("Cannot change repository settings");
+  const disabled = { ...global, disabledRepositories: ["/work/alpha/.git"] };
+  await expect(
+    saveSettingsJson({ revision: saved.revision, text: text(disabled) }),
+  ).rejects.toThrow("Cannot change repository settings");
+  await releaseRepoLock(lock);
+  const repository = await saveSettingsJson({
+    revision: saved.revision,
+    text: text(edited),
+  });
+  expect(JSON.parse(await readFile(path, "utf8"))).toEqual(edited);
+
+  await writeFile(path, "{ not json");
+  await expect(loadSettings()).rejects.toThrow("Invalid configuration");
+  const broken = await loadSettingsJson();
+  expect(broken.text).toBe("{ not json");
+  expect(broken.revision).not.toBe(repository.revision);
+  await saveSettingsJson({ revision: broken.revision, text: text(config()) });
+  expect((await loadSettings()).global.lockWaitSeconds).toBe(900);
+});
+
+it("serves the JSON editor and requires same-origin JSON saves", async () => {
+  const root = await runtime();
+  const server = await startWebDashboard({ watch: () => () => {} });
+  servers.push(server);
+  const page = await (await fetch(server.url)).text();
+  expect(page).toContain('id="tab-json"');
+  expect(page).toContain('id="panel-json"');
+  const loaded = await (await fetch(server.url + "/api/settings/json")).json();
+  expect(loaded).toMatchObject({ exists: false });
+  expect(JSON.parse(loaded.text)).toMatchObject({ lockWaitSeconds: 900 });
+  expect(await readdir(root)).toEqual([]);
+  const value = JSON.parse(loaded.text);
+  value.lockWaitSeconds = 45;
+  // Larger than the 16 KiB limit for other dashboard requests.
+  value.notes = "x".repeat(20_000);
+  const body = JSON.stringify({
+    revision: loaded.revision,
+    text: JSON.stringify(value, null, 2),
+  });
+  const headers = {
+    Origin: server.url,
+    "Content-Type": "application/json",
+    "X-Sesh-Dashboard": "1",
+  };
+  const forged = await fetch(server.url + "/api/settings/json", {
+    method: "POST",
+    headers: { ...headers, Origin: "https://attacker.example" },
+    body,
+  });
+  expect(forged.status).toBe(403);
+  expect(await readdir(root)).toEqual([]);
+  const response = await fetch(server.url + "/api/settings/json", {
+    method: "POST",
+    headers,
+    body,
+  });
+  expect(response.status).toBe(200);
+  expect(
+    JSON.parse(await readFile(join(root, "config.json"), "utf8")),
+  ).toMatchObject({ lockWaitSeconds: 45 });
+  const invalid = await fetch(server.url + "/api/settings/json", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      revision: (await response.json()).revision,
+      text: "{",
+    }),
+  });
+  expect(invalid.status).toBe(400);
+  expect((await invalid.json()).error).toContain("Invalid JSON");
 });

@@ -192,7 +192,7 @@ command at a time. Resolve and stage conflicts outside the dashboard before
 Resume. Browser output shows the most recent 128K characters of command output; normal
 CLI evidence remains in the runtime. Closing a tab does not cancel a command.
 
-Settings, at the bottom of the repository panel, opens two tabs:
+Settings, at the bottom of the repository panel, opens three tabs:
 
 - **Global**: default target branch, default pull-request reviewers and
   assignees, lock wait, conflict resolution mode, and delivery policy file.
@@ -203,12 +203,19 @@ Settings, at the bottom of the repository panel, opens two tabs:
   setup failure policy, and conflict instructions. Registration facts,
   setup/validation/post-integration commands, and validation tiers are
   read-only.
+- **JSON**: edit the whole `config.json`, including commands, validation
+  tiers and harness commands. The editor shows parse errors as you type;
+  Format re-indents, and Ctrl/Cmd+S saves. It opens even when the file is
+  invalid, so you can repair it. Repositories cannot be added, removed or
+  moved here: use `seshx register`, and keep each `path` and `gitCommonDir`.
 
 Save changes writes only the fields you changed to the runtime `config.json`,
 under the configuration lock. The server refuses values the CLI would reject,
 forms loaded before another edit, and repository changes while that
 repository's integration lock is held. Leave a field empty to inherit its
-default. Discard changes reloads the saved values.
+default. Discard changes reloads the saved values. JSON saves rewrite the file
+with two-space indentation and lock every repository whose entry or
+enablement changed.
 
 The server rejects foreign Host/Origin headers and cross-site requests. It has
 no remote-listening or tunnel option. If a browser cannot be opened, use the

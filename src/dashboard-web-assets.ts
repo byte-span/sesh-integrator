@@ -220,7 +220,17 @@ export const webHtml = String.raw`<!doctype html>
             aria-controls="panel-repository"
             tabindex="-1"
           >
-            Repository
+            Repository</button
+          ><button
+            id="tab-json"
+            class="tab"
+            role="tab"
+            type="button"
+            aria-selected="false"
+            aria-controls="panel-json"
+            tabindex="-1"
+          >
+            JSON
           </button>
         </div>
         <div id="settings-error" class="settings-error" role="alert" hidden></div>
@@ -237,6 +247,14 @@ export const webHtml = String.raw`<!doctype html>
           class="settings-panel"
           role="tabpanel"
           aria-labelledby="tab-repository"
+          tabindex="-1"
+          hidden
+        ></section>
+        <section
+          id="panel-json"
+          class="settings-panel json-panel"
+          role="tabpanel"
+          aria-labelledby="tab-json"
           tabindex="-1"
           hidden
         ></section>
@@ -826,6 +844,25 @@ html.page-hidden #connection.connected .signal {
 }
 .settings-status.saved {
   color: var(--success);
+}
+/* Long command lines scroll inside the editor instead of wrapping. */
+.json-panel,
+.json-panel .settings-actions {
+  max-width: 1100px;
+}
+.setting textarea.json-editor {
+  height: calc(100vh - 400px);
+  min-height: 320px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  tab-size: 2;
+  white-space: pre;
+  overflow-wrap: normal;
+  overflow: auto;
+}
+.json-check.error {
+  color: var(--danger);
 }
 main {
   display: flex;
@@ -2206,12 +2243,14 @@ let settingsOpen = false,
   settingsTab = "global",
   settingsRepository = "",
   settingsData = null,
+  settingsJson = null,
   settingsFetching = false,
   settingsAgain = false;
-const settingsForms = { global: null, repository: null };
+const settingsTabs = ["global", "repository", "json"];
+const settingsForms = { global: null, repository: null, json: null };
 try {
-  if (localStorage.getItem("sesh-settings-tab") === "repository")
-    settingsTab = "repository";
+  const saved = localStorage.getItem("sesh-settings-tab");
+  if (settingsTabs.includes(saved)) settingsTab = saved;
 } catch {}
 const listText = (values) => (values || []).join(", ");
 const parseList = (value) =>
@@ -2246,7 +2285,7 @@ function openSettings() {
 function closeSettings() {
   if (unsavedSettings() && !confirm("Discard unsaved settings changes?"))
     return false;
-  settingsForms.global = settingsForms.repository = null;
+  settingsForms.global = settingsForms.repository = settingsForms.json = null;
   showSettingsView(false);
   render();
   return true;
@@ -2260,7 +2299,7 @@ function selectSettingsTab(tab, focus) {
   try {
     localStorage.setItem("sesh-settings-tab", tab);
   } catch {}
-  for (const name of ["global", "repository"]) {
+  for (const name of settingsTabs) {
     const selected = name === tab;
     $("tab-" + name).setAttribute("aria-selected", String(selected));
     $("tab-" + name).tabIndex = selected ? 0 : -1;
@@ -2268,24 +2307,32 @@ function selectSettingsTab(tab, focus) {
   }
   if (focus) $("tab-" + tab).focus();
 }
-for (const name of ["global", "repository"])
+for (const name of settingsTabs)
   $("tab-" + name).onclick = () => selectSettingsTab(name);
 document
   .querySelector('#settings [role="tablist"]')
   .addEventListener("keydown", (event) => {
     if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
     event.preventDefault();
+    const n = settingsTabs.length,
+      i = settingsTabs.indexOf(settingsTab);
     selectSettingsTab(
-      event.key === "Home"
-        ? "global"
-        : event.key === "End"
-          ? "repository"
-          : settingsTab === "global"
-            ? "repository"
-            : "global",
+      settingsTabs[
+        event.key === "Home"
+          ? 0
+          : event.key === "End"
+            ? n - 1
+            : (i + (event.key === "ArrowRight" ? 1 : n - 1)) % n
+      ],
       true,
     );
   });
+async function getJson(url) {
+  const res = await fetch(url);
+  const result = await res.json();
+  if (!res.ok) throw Error(result.error);
+  return result;
+}
 async function loadSettings() {
   if (settingsFetching) {
     settingsAgain = true;
@@ -2293,18 +2340,24 @@ async function loadSettings() {
   }
   settingsFetching = true;
   try {
-    const res = await fetch("/api/settings");
-    const result = await res.json();
-    if (!res.ok) throw Error(result.error);
-    settingsData = result;
-    $("settings-error").hidden = true;
+    // The JSON tab reads the raw file, so it still opens to repair an
+    // invalid config.json that the other tabs cannot load.
+    const [view, raw] = await Promise.allSettled([
+      getJson("/api/settings"),
+      getJson("/api/settings/json"),
+    ]);
+    if (view.status === "fulfilled") settingsData = view.value;
+    if (raw.status === "fulfilled") settingsJson = raw.value;
+    const failed = [view, raw].find((r) => r.status === "rejected");
+    $("settings-error").textContent = failed
+      ? "Could not load settings: " +
+        failed.reason.message +
+        (raw.status === "fulfilled"
+          ? ". Fix config.json in the JSON tab; this page reloads it when it changes."
+          : ". Fix config.json if it is invalid; this page reloads it when it changes.")
+      : "";
+    $("settings-error").hidden = !failed;
     renderSettings();
-  } catch (error) {
-    $("settings-error").textContent =
-      "Could not load settings: " +
-      error.message +
-      ". Fix config.json if it is invalid; this page reloads it when it changes.";
-    $("settings-error").hidden = false;
   } finally {
     settingsFetching = false;
     if (settingsAgain) {
@@ -2315,12 +2368,17 @@ async function loadSettings() {
 }
 function renderSettings() {
   selectSettingsTab(settingsTab);
-  const data = settingsData;
-  $("settings-source").textContent = data
+  const data = settingsData,
+    source = data || settingsJson;
+  $("settings-source").textContent = source
     ? "Saved in " +
-      data.configPath +
-      (data.exists ? "" : " · created when you first save")
+      source.configPath +
+      (source.exists ? "" : " · created when you first save")
     : "Loading settings…";
+  if (settingsJson)
+    renderSettingsForm("json", settingsJson.revision, () =>
+      jsonSettingsForm(settingsJson),
+    );
   if (!data) return;
   if (!data.repositories.some((r) => r.path === settingsRepository))
     settingsRepository = data.repositories[0]?.path || "";
@@ -2418,7 +2476,7 @@ function setSettingsStatus(form, text, kind) {
   node.className = "settings-status" + (kind ? " " + kind : "");
   $("settings-live").textContent = text;
 }
-function settingsActions(form, scope) {
+function settingsActions(form, scope, extra = []) {
   const bar = el("div", undefined, "settings-actions"),
     save = el("button", "Save changes", "primary"),
     discard = button("Discard changes", () => {
@@ -2429,7 +2487,7 @@ function settingsActions(form, scope) {
     });
   save.type = "submit";
   save.disabled = discard.disabled = true;
-  bar.append(save, discard, el("span", "", "settings-status"));
+  bar.append(save, ...extra, discard, el("span", "", "settings-status"));
   form.append(bar);
   const changed = (event) => {
     if (event.target.dataset?.track === "false") return;
@@ -2440,20 +2498,27 @@ function settingsActions(form, scope) {
   };
   form.addEventListener("input", changed);
   form.addEventListener("change", changed);
+  return changed;
 }
 async function submitSettings(form, request) {
   const buttons = form.querySelectorAll(".settings-actions button");
   buttons.forEach((b) => (b.disabled = true));
   setSettingsStatus(form, "Saving…");
+  const { scope, ...fields } = request,
+    raw = scope === "json";
   try {
-    const res = await fetch("/api/settings", {
+    const res = await fetch(raw ? "/api/settings/json" : "/api/settings", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Sesh-Dashboard": "1" },
-      body: JSON.stringify({ ...request, revision: form.dataset.revision }),
+      body: JSON.stringify({
+        ...(raw ? fields : request),
+        revision: form.dataset.revision,
+      }),
     });
     const result = await res.json();
     if (!res.ok) throw Error(result.error);
-    settingsData = result;
+    if (raw) settingsJson = result;
+    else settingsData = result;
     settingsForms[request.scope] = null;
     renderSettings();
     setSettingsStatus(settingsForms[request.scope], "Saved", "saved");
@@ -2528,7 +2593,7 @@ function globalSettingsForm(data) {
   group = settingsGroup(
     form,
     "Agent commands",
-    "Read-only here. Edit harnessCommands in config.json to change them.",
+    "Read-only here. Edit harnessCommands in the JSON tab to change them.",
   );
   settingsFacts(
     group,
@@ -2710,7 +2775,7 @@ function repositorySettingsForm(data, r) {
   group = settingsGroup(
     form,
     "Commands",
-    "Read-only here. Edit this repository's entry in config.json to change them.",
+    "Read-only here. Edit this repository's entry in the JSON tab to change them.",
   );
   for (const c of r.commands) {
     group.append(el("h3", c.label));
@@ -2768,6 +2833,71 @@ function repositorySettingsForm(data, r) {
         conflictInstructions: instructions.value,
       },
     });
+  };
+  return form;
+}
+function jsonSettingsForm(raw) {
+  const form = el("form");
+  form.dataset.revision = raw.revision;
+  const group = settingsGroup(
+    form,
+    "config.json",
+    "Edit the whole configuration, including commands and validation tiers. Saving runs the checks the CLI applies when it loads the file.",
+  );
+  const editor = settingField(group, {
+    name: "json-text",
+    label: "Configuration",
+    type: "textarea",
+    value: raw.text,
+    hint: "Repositories are added with seshx register; keep each path and gitCommonDir unchanged. Saving rewrites the file with two-space indentation.",
+  });
+  editor.classList.add("json-editor");
+  editor.setAttribute("wrap", "off");
+  editor.setAttribute("autocapitalize", "off");
+  editor.spellcheck = false;
+  const check = el("p", "", "hint json-check");
+  check.id = "json-check";
+  editor.setAttribute("aria-describedby", "setting-json-text-hint json-check");
+  // Above the editor, so parse errors stay visible without scrolling.
+  editor.before(check);
+  const parse = () => {
+    try {
+      JSON.parse(editor.value);
+      check.textContent = "Valid JSON";
+      check.className = "hint json-check";
+      editor.removeAttribute("aria-invalid");
+      return true;
+    } catch (error) {
+      check.textContent = "Invalid JSON: " + error.message;
+      check.className = "hint json-check error";
+      editor.setAttribute("aria-invalid", "true");
+      return false;
+    }
+  };
+  editor.addEventListener("input", parse);
+  parse();
+  const format = button("Format", () => {
+    if (!parse()) return editor.focus();
+    const text = JSON.stringify(JSON.parse(editor.value), null, 2) + "\n";
+    if (text === editor.value) return;
+    editor.value = text;
+    changed({ target: editor });
+  });
+  const changed = settingsActions(form, "json", [format]);
+  editor.addEventListener("keydown", (event) => {
+    if ((event.ctrlKey || event.metaKey) && event.key === "s") {
+      event.preventDefault();
+      if (form.dataset.dirty === "true") form.requestSubmit();
+    }
+  });
+  form.onsubmit = (event) => {
+    event.preventDefault();
+    if (!parse()) {
+      setSettingsStatus(form, "Fix the JSON error before saving.", "error");
+      editor.focus();
+      return;
+    }
+    void submitSettings(form, { scope: "json", text: editor.value });
   };
   return form;
 }

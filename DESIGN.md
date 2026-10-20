@@ -115,12 +115,14 @@ panels use the panel radius. Rows remain rectangular and share horizontal divide
 - Keep the skip link, semantic buttons, selected-state attributes, status/error
   announcements, and 2px accent focus outline with 3px offset. `/` focuses search
   outside forms and dialogs. Preserve focus and detail scroll during updates.
-- Settings replaces the session view in the main area, with Global and
-  Repository tabs (arrow keys, Home/End). Tabs hold bordered groups of labelled
-  fields with hints, capped at 760px wide, and a sticky Save/Discard bar.
+- Settings replaces the session view in the main area, with Global,
+  Repository and JSON tabs (arrow keys, Home/End). Tabs hold bordered groups of
+  labelled fields with hints, capped at 760px wide, and a sticky Save/Discard bar.
   Repository opens on the sidebar's selected repository and offers a picker.
-  Commands and harness executables are read-only. Unsaved edits survive live
-  updates, and leaving with unsaved edits asks for confirmation.
+  Commands and harness executables are read-only there. JSON is a 1100px-wide
+  monospace, non-wrapping editor for the whole file, with live parse status, a
+  Format button and Ctrl/Cmd+S to save. Unsaved edits survive live updates, and
+  leaving with unsaved edits asks for confirmation.
 - Empty, disconnected, and error states explain what happened and the next step.
   Command output remains selectable and keyboard-scrollable. No decorative
   animation is required.
