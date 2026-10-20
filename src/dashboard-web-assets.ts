@@ -199,6 +199,20 @@ export const webHtml = String.raw`<!doctype html>
           <div class="page-title">
             <h1 id="settings-title">Settings</h1>
           </div>
+          <button
+            id="settings-history-button"
+            class="page-action"
+            type="button"
+            aria-haspopup="dialog"
+            aria-controls="history-dialog"
+            title="Earlier versions of config.json"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M3 12a9 9 0 1 0 2.6-6.4L3 8" />
+              <path d="M3 3v5h5" />
+              <path d="M12 7v5l3 2" /></svg
+            >History
+          </button>
         </div>
         <p id="settings-source" class="settings-source"></p>
         <div class="tabs" role="tablist" aria-label="Settings scope">
@@ -230,7 +244,17 @@ export const webHtml = String.raw`<!doctype html>
             aria-controls="panel-json"
             tabindex="-1"
           >
-            JSON
+            JSON</button
+          ><button
+            id="tab-history"
+            class="tab"
+            role="tab"
+            type="button"
+            aria-selected="false"
+            aria-controls="panel-history"
+            tabindex="-1"
+          >
+            History
           </button>
         </div>
         <div id="settings-error" class="settings-error" role="alert" hidden></div>
@@ -255,6 +279,14 @@ export const webHtml = String.raw`<!doctype html>
           class="settings-panel json-panel"
           role="tabpanel"
           aria-labelledby="tab-json"
+          tabindex="-1"
+          hidden
+        ></section>
+        <section
+          id="panel-history"
+          class="settings-panel"
+          role="tabpanel"
+          aria-labelledby="tab-history"
           tabindex="-1"
           hidden
         ></section>
@@ -292,6 +324,7 @@ export const webHtml = String.raw`<!doctype html>
           values they loaded. The current file is kept in History, so you can
           restore it.
         </p>
+        <p id="json-confirm-context" class="context" hidden></p>
         <p id="json-confirm-warning" class="warning" hidden></p>
         <ul id="json-confirm-changes" class="change-list"></ul>
         <pre id="json-confirm-diff" class="diff" tabindex="0"></pre>
@@ -302,6 +335,17 @@ export const webHtml = String.raw`<!doctype html>
           </button>
         </div>
       </form>
+    </dialog>
+    <dialog
+      id="history-dialog"
+      class="wide-dialog"
+      aria-labelledby="history-dialog-title"
+    >
+      <h2 id="history-dialog-title">History</h2>
+      <div id="history-dialog-body" class="history-body" tabindex="-1"></div>
+      <div class="form-actions">
+        <button id="history-dialog-close" type="button">Close</button>
+      </div>
     </dialog>
   </body>
 </html>
@@ -892,6 +936,26 @@ html.page-hidden #connection.connected .signal {
 .settings-group .group-action {
   margin: 12px 0 18px;
 }
+.page-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+.page-action svg {
+  width: 16px;
+  height: 16px;
+}
+.history-body:focus {
+  outline: none;
+}
+.history-status:empty {
+  display: none;
+}
+.history-status {
+  display: block;
+  margin: 12px 0 0;
+}
 .history-list {
   margin: 14px 0 18px;
   padding: 0;
@@ -950,6 +1014,10 @@ pre.diff,
 }
 dialog.wide-dialog {
   width: min(900px, calc(100vw - 32px));
+}
+dialog .context {
+  color: var(--ink);
+  font-weight: 600;
 }
 dialog .warning {
   color: var(--warning);
@@ -2335,16 +2403,25 @@ $("action-form").onsubmit = async (event) => {
     $("submit").disabled = false;
   }
 };
-// Settings view: Global and Repository tabs edit the central config.json.
+// Settings view: Global, Repository and JSON tabs edit the central
+// config.json; History lists and restores its earlier versions.
 let settingsOpen = false,
   settingsTab = "global",
   settingsRepository = "",
   settingsData = null,
   settingsJson = null,
   settingsHistory = null,
+  settingsHistoryStatus = ["", ""],
+  settingsLoaded = false,
   settingsFetching = false,
-  settingsAgain = false;
-const settingsTabs = ["global", "repository", "json"];
+  settingsAgain = false,
+  historyBusy = false;
+const settingsTabs = ["global", "repository", "json", "history"];
+const settingsTabNames = {
+  global: "Global",
+  repository: "Repository",
+  json: "JSON",
+};
 const settingsForms = { global: null, repository: null, json: null };
 try {
   const saved = localStorage.getItem("sesh-settings-tab");
@@ -2375,6 +2452,7 @@ function showSettingsView(open) {
 }
 function openSettings() {
   if (repository) settingsRepository = repository;
+  setHistoryStatus("");
   showSettingsView(true);
   renderSettings();
   void loadSettings();
@@ -2449,6 +2527,7 @@ async function loadSettings() {
     if (raw.status === "fulfilled") settingsJson = raw.value;
     // History is optional: the editor still works without it.
     settingsHistory = history.status === "fulfilled" ? history.value : null;
+    settingsLoaded = true;
     const failed = [view, raw].find((r) => r.status === "rejected");
     $("settings-error").textContent = failed
       ? "Could not load settings: " +
@@ -2476,12 +2555,11 @@ function renderSettings() {
       source.configPath +
       (source.exists ? "" : " · created when you first save")
     : "Loading settings…";
-  if (settingsJson) {
+  if (settingsJson)
     renderSettingsForm("json", settingsJson.revision, () =>
       jsonSettingsForm(settingsJson),
     );
-    renderSettingsHistory();
-  }
+  renderSettingsHistory();
   if (!data) return;
   if (!data.repositories.some((r) => r.path === settingsRepository))
     settingsRepository = data.repositories[0]?.path || "";
@@ -2981,7 +3059,7 @@ function jsonSettingsForm(raw) {
   const group = settingsGroup(
     form,
     "config.json",
-    "Edit the whole configuration, including commands and validation tiers. Saving runs the checks the CLI applies when it loads the file.",
+    "Edit the whole configuration, including commands and validation tiers. Saving runs the checks the CLI applies when it loads the file. Earlier versions are in History.",
   );
   const editor = settingField(group, {
     name: "json-text",
@@ -3040,54 +3118,61 @@ function jsonSettingsForm(raw) {
     if (!(await confirmJsonSave(raw.text, text))) return editor.focus();
     void submitSettings(form, { scope: "json", text });
   };
-  // History renders into its own slot so a new entry never resets the editor.
-  form.historySlot = el("div");
-  form.append(form.historySlot);
-  form.restoreSnapshot = (snapshot) => {
-    if (
-      form.dataset.dirty === "true" &&
-      !confirm("Replace your unsaved edits with this earlier version?")
-    )
-      return;
-    editor.value = snapshot.text;
-    parse();
-    changed({ target: editor });
-    setSettingsStatus(
-      form,
-      "Loaded the version replaced " +
-        time(snapshot.replacedAt) +
-        ". Review it, then choose Save changes.",
-    );
-    editor.focus({ preventScroll: true });
-    editor.setSelectionRange(0, 0);
-    editor.scrollTop = 0;
-    editor.scrollIntoView({ block: "nearest" });
-  };
   return form;
 }
+// History renders into the History tab and the header's History dialog. Each
+// view is rebuilt only when the file or its versions change, so an open
+// comparison survives unrelated refreshes.
+const historySlots = () => [$("panel-history"), $("history-dialog-body")];
+function setHistoryStatus(text, kind) {
+  settingsHistoryStatus = [text, kind || ""];
+  for (const slot of historySlots())
+    if (slot.statusNode) {
+      slot.statusNode.textContent = text;
+      slot.statusNode.className =
+        "settings-status history-status" + (kind ? " " + kind : "");
+    }
+  if (text) $("settings-live").textContent = text;
+}
 function renderSettingsHistory() {
-  const form = settingsForms.json,
-    history = settingsHistory;
-  if (!form?.historySlot) return;
-  const key =
-    settingsJson.revision +
-    "\n" +
-    (history ? history.entries.map((e) => e.id).join(",") : "unavailable");
-  if (form.historySlot.dataset.key === key) return;
-  form.historySlot.dataset.key = key;
-  form.historySlot.replaceChildren();
-  const group = settingsGroup(
-    form.historySlot,
-    "History",
-    history
+  const history = settingsHistory,
+    current = settingsJson;
+  const key = !settingsLoaded
+    ? "loading"
+    : history && current
+      ? current.revision + "\n" + history.entries.map((e) => e.id).join(",")
+      : "unavailable";
+  for (const slot of historySlots()) {
+    if (slot.dataset.key === key) continue;
+    slot.dataset.key = key;
+    slot.replaceChildren();
+    historyView(slot, slot.id === "panel-history");
+  }
+}
+function historyView(slot, framed) {
+  const history = settingsHistory,
+    ready = settingsLoaded && history && settingsJson;
+  const text = !settingsLoaded
+    ? "Loading history…"
+    : ready
       ? "Earlier versions of config.json, kept each time the CLI or this dashboard changes it. The newest " +
-          history.limit +
-          " are kept. Restore loads a version into the editor; nothing changes until you save."
-      : "History is unavailable. Reload settings to try again.",
-  );
-  if (!history) return;
+        history.limit +
+        " are kept. Restore shows the changes and saves only after you confirm; the version it replaces is kept here too."
+      : "History is unavailable. Close and reopen Settings to try again.";
+  let parent = slot;
+  if (framed) parent = settingsGroup(slot, "Earlier versions", text);
+  else slot.append(el("p", text));
+  const [message, kind] = settingsHistoryStatus,
+    status = el(
+      "p",
+      message,
+      "settings-status history-status" + (kind ? " " + kind : ""),
+    );
+  slot.statusNode = status;
+  parent.append(status);
+  if (!ready) return;
   if (!history.entries.length) {
-    group.append(el("p", "No earlier versions yet.", "hint group-action"));
+    parent.append(el("p", "No earlier versions yet.", "hint group-action"));
     return;
   }
   const list = el("ul", undefined, "history-list");
@@ -3114,25 +3199,76 @@ function renderSettingsHistory() {
         compare.textContent = "Hide comparison";
         compare.setAttribute("aria-expanded", "true");
       } catch (error) {
-        setSettingsStatus(form, error.message, "error");
+        setHistoryStatus(error.message, "error");
       }
     });
     compare.setAttribute("aria-expanded", "false");
-    const load = button("Restore", async () => {
-      try {
-        form.restoreSnapshot(
-          await getJson("/api/settings/history/" + entry.id),
-        );
-      } catch (error) {
-        setSettingsStatus(form, error.message, "error");
-      }
-    });
-    row.append(label, compare, load);
+    const restore = button("Restore", () => void restoreHistoryEntry(entry));
+    row.append(label, compare, restore);
     li.append(row);
     list.append(li);
   }
-  group.append(list);
+  parent.append(list);
 }
+/**
+ * Save an earlier version through the Save config.json? confirmation. The
+ * JSON editor and other tabs keep any unsaved edits; they are never replaced.
+ */
+async function restoreHistoryEntry(entry) {
+  const current = settingsJson;
+  if (historyBusy || !current) return;
+  historyBusy = true;
+  try {
+    const snapshot = await getJson("/api/settings/history/" + entry.id);
+    const dirty = settingsTabs
+      .filter((tab) => settingsForms[tab]?.dataset.dirty === "true")
+      .map((tab) => settingsTabNames[tab]);
+    const context =
+      "Restores the version replaced " +
+      time(entry.replacedAt) +
+      " by " +
+      entry.source +
+      "." +
+      (dirty.length
+        ? " Your unsaved changes in the " +
+          dirty.join(" and ") +
+          (dirty.length === 1 ? " tab are" : " tabs are") +
+          " kept but will be out of date: copy anything you need, then choose Discard changes there before saving."
+        : "");
+    if (!(await confirmJsonSave(current.text, snapshot.text, context))) return;
+    setHistoryStatus("Restoring…");
+    const res = await fetch("/api/settings/json", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Sesh-Dashboard": "1" },
+      body: JSON.stringify({ text: snapshot.text, revision: current.revision }),
+    });
+    const result = await res.json();
+    if (!res.ok) throw Error(result.error);
+    settingsJson = result;
+    setHistoryStatus(
+      "Restored the version replaced " +
+        time(entry.replacedAt) +
+        ". The version it replaced is now in History.",
+      "saved",
+    );
+    renderSettings();
+    // The list was rebuilt, so move focus from the removed Restore button.
+    $(
+      $("history-dialog").open ? "history-dialog-body" : "panel-history",
+    ).focus({ preventScroll: true });
+    void refresh();
+  } catch (error) {
+    setHistoryStatus(error.message, "error");
+  } finally {
+    historyBusy = false;
+  }
+}
+$("settings-history-button").onclick = () => {
+  renderSettingsHistory();
+  $("history-dialog").showModal();
+  $("history-dialog-body").focus();
+};
+$("history-dialog-close").onclick = () => $("history-dialog").close();
 /** Line-level edit script from LCS; null when too large to compare here. */
 function diffLines(before, after) {
   const a = before.split("\n"),
@@ -3268,10 +3404,12 @@ function configChanges(before, after) {
   return { changes, programs };
 }
 let jsonConfirmDone = null;
-function confirmJsonSave(before, after) {
+function confirmJsonSave(before, after, context = "") {
   const summary = configChanges(before, after),
     list = $("json-confirm-changes"),
     warning = $("json-confirm-warning");
+  $("json-confirm-context").textContent = context;
+  $("json-confirm-context").hidden = !context;
   list.replaceChildren(
     ...(summary
       ? summary.changes.length
