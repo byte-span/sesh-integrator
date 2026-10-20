@@ -128,13 +128,16 @@ export const webHtml = String.raw`<!doctype html>
             aria-valuenow="320"
             title="Drag to resize. Arrow keys move divider; double-click to reset."
           ></div>
-          <section id="detail" class="detail" aria-label="Session details">
-            <div class="empty">
-              <h2>Your work, in view</h2>
-              <p>
-                Select a session to see its checklist, saved progress, and next
-                action.
-              </p>
+          <section id="detail" class="detail" aria-labelledby="detail-heading">
+            <h2 id="detail-heading" class="detail-heading">Selected session</h2>
+            <div id="detail-body" class="detail-body">
+              <div class="empty">
+                <h2>Your work, in view</h2>
+                <p>
+                  Select a session to see its checklist, saved progress, and
+                  next action.
+                </p>
+              </div>
             </div>
           </section>
         </div>
@@ -218,9 +221,9 @@ export const webCss = String.raw`:root {
 * {
   box-sizing: border-box;
 }
-/* Fixed app shell: the page never scrolls. Only the repository nav, session
-   list and detail pane scroll (main scrolls only when the window is too short
-   to fit the split at its minimum height). */
+/* Fixed app shell: the page and main never scroll, so the page heading and
+   footer stay in view. Only the repository nav, session list, detail pane and
+   command output scroll. */
 body {
   margin: 0;
   background: var(--bg);
@@ -461,8 +464,6 @@ html.page-hidden #connection.connected .signal {
 }
 #detail-resizer {
   position: relative;
-  width: 12px;
-  margin-left: -6px;
   z-index: 2;
   cursor: col-resize;
   touch-action: none;
@@ -475,7 +476,7 @@ html.page-hidden #connection.connected .signal {
   position: absolute;
   inset: 0 auto 0 6px;
   width: 1px;
-  background: var(--line);
+  background: transparent;
 }
 #detail-resizer:hover::after,
 #detail-resizer:focus-visible::after,
@@ -529,7 +530,7 @@ main {
   max-width: 1800px;
   width: 100%;
   margin: 0 auto;
-  overflow-y: auto;
+  overflow: hidden;
 }
 main > * {
   flex-shrink: 0;
@@ -623,19 +624,21 @@ main > * {
 }
 .split {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 0 var(--detail-width, minmax(0, 0.95fr));
+  grid-template-columns: minmax(0, 1fr) 12px var(--detail-width, minmax(0, 0.95fr));
   grid-template-rows: minmax(0, 1fr);
   flex: 1 1 0;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--surface);
-  overflow: hidden;
-  min-height: 240px;
+  min-height: 0;
 }
-.session-list {
+.session-list,
+.detail {
   min-width: 0;
   min-height: 0;
   overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.session-list {
   container-type: inline-size;
 }
 .session-table {
@@ -654,7 +657,9 @@ main > * {
   white-space: nowrap;
   text-align: left;
 }
-.session-table th {
+/* The detail heading shares these metrics so both panel headers line up. */
+.session-table th,
+.detail-heading {
   position: sticky;
   top: 0;
   z-index: 1;
@@ -663,6 +668,7 @@ main > * {
   color: var(--muted);
   font-size: 11px;
   font-weight: 600;
+  line-height: 16px;
 }
 .session-table td {
   color: var(--muted);
@@ -764,14 +770,15 @@ main > * {
 .status.active {
   color: var(--accent);
 }
-.detail {
-  padding: 24px;
-  border-left: 1px solid var(--line);
-  min-width: 0;
-  min-height: 0;
-  overflow: auto;
+.detail-heading {
+  margin: 0;
+  padding-inline: 24px;
+  border-bottom: 1px solid var(--line);
 }
-.detail h2 {
+.detail-body {
+  padding: 24px;
+}
+.detail-body h2 {
   font-size: 19px;
   line-height: 1.4;
   margin: 12px 0;
@@ -1020,8 +1027,11 @@ dialog p {
   main {
     padding: 24px 48px 14px;
   }
-  .detail {
+  .detail-body {
     padding: 30px;
+  }
+  .detail-heading {
+    padding-inline: 30px;
   }
 }
 @media (max-width: 1100px) {
@@ -1032,7 +1042,7 @@ dialog p {
     padding: 20px 20px 12px;
   }
   .split {
-    grid-template-columns: minmax(0, 1fr) 0 var(--detail-width, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr) 12px var(--detail-width, minmax(0, 1fr));
   }
   .page-heading {
     flex-wrap: wrap;
@@ -1105,7 +1115,6 @@ dialog p {
   }
   .detail {
     display: none;
-    border-left: 0;
   }
   .split.show-detail .session-list {
     display: none;
@@ -1138,8 +1147,11 @@ dialog p {
     font-size: 11px;
     padding: 7px;
   }
-  .detail {
+  .detail-body {
     padding: 20px;
+  }
+  .detail-heading {
+    padding-inline: 20px;
   }
 }
 `;
@@ -1358,7 +1370,7 @@ try {
     preferredDetailWidth = saved;
 } catch {}
 function detailWidthBounds() {
-  const available = split.clientWidth;
+  const available = split.clientWidth - detailResizer.offsetWidth;
   const min = Math.min(240, available / 2);
   return { min, max: Math.max(min, available - 240), available };
 }
@@ -1580,7 +1592,8 @@ function render() {
 }
 let detailKey = "";
 function renderDetail(r) {
-  const pane = $("detail");
+  const pane = $("detail"),
+    body = $("detail-body");
   const key = JSON.stringify([r, !!state.job?.running]);
   if (detailKey === key) return;
   const oldId = pane.dataset.session,
@@ -1589,8 +1602,8 @@ function renderDetail(r) {
     expanded = pane.querySelector("details")?.open;
   detailKey = key;
   pane.dataset.session = r?.id || "";
-  pane.replaceChildren();
-  pane.append(
+  body.replaceChildren();
+  body.append(
     button(
       "Back to sessions",
       () => {
@@ -1611,17 +1624,17 @@ function renderDetail(r) {
         "Select a session to see its checklist, saved progress, and next action.",
       ),
     );
-    pane.append(empty);
+    body.append(empty);
     return;
   }
-  pane.append(
+  body.append(
     status(r),
     el("h2", r.title),
     el("p", r.repositoryName + (r.branch ? " / " + r.branch : ""), "meta"),
   );
   const next = el("div", undefined, "next");
   next.append(el("h3", "Next action"), el("p", r.next));
-  pane.append(next);
+  body.append(next);
   const actions = el("div", undefined, "actions"),
     reasons = [];
   for (const a of ["validate", "integrate", "resume"]) {
@@ -1641,7 +1654,7 @@ function renderDetail(r) {
     actions.append(b);
     if (r.actions[a]) reasons.push(label + ": " + r.actions[a]);
   }
-  pane.append(actions, el("p", reasons.join(" · "), "action-reasons"));
+  body.append(actions, el("p", reasons.join(" · "), "action-reasons"));
   if (r.pullRequestUrl) {
     const p = el("p");
     const link = el("a", "Open pull request");
@@ -1649,17 +1662,17 @@ function renderDetail(r) {
     link.target = "_blank";
     link.rel = "noopener noreferrer";
     p.append(link);
-    pane.append(p);
+    body.append(p);
   }
   if (r.followUps.length) {
-    pane.append(el("h3", "Outstanding follow-ups"));
+    body.append(el("h3", "Outstanding follow-ups"));
     const ul = el("ul", undefined, "follow-ups");
     r.followUps.forEach((f) => ul.append(el("li", f)));
-    pane.append(ul);
+    body.append(ul);
   }
   const heading = el("div", undefined, "section-heading");
   heading.append(el("h3", "Checklist · " + r.progress));
-  pane.append(heading);
+  body.append(heading);
   const tasks = el("ol", undefined, "tasks");
   for (const task of r.tasks) {
     const li = el("li", undefined, "task");
@@ -1673,12 +1686,12 @@ function renderDetail(r) {
     if (task.reason) li.append(el("p", "Reason: " + task.reason));
     tasks.append(li);
   }
-  pane.append(tasks);
+  body.append(tasks);
   if (!r.tasks.length)
-    pane.append(el("p", "No checklist recorded yet.", "meta"));
-  pane.append(el("h3", "Saved milestones"));
+    body.append(el("p", "No checklist recorded yet.", "meta"));
+  body.append(el("h3", "Saved milestones"));
   if (!r.activity.length)
-    pane.append(
+    body.append(
       el("p", "No validation or promotion milestones recorded yet.", "meta"),
     );
   else {
@@ -1690,7 +1703,7 @@ function renderDetail(r) {
       li.append(t);
       ul.append(li);
     }
-    pane.append(ul);
+    body.append(ul);
   }
   const details = el("details");
   details.open = oldId === r.id && expanded;
@@ -1698,7 +1711,7 @@ function renderDetail(r) {
     el("summary", "Session record & recovery details"),
     el("pre", r.details.join("\n"), "record"),
   );
-  pane.append(details);
+  body.append(details);
   pane.scrollTop = oldId === r.id ? scroll : 0;
   if (focus && oldId === r.id)
     pane.querySelector('[data-control="' + focus + '"]')?.focus();
