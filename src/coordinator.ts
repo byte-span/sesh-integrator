@@ -177,17 +177,32 @@ export async function retainCoordinator(): Promise<CoordinatorIdentity> {
     cliPath: join(destination, "dist/cli.js"),
   };
 }
-export async function coordinatorDescription(s: Session): Promise<string> {
-  if (!s.coordinator)
-    return "legacy (no build identity); compatible recovery imports preserved state";
+export type CoordinatorHealth = "legacy" | "intact" | "modified" | "missing";
+
+/** Read-only check of a session's pinned coordinator snapshot. */
+export async function coordinatorHealth(
+  s: Session,
+): Promise<CoordinatorHealth> {
+  if (!s.coordinator) return "legacy";
   try {
     const root = dirname(dirname(await realpath(s.coordinator.cliPath)));
-    if ((await digest(root)) !== s.coordinator.buildId)
-      return `MODIFIED ${s.coordinator.cliPath}; reinstall a compatible build before recovery`;
-    return `${s.coordinator.buildId} (contract ${s.coordinator.stateContract}) ${s.coordinator.cliPath}`;
+    return (await digest(root)) === s.coordinator.buildId
+      ? "intact"
+      : "modified";
   } catch {
-    return `MISSING ${s.coordinator.cliPath}; compatible reinstall can recover contract ${s.coordinator.stateContract}`;
+    return "missing";
   }
+}
+
+export async function coordinatorDescription(s: Session): Promise<string> {
+  const health = await coordinatorHealth(s);
+  if (!s.coordinator || health === "legacy")
+    return "legacy (no build identity); compatible recovery imports preserved state";
+  if (health === "modified")
+    return `MODIFIED ${s.coordinator.cliPath}; reinstall a compatible build before recovery`;
+  if (health === "missing")
+    return `MISSING ${s.coordinator.cliPath}; compatible reinstall can recover contract ${s.coordinator.stateContract}`;
+  return `${s.coordinator.buildId} (contract ${s.coordinator.stateContract}) ${s.coordinator.cliPath}`;
 }
 export async function enrollmentStopped(harness: string): Promise<boolean> {
   try {

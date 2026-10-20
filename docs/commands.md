@@ -14,6 +14,7 @@ Commands below run from the repository root unless stated otherwise.
 - [`integrate`](#integrate)
 - [`resume`](#resume)
 - [`status`](#status)
+- [`sessions audit`](#sessions-audit)
 - [Failure incidents](#failure-incidents)
 - [`reconcile`](#reconcile)
 - [`doctor`](#doctor)
@@ -41,6 +42,7 @@ seshx tasks list [--session <session-id>]
 seshx tasks add --title "..." [--title "..."]... [--description "..."] [--session <session-id>]
 seshx tasks update <task-id> [--title "..."] [--description "..."] [--status pending|in_progress|completed|blocked|skipped] [--reason "..."] [--session <session-id>]
 seshx tasks move <task-id> --position <n> [--session <session-id>]
+seshx sessions audit [--repo <path>] [--idle-days <n>] [--json]
 seshx reconcile [repo-path] [--apply]
 seshx audit-legacy
 seshx cleanup-guidance [--apply]
@@ -531,6 +533,47 @@ seshx status
 ```
 
 Shows every session, active/ready/waiting/succeeded/`needs_review`/`promotion_pending` state, staging and promoted commits, target branch, recovery phase, worktree paths, latest error, and current lock owners.
+
+### `sessions audit`
+
+Find stale sessions before deciding what to close. The audit is read-only: it
+writes no session record, lock, index or file, and runs only non-mutating Git
+commands with `--no-optional-locks` (no fetch, prune or index refresh).
+
+```bash
+seshx sessions audit                       # Every unfinished session on this machine
+seshx sessions audit --repo ~/code/project # One repository (any path inside it)
+seshx sessions audit --idle-days 14        # Idle for at least 14 whole days
+seshx sessions audit --json                # Machine-readable report
+```
+
+Each unfinished session (any status except `succeeded` and `no_changes`)
+appears once, in exactly one bucket, with the evidence behind it:
+
+| Bucket         | Meaning                                                                                                                                                                  |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `empty`        | No commits since start, clean worktree, no checklist.                                                                                                                    |
+| `delivered`    | The session's commits are already reachable from its target branch.                                                                                                      |
+| `unsaved work` | Uncommitted files in the session worktree, or session commits not reachable from the target.                                                                             |
+| `corrupt`      | Missing repository, worktree, session branch, start commit or pinned coordinator, or a worktree now checked out on another branch.                                       |
+| `in lifecycle` | `ready`, `validation_pending`, `promotion_pending` or `needs_review` status, recorded lock wait, recovery phase, open recovery bundle, or a held repository/record lock. |
+| `other`        | Anything else, such as a checklist without commits or incomplete inspection.                                                                                             |
+
+When several apply, the first match wins: in lifecycle, unsaved work, other
+(incomplete inspection), corrupt, delivered, empty, then other. Remaining
+findings are listed as notes. Commits that existed at the session's start
+commit are not counted as its work. Delivery is checked against the local
+target branch only; nothing is fetched. `--json` reports the bucket IDs
+`empty`, `delivered`, `unsaved`, `corrupt`, `lifecycle` and `other`, with
+structured `facts` for each session.
+
+Idle days are whole days since the last recorded activity: the checklist's
+`tasksUpdatedAt`, falling back to `startedAt`, then the source worktree's
+modification time. The output names the source used.
+
+**Liveness is inferred, never proven.** An agent may still be working in any
+listed session, including one marked empty or idle. Confirm with its owner
+before closing it. The audit never changes or closes a session.
 
 ### Failure incidents
 
