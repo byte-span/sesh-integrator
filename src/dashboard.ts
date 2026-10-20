@@ -654,6 +654,7 @@ function updatedAt(row: DashboardRow): number {
     0,
     ...[
       s.startedAt,
+      s.lastActivityAt,
       s.tasksUpdatedAt,
       s.closedAt,
       s.readyAt,

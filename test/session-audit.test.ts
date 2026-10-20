@@ -195,12 +195,21 @@ it("classifies empty, delivered, unsaved and other sessions without changing any
     "no checklist",
   ]);
   expect(emptyAudit.idleDays).toBe(0);
-  expect(emptyAudit.lastActivity?.source).toBe("startedAt");
+  expect(emptyAudit.lastActivity).toEqual({
+    at: (await f.record(empty.id)).lastActivityAt,
+    source: "lastActivityAt",
+  });
 
   const plannedAudit = byId(report, planned.id);
   expect(plannedAudit.bucket).toBe("other");
   expect(plannedAudit.evidence.join("\n")).toContain("checklist present");
-  expect(plannedAudit.lastActivity?.source).toBe("tasksUpdatedAt");
+  // The checklist edit refreshed the heartbeat at the same instant.
+  const plannedRecord = await f.record(planned.id);
+  expect(plannedRecord.lastActivityAt).toBe(plannedRecord.tasksUpdatedAt);
+  expect(plannedAudit.lastActivity).toEqual({
+    at: plannedRecord.lastActivityAt,
+    source: "lastActivityAt",
+  });
 
   const deliveredAudit = byId(report, delivered.id);
   expect(deliveredAudit.bucket).toBe("delivered");
@@ -358,21 +367,31 @@ it("filters by repository and idle days using the activity fallback chain", asyn
   const old = await f.begin(first, "Old work");
   const recent = await f.begin(first, "Recent work");
   const other = await f.begin(second, "Other repository");
+  const heartbeat = await f.begin(first, "Heartbeat work");
   const day = 24 * 60 * 60 * 1000;
-  await f.save({
-    ...old,
-    startedAt: new Date(Date.now() - 40 * day).toISOString(),
-  });
+  const daysAgo = (days: number) =>
+    new Date(Date.now() - days * day).toISOString();
+  // Legacy records written before the heartbeat existed.
+  const legacy = ({ lastActivityAt: _, ...session }: Session): Session =>
+    session;
+  await f.save({ ...legacy(old), startedAt: daysAgo(40) });
   // A recent checklist edit keeps an old session active.
   await f.save({
-    ...recent,
-    startedAt: new Date(Date.now() - 40 * day).toISOString(),
-    tasksUpdatedAt: new Date(Date.now() - 2 * day).toISOString(),
+    ...legacy(recent),
+    startedAt: daysAgo(40),
+    tasksUpdatedAt: daysAgo(2),
+  });
+  // A newer record: the heartbeat outranks an older checklist edit.
+  await f.save({
+    ...heartbeat,
+    startedAt: daysAgo(40),
+    tasksUpdatedAt: daysAgo(30),
+    lastActivityAt: daysAgo(5),
   });
 
   const firstOnly = f.audit(f.root, ["--repo", first]);
   expect(firstOnly.sessions.map((row) => row.sessionId).sort()).toEqual(
-    [old.id, recent.id].sort(),
+    [old.id, recent.id, heartbeat.id].sort(),
   );
   expect(byId(firstOnly, old.id).idleDays).toBe(40);
   expect(byId(firstOnly, old.id).lastActivity?.source).toBe("startedAt");
@@ -380,9 +399,17 @@ it("filters by repository and idle days using the activity fallback chain", asyn
   expect(byId(firstOnly, recent.id).lastActivity?.source).toBe(
     "tasksUpdatedAt",
   );
+  expect(byId(firstOnly, heartbeat.id).idleDays).toBe(5);
+  expect(byId(firstOnly, heartbeat.id).lastActivity?.source).toBe(
+    "lastActivityAt",
+  );
 
   const idle = f.audit(f.root, ["--idle-days", "10"]);
   expect(idle.sessions.map((row) => row.sessionId)).toEqual([old.id]);
+  const idleSince = f.audit(f.root, ["--idle-days", "5"]);
+  expect(idleSince.sessions.map((row) => row.sessionId).sort()).toEqual(
+    [old.id, heartbeat.id].sort(),
+  );
   const secondOnly = f.audit(f.root, ["--repo", second]);
   expect(secondOnly.sessions.map((row) => row.sessionId)).toEqual([other.id]);
   expect(secondOnly.sessions[0]!.facts.targetBranch).toBe("main");
@@ -408,7 +435,7 @@ it("filters by repository and idle days using the activity fallback chain", asyn
     ).toContain("Usage: seshx sessions audit");
 });
 
-it("derives last activity from tasksUpdatedAt, then startedAt, then worktree time", () => {
+it("derives last activity from lastActivityAt, then tasksUpdatedAt, then startedAt, then worktree time", () => {
   const session: Session = {
     id: "session_idle",
     status: "active",
@@ -437,6 +464,33 @@ it("derives last activity from tasksUpdatedAt, then startedAt, then worktree tim
     source: "worktreeModifiedAt",
   });
   expect(lastActivity(broken)).toBeUndefined();
+
+  // New records carry the heartbeat; it outranks older record fields.
+  const heartbeat = {
+    ...session,
+    tasksUpdatedAt: "2026-10-05T00:00:00.000Z",
+    lastActivityAt: "2026-10-08T00:00:00.000Z",
+  };
+  expect(lastActivity(heartbeat, worktree)).toEqual({
+    at: "2026-10-08T00:00:00.000Z",
+    source: "lastActivityAt",
+  });
+  expect(idleDays(lastActivity(heartbeat), now)).toBe(3);
+  // Checklist edits refresh both fields at once; the heartbeat names the tie.
+  expect(
+    lastActivity({ ...heartbeat, tasksUpdatedAt: heartbeat.lastActivityAt }),
+  ).toEqual({ at: "2026-10-08T00:00:00.000Z", source: "lastActivityAt" });
+  // An older coordinator keeps the heartbeat but refreshes only the checklist.
+  expect(
+    lastActivity({ ...heartbeat, tasksUpdatedAt: "2026-10-10T00:00:00.000Z" }),
+  ).toEqual({ at: "2026-10-10T00:00:00.000Z", source: "tasksUpdatedAt" });
+  // An unreadable heartbeat falls back like a legacy record.
+  expect(
+    lastActivity({ ...heartbeat, lastActivityAt: "not a date" }, worktree),
+  ).toEqual({ at: "2026-10-05T00:00:00.000Z", source: "tasksUpdatedAt" });
+  expect(
+    lastActivity({ ...broken, lastActivityAt: "2026-10-08T00:00:00.000Z" }),
+  ).toEqual({ at: "2026-10-08T00:00:00.000Z", source: "lastActivityAt" });
   expect(idleDays(lastActivity(session), now)).toBe(10);
   expect(idleDays(lastActivity(broken, worktree), now)).toBe(2);
   expect(idleDays(undefined, now)).toBeNull();

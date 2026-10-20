@@ -89,6 +89,8 @@ after integration so the agent can finish recording its checklist. Explicit
 Checklists are stored in optional `tasks` and `tasksUpdatedAt` fields in
 `<runtime>/sessions/<session-id>.json`. Each task records a stable numeric ID,
 title, optional description, status, optional reason, and creation/update times.
+Each edit also refreshes the session's [`lastActivityAt`
+heartbeat](#last-activity-heartbeat); `tasks list` does not.
 Existing sessions need no migration and display “No tasks yet” until populated.
 Atomic writes and a short per-session record lock serialize checklist edits with
 lifecycle saves, preserving task edits made during long-running validation.
@@ -567,13 +569,37 @@ target branch only; nothing is fetched. `--json` reports the bucket IDs
 `empty`, `delivered`, `unsaved`, `corrupt`, `lifecycle` and `other`, with
 structured `facts` for each session.
 
-Idle days are whole days since the last recorded activity: the checklist's
+Idle days are whole days since the last recorded activity: the later of the
+[`lastActivityAt` heartbeat](#last-activity-heartbeat) and the checklist's
 `tasksUpdatedAt`, falling back to `startedAt`, then the source worktree's
-modification time. The output names the source used.
+modification time when the record has no usable time. The output names the
+source used. The audit itself never records activity.
 
 **Liveness is inferred, never proven.** An agent may still be working in any
 listed session, including one marked empty or idle. Confirm with its owner
 before closing it. The audit never changes or closes a session.
+
+#### Last-activity heartbeat
+
+Session records carry an optional `lastActivityAt` timestamp. It is written
+under the per-session record lock whenever a command does work on the session:
+
+- `begin`, `commit`, `validate`, `integrate`, `resume`, `finish` and
+  `reconcile --apply`, including failures they record
+- `tasks add`, `tasks update` and `tasks move`
+
+Commands that only observe never set it: `status`, `tasks list`,
+`sessions audit`, `dashboard`, `incident` and `doctor`. Dashboard actions run
+the lifecycle commands above, which record their own activity. Finding a legacy
+record and indexing it is not activity either. If `commit` creates the commit
+but cannot record the heartbeat, it warns instead of failing.
+
+Older records have no `lastActivityAt`. They are not backfilled and gain one
+at their next recorded activity. The field needs no state-contract change.
+Older coordinators read session records without validating fields and rewrite
+the whole record, so they keep the heartbeat. They do not refresh it, but their
+checklist edits still update `tasksUpdatedAt`, which is why idle time uses the
+later of the two.
 
 ### Failure incidents
 

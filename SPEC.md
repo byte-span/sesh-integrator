@@ -931,6 +931,23 @@ successfully integrated session. Guidance requires explicit no-change completion
 before the agent's final response; finishing a terminal conversation is not a
 session-state event.
 
+### Session activity heartbeat
+
+A session may have an optional `lastActivityAt` timestamp. Lifecycle saves
+(`begin`, `commit`, `validate`, `integrate`, `resume`, `finish`,
+`reconcile --apply`) and checklist mutations set it under the per-session
+record lock. A lifecycle save from a stale snapshot records new activity, while
+bookkeeping saves keep the stored value rather than the snapshot's. Read-only
+commands (`status`, `tasks list`, `sessions audit`, `dashboard`, `incident`,
+`doctor`) and lazy indexing of legacy records never set it, so the field reflects
+work rather than observation.
+
+Idle calculations use the later of `lastActivityAt` and `tasksUpdatedAt`, then
+`startedAt`, then the source worktree modification time. Legacy records are not
+backfilled. The field does not change the state contract: older coordinators
+parse records without field validation and rewrite them whole, so they keep the
+heartbeat without refreshing it.
+
 ## Coding harness support
 
 `begin --harness codex|claude|antigravity|grok` records the originating harness. Omitted

@@ -135,6 +135,12 @@ export interface Session {
   satisfiedBySessionId?: string;
   tasks?: SessionTask[];
   tasksUpdatedAt?: string;
+  /**
+   * Heartbeat set under the session record lock whenever a lifecycle or
+   * `tasks` command records work. Read-only commands never set it. Missing in
+   * records written only by older coordinators; never backfilled.
+   */
+  lastActivityAt?: string;
   status: SessionStatus;
   repositoryPath: string;
   repositoryId: string;

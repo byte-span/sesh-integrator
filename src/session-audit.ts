@@ -48,7 +48,7 @@ export const LIVENESS_NOTICE =
   "Liveness is inferred from session records, Git and file times, never proven. An agent may still be working in any listed session.";
 
 export type ActivitySource =
-  "tasksUpdatedAt" | "startedAt" | "worktreeModifiedAt";
+  "lastActivityAt" | "tasksUpdatedAt" | "startedAt" | "worktreeModifiedAt";
 
 export interface SessionActivity {
   at: string;
@@ -56,14 +56,20 @@ export interface SessionActivity {
 }
 
 /**
- * Ordered record fields that indicate session activity. The first valid value
- * wins; the source worktree modification time is the final fallback. Prepend
- * newer heartbeat fields here so every idle calculation stays consistent.
+ * Record fields that indicate session activity, in priority order. The most
+ * recent valid value wins and ties keep the earlier field, so legacy records
+ * fall back from the `lastActivityAt` heartbeat to `tasksUpdatedAt`, then
+ * `startedAt`. Taking the most recent value also covers records rewritten by
+ * older coordinators, which keep an existing heartbeat but do not refresh it
+ * when they update the checklist. The source worktree modification time is
+ * used only when no record field is valid. Add newer heartbeat fields here so
+ * every idle calculation stays consistent.
  */
 const recordActivitySources: readonly {
   source: ActivitySource;
   read: (session: Session) => string | undefined;
 }[] = [
+  { source: "lastActivityAt", read: (session) => session.lastActivityAt },
   { source: "tasksUpdatedAt", read: (session) => session.tasksUpdatedAt },
   { source: "startedAt", read: (session) => session.startedAt },
 ];
@@ -72,19 +78,24 @@ export function lastActivity(
   session: Session,
   worktreeModifiedAt?: string | null,
 ): SessionActivity | undefined {
-  const candidates: { source: ActivitySource; value: string | undefined }[] = [
-    ...recordActivitySources.map(({ source, read }) => ({
-      source,
-      value: read(session),
-    })),
-    { source: "worktreeModifiedAt", value: worktreeModifiedAt ?? undefined },
-  ];
-  for (const { source, value } of candidates) {
-    const time = typeof value === "string" ? Date.parse(value) : NaN;
-    if (Number.isFinite(time))
-      return { at: new Date(time).toISOString(), source };
+  let latest: { source: ActivitySource; time: number } | undefined;
+  for (const { source, read } of recordActivitySources) {
+    const time = parseTime(read(session));
+    if (time !== undefined && (!latest || time > latest.time))
+      latest = { source, time };
   }
-  return undefined;
+  if (!latest) {
+    const time = parseTime(worktreeModifiedAt);
+    if (time !== undefined) latest = { source: "worktreeModifiedAt", time };
+  }
+  return latest
+    ? { at: new Date(latest.time).toISOString(), source: latest.source }
+    : undefined;
+}
+
+function parseTime(value: unknown): number | undefined {
+  const time = typeof value === "string" ? Date.parse(value) : NaN;
+  return Number.isFinite(time) ? time : undefined;
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
