@@ -816,6 +816,96 @@ html.page-hidden #connection.connected .signal {
 .repository-picker {
   margin-top: 0;
 }
+/* Suggestion fields: a text input with a filtered list below it. */
+.combobox {
+  position: relative;
+  width: min(100%, 440px);
+}
+.setting .combobox input {
+  width: 100%;
+}
+.combobox-list {
+  position: absolute;
+  z-index: 5;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 260px;
+  margin: 0;
+  padding: 4px;
+  overflow-y: auto;
+  list-style: none;
+  border: var(--control-border-width) solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 16%);
+}
+.combobox-list [role="option"] {
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 7px 9px;
+  border-radius: 5px;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.combobox-list [role="option"]:hover {
+  background: var(--hover);
+}
+.combobox-list [role="option"][aria-selected="true"] {
+  background: var(--selected);
+  outline: 1px solid var(--accent);
+}
+.combobox-list .option-detail {
+  flex: none;
+  max-width: 55%;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: right;
+}
+.combobox-list .create {
+  font-style: italic;
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  width: min(100%, 440px);
+}
+.chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 2px 2px 9px;
+  border: var(--control-border-width) solid var(--line);
+  border-radius: 999px;
+  background: var(--code);
+  font-size: 13px;
+}
+.chip .chip-remove {
+  min-height: 0;
+  padding: 1px 7px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  line-height: 1.2;
+}
+.chips .combobox {
+  flex: 1 1 180px;
+}
+.setting .field-warning {
+  color: var(--warning);
+  font-weight: 550;
+}
 .settings-facts {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
@@ -2378,6 +2468,7 @@ function openSettings() {
   showSettingsView(true);
   renderSettings();
   void loadSettings();
+  void loadSettingsSuggestions();
   $("tab-" + settingsTab).focus();
 }
 function closeSettings() {
@@ -2553,16 +2644,361 @@ function settingField(parent, o) {
   if (o.track === false) input.dataset.track = "false";
   const label = el("label", o.label);
   label.htmlFor = id;
-  wrap.append(...(check ? [input, label] : [label, input]));
+  const box = o.suggest ? el("div", undefined, "combobox") : null;
+  box?.append(input);
+  wrap.append(...(check ? [input, label] : [label, box || input]));
   if (o.hint) {
     const hint = el("p", o.hint, "hint");
     hint.id = id + "-hint";
     input.setAttribute("aria-describedby", hint.id);
     wrap.append(hint);
   }
+  if (box) attachCombobox(wrap, box, input, o.suggest);
   parent.append(wrap);
   return input;
 }
+// Suggestion fields. The typed text is always the value: suggestions only
+// fill it in, so every field still works when none could be loaded.
+let settingsSuggestions = null,
+  suggestionsRequest = 0,
+  comboboxes = [];
+async function loadSettingsSuggestions() {
+  const request = ++suggestionsRequest;
+  let result = null;
+  try {
+    result = await getJson("/api/settings/suggestions");
+  } catch {}
+  if (request !== suggestionsRequest) return;
+  settingsSuggestions = result;
+  comboboxes = comboboxes.filter((c) => c.input.isConnected !== false);
+  for (const c of comboboxes) c.refresh();
+}
+/** Options whose value or label contains the query, prefix matches first. */
+function matchOptions(options, query) {
+  const q = query.trim().toLowerCase();
+  if (!q) return options;
+  const text = (o) => (o.value + " " + (o.label || "")).toLowerCase();
+  const found = options.filter((o) => text(o).includes(q));
+  return [
+    ...found.filter((o) => o.value.toLowerCase().startsWith(q)),
+    ...found.filter((o) => !o.value.toLowerCase().startsWith(q)),
+  ];
+}
+/**
+ * Make input an ARIA combobox: typing filters, arrow keys move, Enter picks,
+ * Escape closes. s.options() lists { value, label?, detail? }; s.create(text)
+ * may add an option for a typed value with no exact match; s.pick replaces
+ * filling in the input; s.warning(value) describes a problem with a value.
+ */
+function attachCombobox(wrap, box, input, s) {
+  const list = el("ul", undefined, "combobox-list");
+  list.id = input.id + "-options";
+  list.setAttribute("role", "listbox");
+  list.setAttribute("aria-label", "Suggestions");
+  list.hidden = true;
+  box.append(list);
+  input.setAttribute("role", "combobox");
+  input.setAttribute("aria-autocomplete", "list");
+  input.setAttribute("aria-expanded", "false");
+  input.setAttribute("aria-controls", list.id);
+  let shown = [],
+    active = -1,
+    filtering = false,
+    warning = null;
+  if (s.warning) {
+    warning = el("p", "", "hint field-warning");
+    warning.id = input.id + "-warning";
+    warning.hidden = true;
+    warning.setAttribute("aria-live", "polite");
+    wrap.append(warning);
+    const described = input.getAttribute("aria-describedby");
+    input.setAttribute(
+      "aria-describedby",
+      (described ? described + " " : "") + warning.id,
+    );
+  }
+  const warn = (clearOnly) => {
+    if (!warning) return;
+    const text = s.warning(input.value.trim()) || "";
+    if (clearOnly && text) return;
+    warning.textContent = text;
+    warning.hidden = !text;
+  };
+  const close = () => {
+    list.hidden = true;
+    list.replaceChildren();
+    shown = [];
+    active = -1;
+    input.setAttribute("aria-expanded", "false");
+    input.removeAttribute("aria-activedescendant");
+  };
+  const highlight = (index) => {
+    active = index;
+    Array.from(list.children).forEach((item, i) =>
+      item.setAttribute("aria-selected", String(i === index)),
+    );
+    const item = list.children[index];
+    if (!item) return input.removeAttribute("aria-activedescendant");
+    input.setAttribute("aria-activedescendant", item.id);
+    item.scrollIntoView({ block: "nearest" });
+  };
+  const choose = (index) => {
+    const option = shown[index];
+    close();
+    if (!option) return;
+    if (s.pick) s.pick(option.value);
+    else {
+      input.value = option.value;
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+  };
+  const open = (filter) => {
+    filtering = filter;
+    const text = input.value.trim(),
+      options = s.options();
+    shown = filter ? matchOptions(options, text) : options.slice();
+    const extra =
+      filter && text && !options.some((o) => o.value === text)
+        ? s.create?.(text)
+        : null;
+    if (extra) shown.push({ ...extra, create: true });
+    shown = shown.slice(0, 100);
+    if (!shown.length) return close();
+    list.replaceChildren(
+      ...shown.map((option, i) => {
+        const item = el("li", undefined, option.create ? "create" : undefined);
+        item.id = list.id + "-" + i;
+        item.setAttribute("role", "option");
+        item.setAttribute("aria-selected", "false");
+        item.append(el("span", option.label || option.value));
+        if (option.detail) {
+          item.append(el("span", option.detail, "option-detail"));
+          item.setAttribute(
+            "aria-label",
+            (option.label || option.value) + " — " + option.detail,
+          );
+        }
+        // Keep focus in the input so choosing does not blur it first.
+        item.addEventListener("mousedown", (event) => event.preventDefault());
+        item.addEventListener("click", () => choose(i));
+        return item;
+      }),
+    );
+    active = -1;
+    list.hidden = false;
+    input.setAttribute("aria-expanded", "true");
+    input.removeAttribute("aria-activedescendant");
+  };
+  input.addEventListener("input", () => {
+    open(true);
+    warn(true);
+  });
+  input.addEventListener("change", () => warn(false));
+  input.addEventListener("click", () => (list.hidden ? open(false) : close()));
+  input.addEventListener("blur", close);
+  input.addEventListener("keydown", (event) => {
+    const expanded = !list.hidden;
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      if (!expanded) {
+        open(false);
+        if (event.altKey) return;
+      }
+      const n = shown.length;
+      if (!n) return;
+      highlight(
+        event.key === "ArrowDown"
+          ? (active + 1) % n
+          : active <= 0
+            ? n - 1
+            : active - 1,
+      );
+    } else if (event.key === "Enter" && expanded && active >= 0) {
+      event.preventDefault();
+      choose(active);
+    } else if (event.key === "Escape" && expanded) {
+      event.preventDefault();
+      event.stopPropagation();
+      close();
+    } else if (event.key === "Tab" || event.key === "Enter") close();
+  });
+  const refresh = () => {
+    if (!list.hidden) open(filtering);
+    warn(false);
+  };
+  comboboxes.push({ input, refresh });
+  warn(false);
+  input.refreshSuggestions = refresh;
+  return refresh;
+}
+/**
+ * A list of names entered as removable chips. Enter, a comma or a space adds
+ * the typed name; Backspace in the empty input removes the last one.
+ */
+function chipField(parent, o) {
+  const id = "setting-" + o.name,
+    wrap = el("div", undefined, "setting"),
+    label = el("label", o.label),
+    chips = el("div", undefined, "chips"),
+    list = el("ul", undefined, "chip-list"),
+    box = el("div", undefined, "combobox"),
+    input = el("input");
+  label.htmlFor = id;
+  input.id = id;
+  input.name = o.name;
+  input.type = "text";
+  input.autocomplete = "off";
+  input.spellcheck = false;
+  list.setAttribute("aria-label", o.label);
+  box.append(input);
+  chips.append(list, box);
+  wrap.append(label, chips);
+  if (o.hint) {
+    const hint = el("p", o.hint, "hint");
+    hint.id = id + "-hint";
+    input.setAttribute("aria-describedby", hint.id);
+    wrap.append(hint);
+  }
+  let names = [...(o.value || [])];
+  const render = () => {
+    list.replaceChildren(
+      ...names.map((name) => {
+        const item = el("li", undefined, "chip"),
+          remove = button(
+            "×",
+            () => {
+              names = names.filter((n) => n !== name);
+              changed();
+              input.focus();
+            },
+            "chip-remove",
+          );
+        remove.setAttribute("aria-label", "Remove " + o.noun + " " + name);
+        item.append(el("span", name), remove);
+        return item;
+      }),
+    );
+    list.hidden = !names.length;
+    input.placeholder = names.length ? "" : o.placeholder || "";
+  };
+  const changed = () => {
+    render();
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  };
+  const add = (text) => {
+    const before = names.length;
+    for (const name of parseList(text))
+      if (!names.some((n) => n.toLowerCase() === name.toLowerCase()))
+        names.push(name);
+    if (names.length !== before) changed();
+  };
+  const commit = () => {
+    const text = input.value;
+    input.value = "";
+    add(text);
+  };
+  // Runs before the combobox filters: a comma or space ends a name, so a
+  // pasted list becomes one chip per name.
+  input.addEventListener("input", () => {
+    const match = /^([\s\S]*)[\s,]([^\s,]*)$/.exec(input.value);
+    if (!match) return;
+    input.value = match[2];
+    add(match[1]);
+  });
+  attachCombobox(wrap, box, input, {
+    options: () =>
+      o.options().filter((option) => !names.includes(option.value)),
+    pick: (value) => {
+      input.value = "";
+      add(value);
+    },
+  });
+  input.addEventListener("keydown", (event) => {
+    if (event.defaultPrevented) return;
+    if (event.key === "Enter" && input.value.trim()) {
+      event.preventDefault();
+      commit();
+    } else if (event.key === "Backspace" && !input.value && names.length) {
+      event.preventDefault();
+      names.pop();
+      changed();
+    }
+  });
+  input.addEventListener("change", () => {
+    if (input.value.trim()) commit();
+  });
+  chips.addEventListener("click", (event) => {
+    if (event.target === chips || event.target === list) input.focus();
+  });
+  render();
+  parent.append(wrap);
+  return { input, values: () => [...names, ...parseList(input.value)] };
+}
+const plural = (n, word) => n + " " + word + (n === 1 ? "" : "s");
+const repositorySuggestion = (path) =>
+  settingsSuggestions?.repositories.find((r) => r.path === path);
+/** Branches across registered repositories, most widely present first. */
+function globalBranchOptions() {
+  const repos = settingsSuggestions?.repositories || [],
+    counts = new Map();
+  for (const r of repos)
+    for (const name of r.branches) counts.set(name, (counts.get(name) || 0) + 1);
+  return [...counts]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([value, n]) => ({
+      value,
+      detail: n + " of " + plural(repos.length, "repo"),
+    }));
+}
+/** One repository's branches, plus extra names such as remote branches. */
+function branchOptions(path, details = {}, extra = () => []) {
+  const r = repositorySuggestion(path);
+  return r
+    ? [...new Set([...r.branches, ...extra(r)])]
+        .sort((a, b) => a.localeCompare(b))
+        .map((value) => ({ value, detail: details[value] }))
+    : [];
+}
+const newBranch = (text) => ({
+  value: text,
+  label: 'Use new branch "' + text + '"',
+});
+/** Warning for a branch missing from some repositories; "" when none are. */
+function missingBranchWarning(name, paths, extra = () => [], which = "") {
+  if (!name || !settingsSuggestions) return "";
+  const missing = [],
+    unknown = [];
+  for (const path of paths) {
+    const r = repositorySuggestion(path);
+    if (!r) continue;
+    if (r.error) unknown.push(r.name);
+    else if (![...r.branches, ...extra(r)].includes(name)) missing.push(r.name);
+  }
+  return (
+    (missing.length
+      ? 'No branch "' +
+        name +
+        '" in ' +
+        missing.join(", ") +
+        which +
+        ". Saving does not create it; create it there before integrating. "
+      : "") +
+    (unknown.length
+      ? "Could not list branches in " + unknown.join(", ") + "."
+      : "")
+  ).trim();
+}
+/** Detected programs as suggestions: each name, then every path found. */
+function programOptions(programs) {
+  return (programs || []).flatMap((p) => [
+    { value: p.name, detail: p.paths[0] },
+    ...p.paths.map((path) => ({ value: path })),
+  ]);
+}
+const participantOptions = (teams) =>
+  (settingsSuggestions?.participants || [])
+    .filter((name) => teams || !name.includes("/"))
+    .map((value) => ({ value }));
 function settingsFacts(parent, entries) {
   const dl = el("dl", undefined, "settings-facts");
   for (const [term, value] of entries) {
@@ -2626,6 +3062,7 @@ async function submitSettings(form, request) {
     renderSettings();
     setSettingsStatus(settingsForms[request.scope], "Saved", "saved");
     $("panel-" + request.scope).focus({ preventScroll: true });
+    void loadSettingsSuggestions();
     void refresh();
   } catch (error) {
     setSettingsStatus(form, error.message, "error");
@@ -2641,26 +3078,45 @@ function globalSettingsForm(data) {
     "Branches and pull requests",
     "Defaults for every registered repository. A repository's own setting takes precedence.",
   );
+  // Repositories without their own target branch use this default.
+  const inheriting = data.repositories
+    .filter((r) => !r.targetBranch)
+    .map((r) => r.path);
   const target = settingField(group, {
     name: "global-target",
     label: "Default target branch",
     value: g.defaultTargetBranch,
     placeholder: "Each repository's default branch",
     hint: "Validated work is promoted here, for example dev. Leave empty to promote to each repository's default branch.",
+    suggest: {
+      options: globalBranchOptions,
+      create: (text) => (settingsSuggestions ? newBranch(text) : null),
+      warning: (name) =>
+        missingBranchWarning(
+          name,
+          inheriting,
+          undefined,
+          ", which use this default",
+        ),
+    },
   });
-  const reviewers = settingField(group, {
+  const reviewers = chipField(group, {
     name: "global-reviewers",
     label: "Default reviewers",
-    value: listText(g.reviewers),
+    noun: "reviewer",
+    value: g.reviewers,
     placeholder: "None",
-    hint: "GitHub users or teams, separated by commas. Pull-request promotion uses them when a repository lists none.",
+    hint: "GitHub users or teams. Type a name and press Enter, or choose one already used. Pull-request promotion uses them when a repository lists none.",
+    options: () => participantOptions(true),
   });
-  const assignees = settingField(group, {
+  const assignees = chipField(group, {
     name: "global-assignees",
     label: "Default assignees",
-    value: listText(g.assignees),
+    noun: "assignee",
+    value: g.assignees,
     placeholder: "None",
-    hint: "GitHub users, separated by commas.",
+    hint: "GitHub users. Type a name and press Enter, or choose one already used.",
+    options: () => participantOptions(false),
   });
   group = settingsGroup(form, "Integration");
   const wait = settingField(group, {
@@ -2706,6 +3162,10 @@ function globalSettingsForm(data) {
       value: g.harnessCommands[h.id],
       placeholder: "Default: " + h.defaultCommand,
       hint: "Leave empty to use " + h.defaultCommand + ".",
+      suggest: {
+        options: () =>
+          programOptions(settingsSuggestions?.programs.harnesses[h.id]),
+      },
     }),
   ]);
   settingsActions(form, "global");
@@ -2717,8 +3177,8 @@ function globalSettingsForm(data) {
         defaultTargetBranch: target.value.trim(),
         lockWaitSeconds: Number(wait.value),
         conflictResolutionMode: conflicts.value,
-        reviewers: parseList(reviewers.value),
-        assignees: parseList(assignees.value),
+        reviewers: reviewers.values(),
+        assignees: assignees.values(),
         deliveryPolicyFile: policy.value.trim(),
         harnessCommands: Object.fromEntries(
           commands.map(([id, input]) => [id, input.value.trim()]),
@@ -2788,7 +3248,15 @@ function repositorySettingsForm(data, r) {
     value: r.gpgProgram,
     placeholder: "Git's gpg.program setting",
     hint: "Program Git uses to sign this repository's commits and merges, for example /usr/bin/gpg. Leave empty to use Git's own setting.",
+    suggest: {
+      options: () => programOptions(settingsSuggestions?.programs.signing),
+    },
   });
+  const listed = () => {
+    const s = repositorySuggestion(r.path);
+    return s && !s.error ? s : null;
+  };
+  const defaultBranch = { [r.defaultBranch]: "default branch" };
   group = settingsGroup(form, "Target and promotion");
   const target = settingField(group, {
     name: "repo-target",
@@ -2796,6 +3264,11 @@ function repositorySettingsForm(data, r) {
     value: r.targetBranch,
     placeholder: "Inherit: " + r.inheritedTargetBranch,
     hint: "Leave empty to inherit the global default target branch.",
+    suggest: {
+      options: () => branchOptions(r.path, defaultBranch),
+      create: (text) => (listed() ? newBranch(text) : null),
+      warning: (name) => missingBranchWarning(name, [r.path]),
+    },
   });
   const p = r.promotion;
   const type = settingField(group, {
@@ -2818,39 +3291,63 @@ function repositorySettingsForm(data, r) {
     ],
     value: p.mode,
   });
+  // The pull-request base can exist only on the remote.
+  let remote;
+  const remoteBranches = (s) =>
+    s.remoteBranches[remote?.value.trim() || "origin"] || [];
   const production = settingField(pullRequest, {
     name: "repo-production",
     label: "Production branch",
     value: p.productionBranch,
     placeholder: r.defaultBranch,
     hint: "Pull requests merge into this branch. Leave empty to use " + r.defaultBranch + ".",
+    suggest: {
+      options: () => branchOptions(r.path, defaultBranch, remoteBranches),
+      create: (text) => (listed() ? newBranch(text) : null),
+      warning: (name) => missingBranchWarning(name, [r.path], remoteBranches),
+    },
   });
-  const remote = settingField(pullRequest, {
+  remote = settingField(pullRequest, {
     name: "repo-remote",
     label: "Remote",
     value: p.remote,
     placeholder: "origin",
     hint: "Leave empty to use origin.",
+    suggest: {
+      options: () => (listed()?.remotes || []).map((value) => ({ value })),
+      warning: (name) => {
+        const s = listed();
+        return name && s && !s.remotes.includes(name)
+          ? 'No remote "' + name + '" in ' + s.name + ". Add it with git remote add before promoting."
+          : "";
+      },
+    },
   });
+  remote.addEventListener("change", () => production.refreshSuggestions());
+  production.refreshSuggestions();
   const inherited = (own, global) =>
     own && !own.length
       ? "None"
       : global.length
         ? "Inherit: " + listText(global)
         : "None";
-  const reviewers = settingField(pullRequest, {
+  const reviewers = chipField(pullRequest, {
     name: "repo-reviewers",
     label: "Reviewers",
-    value: listText(p.reviewers),
+    noun: "reviewer",
+    value: p.reviewers,
     placeholder: inherited(p.reviewers, data.global.reviewers),
-    hint: "Separate with commas. Leave empty to use the global default reviewers.",
+    hint: "Type a name and press Enter, or choose one already used. Leave empty to use the global default reviewers.",
+    options: () => participantOptions(true),
   });
-  const assignees = settingField(pullRequest, {
+  const assignees = chipField(pullRequest, {
     name: "repo-assignees",
     label: "Assignees",
-    value: listText(p.assignees),
+    noun: "assignee",
+    value: p.assignees,
     placeholder: inherited(p.assignees, data.global.assignees),
-    hint: "Separate with commas. Leave empty to use the global default assignees.",
+    hint: "Type a name and press Enter, or choose one already used. Leave empty to use the global default assignees.",
+    options: () => participantOptions(false),
   });
   const syncPromotion = () => {
     pullRequest.hidden = type.value !== "pull-request";
@@ -2925,8 +3422,8 @@ function repositorySettingsForm(data, r) {
     );
   }
   settingsActions(form, "repository");
-  const list = (input, original) => {
-    const names = parseList(input.value);
+  const list = (field, original) => {
+    const names = field.values();
     return names.length
       ? names
       : Array.isArray(original) && !original.length

@@ -213,6 +213,31 @@ Settings, at the bottom of the repository panel, opens three tabs:
   Repositories cannot be added, removed or moved here: use `seshx register`,
   and keep each `path` and `gitCommonDir`.
 
+Branch, remote, program, reviewer and assignee fields suggest values as you
+type. Type to filter, use the arrow keys to move through the list, Enter to
+choose, and Escape to close it. Any typed value is still accepted:
+
+- **Default target branch** lists branches across all registered
+  repositories, most common first, with how many have each (for example
+  `dev — 4 of 5 repos`).
+- **Target branch**, **Production branch** and **Remote** list that
+  repository's branches and Git remotes. Production branch also lists the
+  chosen remote's branches.
+- A branch that does not exist is offered as **Use new branch "name"**.
+  Saving stores only the name and never creates Git branches; a warning names
+  the repositories that lack it. Create it there before integrating.
+- **Reviewers** and **Assignees** are chips. Type a name and press Enter (or a
+  comma or space), or choose a name already used in the configuration; teams
+  are suggested only as reviewers. Backspace in the empty field removes the
+  last chip, and × removes any one.
+- **Signing program** and agent commands suggest programs found on `PATH`,
+  such as `gpg`, `gpg2` and `ssh-keygen`, by name and by full path.
+
+Suggestions come from the read-only `GET /api/settings/suggestions`, which
+lists local and remote-tracking branches with `git for-each-ref`, without the
+staging branch and seshx task branches. If it fails, the fields work as plain
+text inputs.
+
 Save changes writes only the fields you changed to the runtime `config.json`,
 under the configuration lock. The server refuses values the CLI would reject,
 forms loaded before another edit, and repository changes while that
