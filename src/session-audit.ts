@@ -211,32 +211,52 @@ export interface SessionAuditOptions {
 export async function auditSessions(
   options: SessionAuditOptions = {},
 ): Promise<SessionAudit[]> {
+  return (await auditSessionRecords(options)).map(({ audit }) => audit);
+}
+
+export interface AuditedSession {
+  /** The record the audit was made from. */
+  session: Session;
+  audit: SessionAudit;
+}
+
+/**
+ * `auditSessions` with the record behind each audit, for commands that act
+ * on what was shown. A supplied context is shared, for example across a
+ * batch; its `now` takes precedence over `options.now`.
+ */
+export async function auditSessionRecords(
+  options: SessionAuditOptions = {},
+  supplied?: AuditContext,
+): Promise<AuditedSession[]> {
   const [config, sessions] = await Promise.all([
-    readConfig(true),
+    supplied ? Promise.resolve(supplied.config) : readConfig(true),
     readSessions(true),
   ]);
-  const context = await createAuditContext({
-    config,
-    ...(options.now ? { now: options.now } : {}),
-  });
+  const context =
+    supplied ??
+    (await createAuditContext({
+      config,
+      ...(options.now ? { now: options.now } : {}),
+    }));
   let selected = sessions.filter(unfinished);
   if (options.repo !== undefined) {
     const matches = await repositoryMatcher(options.repo);
     selected = selected.filter(matches);
   }
-  const audits: SessionAudit[] = [];
+  const audited: AuditedSession[] = [];
   // Sequential to keep subprocess use modest on large runtimes.
   for (const session of selected)
-    audits.push(await classifySession(session, context));
+    audited.push({ session, audit: await classifySession(session, context) });
   const minimum = options.idleDays;
   const filtered =
     minimum === undefined
-      ? audits
-      : audits.filter(
-          (audit) => audit.idleDays !== null && audit.idleDays >= minimum,
+      ? audited
+      : audited.filter(
+          ({ audit }) => audit.idleDays !== null && audit.idleDays >= minimum,
         );
   return filtered.sort(
-    (a, b) =>
+    ({ audit: a }, { audit: b }) =>
       AUDIT_BUCKETS.indexOf(a.bucket) - AUDIT_BUCKETS.indexOf(b.bucket) ||
       (b.idleDays ?? -1) - (a.idleDays ?? -1) ||
       a.startedAt.localeCompare(b.startedAt),
