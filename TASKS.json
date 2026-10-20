@@ -6,50 +6,105 @@
     {
       "id": "SI-001",
       "title": "Add a read-only stale-session audit command",
-      "status": "ready",
+      "status": "completed",
       "order": 10,
       "executor": "automated",
       "device_requirement": [],
       "blocked_by": [],
       "acceptance": "A read-only command (for example `seshx sessions audit [--repo <path>] [--idle-days N]`) lists every unfinished session with exactly one bucket and the evidence behind it: empty (no commits since start, clean worktree, no checklist), delivered (source commit already reachable from the target branch), unsaved work (uncommitted files or unintegrated commits), corrupt (missing worktree, branch, or pinned coordinator), in lifecycle (ready, lock-waiting, recovery, validation_pending, or promotion_pending), or other; plus idle days since last activity. Output states that liveness is inferred, never proven. It changes no session, Git, or filesystem state, and disposable-repository tests cover each bucket.",
       "doc": "docs/commands.md",
-      "evidence": []
+      "evidence": [
+        "src/session-audit.ts",
+        "test/session-audit.test.ts",
+        "docs/commands.md"
+      ]
     },
     {
       "id": "SI-002",
       "title": "Record a last-activity heartbeat on sessions",
-      "status": "ready",
+      "status": "completed",
       "order": 20,
       "executor": "automated",
       "device_requirement": [],
       "blocked_by": [],
       "acceptance": "Lifecycle and `seshx tasks` commands record a session `lastActivityAt` timestamp under the session record lock. Idle calculations use it, falling back to `tasksUpdatedAt`, `startedAt`, and worktree modification time for older records. Older coordinators can still read and resume sessions that carry the new field, and tests cover both new and legacy records.",
       "doc": "docs/commands.md",
-      "evidence": []
+      "evidence": [
+        "src/runtime.ts",
+        "src/handoff.ts",
+        "src/session-audit.ts",
+        "test/session-activity.test.ts",
+        "test/session-audit.test.ts",
+        "docs/commands.md",
+        "docs/development.md",
+        "SPEC.md"
+      ]
     },
     {
       "id": "SI-003",
       "title": "Add a single-session abandon command",
-      "status": "blocked",
+      "status": "completed",
       "order": 30,
       "executor": "automated",
       "device_requirement": [],
-      "blocked_by": ["SI-001"],
+      "blocked_by": [],
       "acceptance": "`seshx abandon --session <id> --reason \"...\"` shows the session's audit bucket, then records a terminal `abandoned` status with the reason and timestamp. It preserves the branch, worktree, commits, and recovery evidence; refuses sessions in lifecycle or recovery state or holding a lock; and requires an explicit flag for sessions with unsaved work. A documented command restores an abandoned session to active. Status and the dashboard show abandoned sessions separately, and they no longer count as unfinished for uninstall or coordinator checks. Disposable-repository tests cover each refusal and the restore path.",
       "doc": "docs/commands.md",
-      "evidence": []
+      "evidence": [
+        "src/abandon.ts",
+        "src/runtime.ts",
+        "src/coordinator.ts",
+        "src/status.ts",
+        "src/dashboard.ts",
+        "src/dashboard-web.ts",
+        "src/dashboard-web-assets.ts",
+        "test/abandon.test.ts",
+        "test/installation-transition.test.ts",
+        "docs/commands.md",
+        "docs/development.md",
+        "SPEC.md"
+      ]
     },
     {
       "id": "SI-004",
       "title": "Add batch abandon for all matching stale sessions",
-      "status": "blocked",
+      "status": "completed",
       "order": 40,
       "executor": "automated",
       "device_requirement": [],
-      "blocked_by": ["SI-001", "SI-003"],
+      "blocked_by": [],
       "acceptance": "`seshx abandon --all [--repo <path>] [--idle-days N] [--bucket <list>]` previews matching sessions by default and changes nothing without `--apply`. It selects only the empty, delivered, and corrupt buckets by default; sessions with unsaved work require `--include-unsaved` and are listed individually. Immediately before closing each session it rechecks the session under its record lock and skips any session that changed since the preview or is in lifecycle, lock-waiting, or recovery state. It reports closed and skipped sessions with reasons, preserves all branches, worktrees, commits, and recovery evidence, and tests cover preview, apply, filters, and recheck skips.",
       "doc": "docs/commands.md",
-      "evidence": []
+      "evidence": [
+        "src/abandon.ts",
+        "src/session-audit.ts",
+        "src/cli.ts",
+        "test/abandon-batch.test.ts",
+        "docs/commands.md",
+        "SPEC.md"
+      ]
+    },
+    {
+      "id": "SI-005",
+      "title": "Support a central delivery policy, target sync and JSON session output",
+      "status": "completed",
+      "order": 50,
+      "executor": "automated",
+      "device_requirement": [],
+      "blocked_by": [],
+      "acceptance": "`seshx begin --policy-file <path>` (else global `deliveryPolicyFile`) strictly validates a `sesh-integrator/delivery-policy@1` file, fails with `policy_missing` or `policy_invalid` before changing anything, resolves the repository rule from the GitHub fetch URL, and records `delivery` with the file's SHA-256 on the session; `integrate` and `resume` use the recorded target and promotion. `begin --sync-target` fast-forwards the local target from its remote under the repository lock with the documented outcomes and never resets or forces. `begin --json` and `status --session <id> --json` print one `sesh-integrator/session-status@1` document, failures print `sesh-integrator/error@1`, and `seshx policy check` validates a file. Tests with disposable repositories cover every sync outcome, policy errors, promotion override and the JSON documents.",
+      "doc": "docs/configuration.md",
+      "evidence": [
+        "src/delivery-policy.ts",
+        "src/sync-target.ts",
+        "src/json-output.ts",
+        "src/handoff.ts",
+        "src/cli.ts",
+        "test/delivery-policy.test.ts",
+        "docs/configuration.md",
+        "docs/commands.md",
+        "SPEC.md"
+      ]
     }
   ]
 }

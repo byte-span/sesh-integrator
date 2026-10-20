@@ -12,6 +12,7 @@ import {
 import { run } from "./process.js";
 import { runtimePaths, readSessions, readConfig, repoId } from "./runtime.js";
 import { listWorktrees } from "./git.js";
+import { unfinished } from "./coordinator.js";
 import { repositoryCommonDir } from "./enablement.js";
 
 const key = "sesh.worktreeRoot";
@@ -102,10 +103,7 @@ export async function worktreeLocationCommand(
   const existing = await worktreePaths(cwd);
   if (existing.sourceWorktrees !== join(root, "source-worktrees")) {
     for (const session of await readSessions(true)) {
-      if (
-        !["succeeded", "no_changes"].includes(session.status) &&
-        session.repositoryId === repoId(common)
-      )
+      if (unfinished(session) && session.repositoryId === repoId(common))
         throw new Error(
           `Preserve unfinished session ${session.id}; finish it before changing worktree locations`,
         );

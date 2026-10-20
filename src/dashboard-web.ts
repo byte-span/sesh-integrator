@@ -15,12 +15,24 @@ import {
   detailLines,
   filterDashboard,
   defaultDashboardView,
+  idleLabel,
   loadDashboard,
   needsAttention,
   type DashboardRow,
   type IntegrationInput,
 } from "./dashboard.js";
 import { watchDashboard } from "./dashboard-watch.js";
+import {
+  loadSettings,
+  loadSettingsHistory,
+  loadSettingsJson,
+  loadSettingsSnapshot,
+  maxSettingsJsonLength,
+  parseSettingsJsonRequest,
+  parseSettingsRequest,
+  saveSettings,
+  saveSettingsJson,
+} from "./dashboard-settings.js";
 import { currentTask, taskProgress } from "./tasks.js";
 import { targetBranch } from "./promotion.js";
 import { webHtml, webCss, webScript } from "./dashboard-web-assets.js";
@@ -65,6 +77,8 @@ function nextAction(row: DashboardRow): string {
   if (!s) return "Run seshx begin in this repository to start a session.";
   if (!row.repository)
     return "Restore this repository's registration before running an action.";
+  if (s.status === "abandoned")
+    return `This session was abandoned; its branch, worktree and commits were kept. To continue it, run seshx restore --session ${s.id}.`;
   if (s.status === "succeeded" || s.status === "no_changes")
     return s.pullRequestUrl || s.rolloutFollowUps?.length
       ? "Review the pull request and complete any outstanding follow-ups below."
@@ -82,13 +96,15 @@ function nextAction(row: DashboardRow): string {
     : "Commit your source changes, then choose Validate.";
 }
 
-export function webRow(row: DashboardRow) {
+export function webRow(row: DashboardRow, now = new Date()) {
   const s = row.session;
   const repository = row.repository?.path ?? s?.repositoryPath ?? "";
   const times = [
     s?.startedAt,
+    s?.lastActivityAt,
     s?.tasksUpdatedAt,
     s?.closedAt,
+    s?.abandonment?.abandonedAt,
     s?.readyAt,
     s?.sourceValidatedAt,
     s?.integratedAt,
@@ -105,6 +121,7 @@ export function webRow(row: DashboardRow) {
     title: s?.taskSummary ?? "No sessions yet",
     branch: s?.branch ?? "",
     status: s?.status ?? "empty",
+    idle: s ? (idleLabel(s, now) ?? null) : null,
     attention: needsAttention(row),
     updated: Math.max(0, ...times.map((t) => (t ? Date.parse(t) || 0 : 0))),
     progress: taskProgress(s),
@@ -189,16 +206,23 @@ export const runWebCommand: WebRunner = async (row, args, output) => {
   });
 };
 
-async function readRequest(req: IncomingMessage): Promise<ActionRequest> {
+async function readBody(
+  req: IncomingMessage,
+  limit = 16_384,
+): Promise<unknown> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of req) {
     const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     size += bytes.length;
-    if (size > 16_384) throw new Error("Request too large");
+    if (size > limit) throw new Error("Request too large");
     chunks.push(bytes);
   }
-  const value: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+}
+
+async function readRequest(req: IncomingMessage): Promise<ActionRequest> {
+  const value = await readBody(req);
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new Error("Invalid action request");
   const v = value as ActionRequest;
@@ -215,12 +239,28 @@ export async function startWebDashboard(
   options: {
     port?: number;
     load?: typeof loadDashboard;
+    settings?: {
+      load: typeof loadSettings;
+      save: typeof saveSettings;
+      loadJson: typeof loadSettingsJson;
+      saveJson: typeof saveSettingsJson;
+      loadHistory: typeof loadSettingsHistory;
+      loadSnapshot: typeof loadSettingsSnapshot;
+    };
     run?: WebRunner;
     watch?: typeof watchDashboard;
   } = {},
 ) {
   const load = options.load ?? loadDashboard;
   const run = options.run ?? runWebCommand;
+  const settings = options.settings ?? {
+    load: loadSettings,
+    save: saveSettings,
+    loadJson: loadSettingsJson,
+    saveJson: saveSettingsJson,
+    loadHistory: loadSettingsHistory,
+    loadSnapshot: loadSettingsSnapshot,
+  };
   const clients = new Set<ServerResponse>();
   let origin = "";
   let closing = false;
@@ -294,11 +334,31 @@ export async function startWebDashboard(
             filter: "all",
             sort: "updated",
           });
+          const now = new Date();
           json(res, 200, {
-            rows: rows.map(webRow),
+            rows: rows.map((row) => webRow(row, now)),
             job,
-            refreshedAt: new Date().toISOString(),
+            refreshedAt: now.toISOString(),
           });
+          return;
+        }
+        if (req.url === "/api/settings") {
+          json(res, 200, await settings.load());
+          return;
+        }
+        if (req.url === "/api/settings/json") {
+          json(res, 200, await settings.loadJson());
+          return;
+        }
+        if (req.url === "/api/settings/history") {
+          json(res, 200, await settings.loadHistory());
+          return;
+        }
+        const snapshot = /^\/api\/settings\/history\/([\w-]+)$/.exec(
+          req.url ?? "",
+        );
+        if (snapshot) {
+          json(res, 200, await settings.loadSnapshot(snapshot[1]!));
           return;
         }
         if (req.url === "/api/events") {
@@ -312,17 +372,40 @@ export async function startWebDashboard(
           return;
         }
       }
-      if (req.method === "POST" && req.url === "/api/action") {
-        if (
-          req.headers.origin !== origin ||
+      if (
+        req.method === "POST" &&
+        (req.url === "/api/action" ||
+          req.url === "/api/settings" ||
+          req.url === "/api/settings/json") &&
+        (req.headers.origin !== origin ||
           req.headers["x-sesh-dashboard"] !== "1" ||
-          req.headers["content-type"] !== "application/json"
-        ) {
-          json(res, 403, {
-            error: "Actions require a same-origin dashboard request",
-          });
-          return;
-        }
+          req.headers["content-type"] !== "application/json")
+      ) {
+        json(res, 403, {
+          error: "Changes require a same-origin dashboard request",
+        });
+        return;
+      }
+      if (req.method === "POST" && req.url === "/api/settings") {
+        const saved = await settings.save(
+          parseSettingsRequest(await readBody(req)),
+        );
+        json(res, 200, saved);
+        notify();
+        return;
+      }
+      if (req.method === "POST" && req.url === "/api/settings/json") {
+        // JSON string escaping can expand each character to six bytes.
+        const saved = await settings.saveJson(
+          parseSettingsJsonRequest(
+            await readBody(req, maxSettingsJsonLength * 6 + 1024),
+          ),
+        );
+        json(res, 200, saved);
+        notify();
+        return;
+      }
+      if (req.method === "POST" && req.url === "/api/action") {
         if (reserved || job?.running) {
           json(res, 409, { error: "A dashboard command is already running" });
           return;

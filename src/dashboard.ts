@@ -8,6 +8,7 @@ import { currentTask, taskProgress, taskLines } from "./tasks.js";
 import { targetBranch } from "./promotion.js";
 import { pullRequestPromotion } from "./pull-request.js";
 import { readConfig, readSessions } from "./runtime.js";
+import { idleDays, lastActivity } from "./session-audit.js";
 import type { RepositoryConfig, RolloutDisposition, Session } from "./types.js";
 
 export type DashboardAction = "validate" | "integrate" | "resume";
@@ -39,7 +40,13 @@ export async function loadDashboard(): Promise<DashboardRow[]> {
     repository: repositories.get(session.repositoryPath),
     session,
   }));
-  const occupied = new Set(sessions.map((session) => session.repositoryPath));
+  // Abandoned sessions appear only under their own filter, so a repository
+  // with nothing else keeps its empty row in the other views.
+  const occupied = new Set(
+    sessions
+      .filter((session) => session.status !== "abandoned")
+      .map((session) => session.repositoryPath),
+  );
   for (const repository of config.repositories) {
     if (!occupied.has(repository.path))
       rows.push({ repository, session: undefined });
@@ -58,6 +65,8 @@ export function actionReason(
     return "Session is already waiting for the repository lock";
   if (s.status === "no_changes") return "Session finished without changes";
   if (s.status === "succeeded") return "Session already integrated";
+  if (s.status === "abandoned")
+    return `Session was abandoned; restore it with seshx restore --session ${s.id}`;
   if (action === "validate")
     return s.status === "active"
       ? undefined
@@ -147,6 +156,16 @@ export function detailLines(row: DashboardRow, includeTasks = true): string[] {
     );
   if (s.closedAt)
     lines.push(`Finished without changes: ${exactTime(s.closedAt)}`);
+  if (s.abandonment)
+    lines.push(
+      `Abandoned: ${exactTime(s.abandonment.abandonedAt)} from ${s.abandonment.previousStatus} (bucket ${s.abandonment.bucket})`,
+      `Abandon reason: ${s.abandonment.reason}`,
+      `Restore: seshx restore --session ${s.id}`,
+    );
+  for (const past of s.abandonmentHistory ?? [])
+    lines.push(
+      `Restored: ${past.restoredAt ? exactTime(past.restoredAt) : "unknown"} (abandoned ${exactTime(past.abandonedAt)}: ${past.reason})`,
+    );
   if (s.satisfiedBySessionId)
     lines.push(`Satisfied by session: ${s.satisfiedBySessionId}`);
   if (s.completionSummary) lines.push(`Completion: ${s.completionSummary}`);
@@ -299,8 +318,7 @@ export interface DetailPaneState {
 }
 
 function sessionCurrentTask(session?: Session): string {
-  if (!session || ["succeeded", "no_changes"].includes(session.status))
-    return "";
+  if (!session || closedStatuses.includes(session.status)) return "";
   return session.tasks?.some((task) =>
     ["pending", "in_progress", "blocked"].includes(task.status),
   )
@@ -308,20 +326,36 @@ function sessionCurrentTask(session?: Session): string {
     : "";
 }
 
-function sessionStatusLabel(row: DashboardRow): string {
+/**
+ * Label an active session with no recorded activity for at least a day. Only
+ * the displayed label changes; the stored status stays `active`.
+ */
+export function idleLabel(
+  session: Session,
+  now = new Date(),
+): string | undefined {
+  if (session.status !== "active") return undefined;
+  const days = idleDays(lastActivity(session), now);
+  return days ? `Idle ${days}d` : undefined;
+}
+
+function sessionStatusLabel(row: DashboardRow, now = new Date()): string {
   const session = row.session;
   if (!row.repository || !session) return stateLabel(row);
   if (session.status === "no_changes") return "No changes";
   if (session.status === "succeeded") return "Integrated";
-  return session.status === "active" ? "In progress" : stateLabel(row);
+  if (session.status === "abandoned") return "Abandoned";
+  return session.status === "active"
+    ? (idleLabel(session, now) ?? "In progress")
+    : stateLabel(row);
 }
 
-function sessionRowStatus(row: DashboardRow): string {
-  const status = sessionStatusLabel(row);
+function sessionRowStatus(row: DashboardRow, now = new Date()): string {
+  const status = sessionStatusLabel(row, now);
   const session = row.session;
   return row.repository &&
     session?.tasks?.length &&
-    !["succeeded", "no_changes"].includes(session.status)
+    !closedStatuses.includes(session.status)
     ? `${status} | ${sessionProgress(session)}`
     : status;
 }
@@ -348,6 +382,7 @@ export function renderDetailPane(
   width: number,
   height: number,
   requestedOffset = 0,
+  now = new Date(),
 ) {
   width = Math.max(1, width);
   height = Math.max(4, height);
@@ -362,7 +397,7 @@ export function renderDetailPane(
       "...".slice(0, width);
   const header = [
     ...title,
-    terminalText(sessionStatusLabel(row)).slice(0, width),
+    terminalText(sessionStatusLabel(row, now)).slice(0, width),
   ];
   const body = wrapLines(
     [
@@ -449,11 +484,22 @@ export function scrollDetailPane(
   );
 }
 
+/** Integrated, finished without changes, or abandoned. */
+const closedStatuses: readonly Session["status"][] = [
+  "succeeded",
+  "no_changes",
+  "abandoned",
+];
+const finishedStatuses: readonly Session["status"][] = [
+  "succeeded",
+  "no_changes",
+];
+
 export function needsAttention(row: DashboardRow): boolean {
   const s = row.session;
   return (
     !!s &&
-    !["succeeded", "no_changes"].includes(s.status) &&
+    !closedStatuses.includes(s.status) &&
     (!row.repository ||
       !!s.validationFailure ||
       !!s.tasks?.some((task) => task.status === "blocked") ||
@@ -476,6 +522,7 @@ function stateLabel(row: DashboardRow): string {
   if (!row.repository) return "unregistered";
   if (s.status === "no_changes") return "no changes needed";
   if (s.status === "succeeded") return "completed";
+  if (s.status === "abandoned") return "abandoned";
   if (s.waitingForLock) return "waiting for lock";
   if (s.awaitingConflictResolution) return "merge conflict";
   if (s.validationFailure) return "validation failed";
@@ -486,7 +533,9 @@ function nextStep(row: DashboardRow): string {
   const s = row.session;
   if (!s) return "Run begin in this repository";
   if (!row.repository) return "Restore repository registration";
-  if (["succeeded", "no_changes"].includes(s.status)) {
+  if (s.status === "abandoned")
+    return `Abandoned; seshx restore --session ${s.id} to continue`;
+  if (finishedStatuses.includes(s.status)) {
     if (s.pullRequestUrl) return "Review and merge PR; Enter for follow-ups";
     if (s.rolloutFollowUps?.length)
       return "Complete external follow-ups; Enter details";
@@ -519,6 +568,11 @@ export function dashboardActivity(
           [s.sourceValidatedAt, "validated"],
           [s.integratedAt, "integrated"],
           [s.promotedAt, "promoted"],
+          ...(s.abandonmentHistory ?? []).flatMap((past) => [
+            [past.abandonedAt, "abandoned"] as const,
+            [past.restoredAt, "restored"] as const,
+          ]),
+          [s.abandonment?.abandonedAt, "abandoned"],
         ] as const
       ).flatMap(([at, action]) =>
         at && Number.isFinite(Date.parse(at))
@@ -559,11 +613,21 @@ export function navigateDashboard(
 }
 
 export interface DashboardView {
-  filter: "all" | "needs attention" | "active" | "review" | "completed";
+  filter:
+    "all" | "needs attention" | "active" | "review" | "completed" | "abandoned";
   repository: string;
   query: string;
   sort: "priority" | "updated" | "repository";
 }
+/** Status filters in cycling order. */
+export const dashboardFilters: readonly DashboardView["filter"][] = [
+  "all",
+  "needs attention",
+  "active",
+  "review",
+  "completed",
+  "abandoned",
+];
 export const defaultDashboardView: DashboardView = {
   filter: "all",
   repository: "",
@@ -654,8 +718,10 @@ function updatedAt(row: DashboardRow): number {
     0,
     ...[
       s.startedAt,
+      s.lastActivityAt,
       s.tasksUpdatedAt,
       s.closedAt,
+      s.abandonment?.abandonedAt,
       s.readyAt,
       s.sourceValidatedAt,
       s.integratedAt,
@@ -673,17 +739,22 @@ export function filterDashboard(
   const result = rows.filter((row) => {
     const s = row.session;
     const path = row.repository?.path ?? s?.repositoryPath ?? "";
+    // Abandoned sessions are listed only under their own filter.
+    const abandoned = s?.status === "abandoned";
     const matches =
-      view.filter === "all" ||
-      (view.filter === "needs attention" && needsAttention(row)) ||
-      (view.filter === "active" &&
-        !!s &&
-        !["succeeded", "no_changes"].includes(s.status)) ||
-      (view.filter === "review" &&
-        (s?.status === "needs_review" || !!s?.pullRequestUrl)) ||
-      (view.filter === "completed" &&
-        !!s &&
-        ["succeeded", "no_changes"].includes(s.status));
+      view.filter === "abandoned"
+        ? abandoned
+        : !abandoned &&
+          (view.filter === "all" ||
+            (view.filter === "needs attention" && needsAttention(row)) ||
+            (view.filter === "active" &&
+              !!s &&
+              !closedStatuses.includes(s.status)) ||
+            (view.filter === "review" &&
+              (s?.status === "needs_review" || !!s?.pullRequestUrl)) ||
+            (view.filter === "completed" &&
+              !!s &&
+              finishedStatuses.includes(s.status)));
     return (
       matches &&
       (!view.repository || path === view.repository) &&
@@ -813,7 +884,7 @@ function renderDashboardContent(
   const selectedRow = rows[selected];
   const attention = rows.filter(needsAttention).length;
   const active = rows.filter(
-    (r) => r.session && !["succeeded", "no_changes"].includes(r.session.status),
+    (r) => r.session && !closedStatuses.includes(r.session.status),
   ).length;
   const title = `sesh-integrator  ${visible.length} visible | ${attention} attention | ${active} active`;
   const refresh = `Last refresh ${exactTime(refreshedAt.getTime())}`;
@@ -824,7 +895,7 @@ function renderDashboardContent(
   const repoWidth = Math.min(18, Math.max(10, Math.floor(leftWidth * 0.18)));
   const statusWidth = Math.min(
     Math.floor(leftWidth * 0.36),
-    Math.max(18, ...rows.map((row) => sessionRowStatus(row).length)),
+    Math.max(18, ...rows.map((row) => sessionRowStatus(row, now).length)),
   );
   const descriptionWidth = leftWidth - repoWidth - statusWidth - 4;
   const table = (
@@ -841,7 +912,7 @@ function renderDashboardContent(
   const filterLabel = view.filter;
   const filters =
     width >= 150
-      ? ["all", "needs attention", "active", "review", "completed"]
+      ? dashboardFilters
           .map((label) => (label === filterLabel ? `[${label}]` : label))
           .join("  ")
       : `[${filterLabel}]  f status`;
@@ -879,7 +950,7 @@ function renderDashboardContent(
     used += sessionRowHeight(rows[--start]!, tabular);
   }
   const details = selectedRow
-    ? renderDetailPane(selectedRow, rightWidth, count, pane.offset).lines
+    ? renderDetailPane(selectedRow, rightWidth, count, pane.offset, now).lines
     : ["Select a session to inspect its next action."];
   const listLines: string[] = [];
   for (let index = start; index < visible.length; index++) {
@@ -891,7 +962,7 @@ function renderDashboardContent(
           table(
             name(row),
             row.session?.taskSummary ?? "No session",
-            sessionRowStatus(row),
+            sessionRowStatus(row, now),
             marker,
           ),
         ]
@@ -902,7 +973,7 @@ function renderDashboardContent(
       rowLines.push(
         tabular ? table("", `Task: ${task}`, "") : `  Task: ${task}`,
       );
-    if (!tabular) rowLines.push(`  ${sessionRowStatus(row)}`);
+    if (!tabular) rowLines.push(`  ${sessionRowStatus(row, now)}`);
     if (listLines.length && listLines.length + rowLines.length > count) break;
     listLines.push(...rowLines);
   }
@@ -1430,13 +1501,7 @@ export async function dashboardCommand(): Promise<void> {
         previousQuery = view.query;
         searching = true;
       } else if (["f", "left", "right"].includes(key.name ?? "")) {
-        const filters: DashboardView["filter"][] = [
-          "all",
-          "needs attention",
-          "active",
-          "review",
-          "completed",
-        ];
+        const filters = dashboardFilters;
         view.filter =
           filters[
             (filters.indexOf(view.filter) +

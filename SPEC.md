@@ -248,6 +248,10 @@ existing registrations that omit `targetBranch` without rewriting them, while
 preserving explicit per-repository exceptions. Omitting the global setting
 retains the backward-compatible default-branch behavior.
 
+Optional global `deliveryPolicyFile` names a central delivery policy that
+`begin` applies when `--policy-file` is not given; see
+[Central delivery policy](#central-delivery-policy-and-machine-readable-output).
+
 Remote promotion defaults to `{ "type": "none" }`. A repository may opt into
 `pull-request` promotion after successful local promotion and post-integration
 checks. The tool pushes the effective target to `origin` by default, then
@@ -295,6 +299,7 @@ Create:
 ```text
 ~/.sesh-integrator/
 ├── config.json
+├── config-history/       # replaced config.json versions (newest 20)
 ├── state.json
 ├── codex-home/
 ├── sessions/
@@ -446,6 +451,9 @@ Requirements:
 - no active session already attached to the selected source worktree
 - active sessions launched earlier from the same ordinary checkout do not block
   another `--create-worktree` task; each receives a unique branch and worktree
+
+- optional `--policy-file <path>`, `--sync-target` and `--json` behave as in
+  [Central delivery policy](#central-delivery-policy-and-machine-readable-output)
 
 Source lifecycle commands infer the session from the current source worktree for
 backward compatibility. `commit`, `validate`, `integrate`, and `resume` also
@@ -752,8 +760,10 @@ Show:
 - start time / ready time / integrated time
 - latest error
 - target branch, expected target commit, promoted commit, and recovery phase
+- the recorded delivery rule, when present
 
-Keep it simple.
+Keep it simple. `status --session <id> --json` prints the session's
+machine-readable status document instead.
 
 ## 13. `doctor`
 
@@ -930,6 +940,135 @@ No Git or source-file changes occur. Dependencies continue to require a
 successfully integrated session. Guidance requires explicit no-change completion
 before the agent's final response; finishing a terminal conversation is not a
 session-state event.
+
+### Session activity heartbeat
+
+A session may have an optional `lastActivityAt` timestamp. Lifecycle saves
+(`begin`, `commit`, `validate`, `integrate`, `resume`, `finish`, `restore`,
+`reconcile --apply`) and checklist mutations set it under the per-session
+record lock. A lifecycle save from a stale snapshot records new activity, while
+bookkeeping saves keep the stored value rather than the snapshot's. Read-only
+commands (`status`, `tasks list`, `sessions audit`, `dashboard`, `incident`,
+`doctor`) and lazy indexing of legacy records never set it, so the field reflects
+work rather than observation.
+
+Idle calculations use the later of `lastActivityAt` and `tasksUpdatedAt`, then
+`startedAt`, then the source worktree modification time. Legacy records are not
+backfilled. The field does not change the state contract: older coordinators
+parse records without field validation and rewrite them whole, so they keep the
+heartbeat without refreshing it.
+
+### Abandoning sessions
+
+`abandon --session <id> --reason "..." [--include-unsaved]` prints the
+session's audit bucket and evidence, then closes an `active` session as the
+terminal status `abandoned`. It refuses lifecycle statuses, recorded
+integration or recovery state (ready/staging/promoted commits, lock wait,
+conflict, recovery phase or bundle, local target recovery), the `lifecycle`
+audit bucket, a held repository lock or present session record lock, and,
+without `--include-unsaved`, the `unsaved` bucket or an incomplete inspection.
+Under the session record lock it re-reads and re-audits the record (ignoring
+the lock it holds itself) and refuses when the status, heartbeat, checklist
+time, lifecycle state, bucket, worktree/branch heads, uncommitted paths, commit
+counts or lock facts differ from the shown audit. It persists `abandonment`
+(`abandonedAt`, non-empty single-line `reason` of at most 500 characters,
+`previousStatus`, `bucket`, `evidence`, optional `includedUnsaved`) and leaves
+`lastActivityAt` unchanged. Only the session record and its indexes change.
+
+`abandon --all [--repo <path>] [--idle-days <n>] [--bucket <list>]
+[--include-unsaved] [--apply --reason "..."]` audits the matching unfinished
+sessions read-only and previews which it would close: the `empty`, `delivered`
+and `corrupt` buckets by default, `--bucket` choosing among those and
+`unsaved`. `unsaved` requires `--include-unsaved`, which must not contradict an
+explicit `--bucket` list; `lifecycle` and `other` are never selectable.
+Sessions in a selected bucket that the single-session form would refuse, or
+whose coordinator contract is incompatible, are listed as left alone. Without
+`--apply` nothing is written. With `--apply` and a required reason, each
+selected session is abandoned in turn with its shown record and audit as the
+preview, so the same record-lock recheck applies, and `--include-unsaved` is
+granted only to sessions the shown audit required it for. A present session
+record lock is skipped without waiting. Refusals and errors skip that session
+and the batch continues; the command reports closed and skipped sessions and
+exits 1 when any were skipped. The batch form performs no runtime-wide
+compatibility preflight; compatibility is checked per session.
+
+`restore --session <id>` returns an abandoned session to its `previousStatus`
+(only `active` is supported), appends the abandonment with `restoredAt` to
+`abandonmentHistory`, and records activity. It refuses when another unfinished
+session uses the same worktree path.
+
+Abandoned sessions are excluded from `unfinished` (uninstall deferral,
+compatibility preflight, worktree-location changes, adoption reports) and from
+`sessions audit`. Stale lifecycle saves, heartbeats and checklist edits never
+reopen or modify them, and nothing but `abandon` sets the status. `status` lists
+them in a separate section; both dashboards show them only under an Abandoned
+filter with actions disabled. The status needs no state-contract change: older
+coordinators treat it as an unknown unfinished status, display it, defer
+uninstall for it, and match only their known statuses for mutation, so they
+neither crash on nor reopen it.
+
+## Central delivery policy and machine-readable output
+
+General features for automation that runs many repositories through `seshx`.
+The canonical formats are in
+[docs/configuration.md](docs/configuration.md#central-delivery-policy) (policy
+file and recorded rule) and
+[docs/commands.md](docs/commands.md#machine-readable-output) (status and error
+documents); this section states the requirements.
+
+Policy file `sesh-integrator/delivery-policy@1`: required `defaults` with
+`targetBranch`, `promotion` (the existing `PromotionConfig`, normalized with
+`mode` `shared-target`, `productionBranch` `main` and `remote` `origin`) and
+`completion` (`local`, `target-pushed`, `production-merged`); optional
+`version`; optional `repositories` keyed by lowercase GitHub `owner/name`,
+whose entries replace whole top-level fields (no deep merge). Unknown fields
+are errors. Every resolved rule must be consistent: `promotion.type: none`
+requires `completion: local`; `session-branch` mode forbids `target-pushed`;
+`productionBranch` differs from `targetBranch`. Validation is a small strict
+validator without new dependencies.
+
+`begin`:
+
+- selects `--policy-file`, else global `deliveryPolicyFile`, else no policy;
+  a selected file that is missing/unreadable (`policy_missing`) or invalid
+  (`policy_invalid`) fails before any change
+- identifies the repository from the configured fetch URL of the default
+  promotion remote, else `origin` (GitHub https, `git@` or `ssh://` forms);
+  otherwise fails with `repository_unidentified`; entries fall back to
+  `defaults`
+- records the resolved rule as `delivery` (`version`, `sha256`, `repository`,
+  `targetBranch`, `promotion`, `completion`, `source`) with the SHA-256 of the
+  file bytes read, and sets the session target; a target equal to the staging
+  branch fails with `policy_conflict`
+- creates a missing policy target like a global default target
+- marks delivery sessions with coordinator state contract 2 so earlier
+  coordinators refuse them; this build accepts contracts 1 and 2
+
+`integrate`, `resume` and the other source lifecycle commands replace the
+repository's `targetBranch` and `promotion` with the recorded rule. Omitted
+reviewers and assignees fall back to global `defaultPromotion`. Policy changes
+affect new sessions only. sesh-integrator records `completion` but does not
+evaluate it.
+
+`begin --sync-target`, before the worktree is created and under the repository
+integration lock, fetches `<remote>/<targetBranch>` (remote from the effective
+pull-request promotion, else `origin`) and moves the local target only by
+fast-forward: an unchecked-out ref by an atomic expected-old `update-ref`
+(creating it when absent), a clean checked-out target worktree by
+`merge --ff-only` in place. Results `fast-forwarded`, `up-to-date`,
+`local-ahead` and `no-remote-branch` (also when the remote is not configured)
+continue. `target_diverged`, `target_dirty` (only when the target must move)
+and `fetch_failed` fail with nothing changed. It never resets or forces.
+
+`begin --json` and `status --session <id> --json` print exactly one
+`sesh-integrator/session-status@1` document on stdout and send human and
+relayed child output to stderr; `begin` adds `sync` only with `--sync-target`.
+`resumeCommand` is `["seshx", "resume", "--session", "<id>"]` for
+`needs_review`, `validation_pending` and `promotion_pending`, else `null`.
+Failures print `sesh-integrator/error@1` (`{ error: { code, message } }`) with
+a non-zero exit. `seshx policy check --file <path> [--repository owner/name]`
+prints the normalized policy or resolved rule with the same error document.
+Within `@1`, fields may be added but never removed or retyped.
 
 ## Coding harness support
 

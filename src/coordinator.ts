@@ -18,6 +18,16 @@ import type { CoordinatorIdentity, Session } from "./types.js";
 
 // Bump when a writer introduces state that earlier contract readers cannot recover.
 export const STATE_CONTRACT = 1;
+/**
+ * Contract recorded only on sessions that carry a delivery rule. Coordinators
+ * that predate delivery policies would ignore the rule, so they must refuse
+ * these sessions; this build accepts both contracts.
+ */
+export const DELIVERY_STATE_CONTRACT = 2;
+const SUPPORTED_STATE_CONTRACTS: readonly number[] = [
+  STATE_CONTRACT,
+  DELIVERY_STATE_CONTRACT,
+];
 const assets = [
   "dist",
   "skill",
@@ -28,13 +38,19 @@ const assets = [
   "GLOBAL_AGENTS_SNIPPET.md",
 ];
 const project = fileURLToPath(new URL("../", import.meta.url));
+/** Terminal statuses: integrated, finished without changes, or abandoned. */
+export const terminalStatuses: readonly Session["status"][] = [
+  "succeeded",
+  "no_changes",
+  "abandoned",
+];
 export const unfinished = (s: Session): boolean =>
-  !["succeeded", "no_changes"].includes(s.status);
+  !terminalStatuses.includes(s.status);
 
 export function assertCompatible(s: Session): void {
   if (
     s.coordinator &&
-    (s.coordinator.stateContract !== STATE_CONTRACT ||
+    (!SUPPORTED_STATE_CONTRACTS.includes(s.coordinator.stateContract) ||
       s.coordinator.recoveryContract !== 1)
   )
     throw new Error(
@@ -177,17 +193,32 @@ export async function retainCoordinator(): Promise<CoordinatorIdentity> {
     cliPath: join(destination, "dist/cli.js"),
   };
 }
-export async function coordinatorDescription(s: Session): Promise<string> {
-  if (!s.coordinator)
-    return "legacy (no build identity); compatible recovery imports preserved state";
+export type CoordinatorHealth = "legacy" | "intact" | "modified" | "missing";
+
+/** Read-only check of a session's pinned coordinator snapshot. */
+export async function coordinatorHealth(
+  s: Session,
+): Promise<CoordinatorHealth> {
+  if (!s.coordinator) return "legacy";
   try {
     const root = dirname(dirname(await realpath(s.coordinator.cliPath)));
-    if ((await digest(root)) !== s.coordinator.buildId)
-      return `MODIFIED ${s.coordinator.cliPath}; reinstall a compatible build before recovery`;
-    return `${s.coordinator.buildId} (contract ${s.coordinator.stateContract}) ${s.coordinator.cliPath}`;
+    return (await digest(root)) === s.coordinator.buildId
+      ? "intact"
+      : "modified";
   } catch {
-    return `MISSING ${s.coordinator.cliPath}; compatible reinstall can recover contract ${s.coordinator.stateContract}`;
+    return "missing";
   }
+}
+
+export async function coordinatorDescription(s: Session): Promise<string> {
+  const health = await coordinatorHealth(s);
+  if (!s.coordinator || health === "legacy")
+    return "legacy (no build identity); compatible recovery imports preserved state";
+  if (health === "modified")
+    return `MODIFIED ${s.coordinator.cliPath}; reinstall a compatible build before recovery`;
+  if (health === "missing")
+    return `MISSING ${s.coordinator.cliPath}; compatible reinstall can recover contract ${s.coordinator.stateContract}`;
+  return `${s.coordinator.buildId} (contract ${s.coordinator.stateContract}) ${s.coordinator.cliPath}`;
 }
 export async function enrollmentStopped(harness: string): Promise<boolean> {
   try {

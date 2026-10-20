@@ -14,6 +14,7 @@ import { join } from "node:path";
 import { readLockMetadata } from "./lock.js";
 import { targetBranch, targetBranchSource } from "./promotion.js";
 import { pullRequestPromotion } from "./pull-request.js";
+import type { Session } from "./types.js";
 import {
   readConfig,
   readSession,
@@ -63,9 +64,16 @@ export async function statusCommand(sessionId?: string): Promise<void> {
       `  ${repository.path} [registered, ${isRepositoryDisabled(config, repository.gitCommonDir) ? "disabled" : "enabled"}]: staging ${repository.integrationBranch} -> target ${targetBranch(repository)} (${targetBranchSource(repository)})${remote ? ` -> PR (${remote.mode}) to ${remote.productionBranch} via ${remote.remote}` : ""}\n`,
     );
   }
-  process.stdout.write(`Sessions: ${sessions.length}\n`);
-  if (sessions.length === 0) process.stdout.write("  (none)\n");
-  for (const session of sessions) {
+  // Abandoned sessions are terminal; list them apart unless one is selected.
+  const abandoned = selected
+    ? []
+    : sessions.filter((session) => session.status === "abandoned");
+  const open = selected
+    ? sessions
+    : sessions.filter((session) => session.status !== "abandoned");
+  process.stdout.write(`Sessions: ${open.length}\n`);
+  if (open.length === 0) process.stdout.write("  (none)\n");
+  for (const session of open) {
     const state = session.waitingForLock
       ? `${session.status} (waiting for lock)`
       : session.status;
@@ -87,14 +95,23 @@ export async function statusCommand(sessionId?: string): Promise<void> {
     }
     process.stdout.write(`  branch: ${session.branch}\n`);
     for (const line of [
+      ...abandonmentLines(session, !!selected),
       `tasks: ${taskProgress(session)}`,
       `current task: ${currentTask(session)}`,
       ...(selected ? taskLines(session) : []),
     ])
-      process.stdout.write(
-        `  ${stripVTControlCharacters(line).replace(/[^\x20-\x7e]/g, "?")}\n`,
-      );
+      process.stdout.write(`  ${terminalSafe(line)}\n`);
     process.stdout.write(`  target branch: ${session.targetBranch ?? "-"}\n`);
+    if (session.delivery) {
+      const { delivery } = session;
+      const promotion =
+        delivery.promotion.type === "pull-request"
+          ? `PR (${delivery.promotion.mode}) to ${delivery.promotion.productionBranch} via ${delivery.promotion.remote}`
+          : "no remote promotion";
+      process.stdout.write(
+        `  delivery policy: ${terminalSafe(`${delivery.repository} (${delivery.source}), ${promotion}, completion ${delivery.completion}, version ${delivery.version ?? "-"}, sha256 ${delivery.sha256}`)}\n`,
+      );
+    }
     process.stdout.write(`  started: ${session.startedAt}\n`);
     process.stdout.write(
       `  ready: ${session.readyAt ?? "-"} ${session.readyCommit ?? ""}\n`,
@@ -175,6 +192,22 @@ export async function statusCommand(sessionId?: string): Promise<void> {
         );
     }
   }
+  if (abandoned.length) {
+    process.stdout.write(
+      `\nAbandoned sessions: ${abandoned.length} (terminal; branches, worktrees, commits and recovery evidence preserved)\n`,
+    );
+    for (const session of abandoned) {
+      process.stdout.write(`\n${session.id}  ${session.status}\n`);
+      for (const line of [
+        ...abandonmentLines(session, false),
+        `repo: ${session.repositoryPath}`,
+        `worktree: ${session.worktreePath}`,
+        `branch: ${session.branch}`,
+        `summary: ${session.taskSummary}`,
+      ])
+        process.stdout.write(`  ${terminalSafe(line)}\n`);
+    }
+  }
   process.stdout.write("\nLocks:\n");
   let lockNames: string[] = [];
   try {
@@ -194,4 +227,31 @@ export async function statusCommand(sessionId?: string): Promise<void> {
         : `  ${name}: owner metadata missing or unreadable; inspect conservatively\n`,
     );
   }
+}
+
+function terminalSafe(line: string): string {
+  return stripVTControlCharacters(line).replace(/[^\x20-\x7e]/g, "?");
+}
+
+/** Current abandonment, and with `detailed` its evidence and past restores. */
+function abandonmentLines(session: Session, detailed: boolean): string[] {
+  const lines: string[] = [];
+  const current = session.abandonment;
+  if (current) {
+    lines.push(
+      `abandoned: ${current.abandonedAt} from ${current.previousStatus} (bucket ${current.bucket})`,
+      `abandon reason: ${current.reason}`,
+    );
+    if (detailed)
+      lines.push(
+        ...current.evidence.map((line) => `abandon evidence: ${line}`),
+      );
+    lines.push(`restore: seshx restore --session ${session.id}`);
+  }
+  if (detailed)
+    for (const past of session.abandonmentHistory ?? [])
+      lines.push(
+        `restored: ${past.restoredAt ?? "unknown time"} (abandoned ${past.abandonedAt}, bucket ${past.bucket}; reason: ${past.reason})`,
+      );
+  return lines;
 }

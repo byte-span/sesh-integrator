@@ -14,6 +14,9 @@ Commands below run from the repository root unless stated otherwise.
 - [`integrate`](#integrate)
 - [`resume`](#resume)
 - [`status`](#status)
+- [Machine-readable output](#machine-readable-output)
+- [`sessions audit`](#sessions-audit)
+- [`abandon` / `restore`](#abandon--restore)
 - [Failure incidents](#failure-incidents)
 - [`reconcile`](#reconcile)
 - [`doctor`](#doctor)
@@ -28,19 +31,25 @@ seshx init
 seshx disable [repo-path]
 seshx enable [repo-path]
 seshx register [repo-path] [--auto-config] [--setup-command '<json-array>']...
-seshx begin --summary "Implement feature" [--create-worktree] [--no-auto-branch] [--depends-on <session-id>]...
+seshx begin --summary "Implement feature" [--create-worktree] [--no-auto-branch] [--depends-on <session-id>]... [--policy-file <path>] [--sync-target] [--json]
 seshx commit --message "Implement feature" [--session <session-id>]
 seshx validate [--session <session-id>]
 seshx integrate --summary "Implemented feature and tests" --rollout <none|applied|automated|manual> [--follow-up "<TASK-ID>: ..."]... [--session <session-id>]
 seshx resume [--session <session-id>]
 seshx incident <ticket-id>
 seshx status [--session <session-id>]
+seshx status --session <session-id> --json
+seshx policy check --file <path> [--repository <owner/name>]
 seshx dashboard
 seshx finish --no-changes --summary "..." [--session <session-id>] [--satisfied-by <session-id>]
 seshx tasks list [--session <session-id>]
 seshx tasks add --title "..." [--title "..."]... [--description "..."] [--session <session-id>]
 seshx tasks update <task-id> [--title "..."] [--description "..."] [--status pending|in_progress|completed|blocked|skipped] [--reason "..."] [--session <session-id>]
 seshx tasks move <task-id> --position <n> [--session <session-id>]
+seshx sessions audit [--repo <path>] [--idle-days <n>] [--json]
+seshx abandon --session <session-id> --reason "..." [--include-unsaved]
+seshx abandon --all [--repo <path>] [--idle-days <n>] [--bucket <list>] [--include-unsaved] [--apply --reason "..."]
+seshx restore --session <session-id>
 seshx reconcile [repo-path] [--apply]
 seshx audit-legacy
 seshx cleanup-guidance [--apply]
@@ -87,6 +96,8 @@ after integration so the agent can finish recording its checklist. Explicit
 Checklists are stored in optional `tasks` and `tasksUpdatedAt` fields in
 `<runtime>/sessions/<session-id>.json`. Each task records a stable numeric ID,
 title, optional description, status, optional reason, and creation/update times.
+Each edit also refreshes the session's [`lastActivityAt`
+heartbeat](#last-activity-heartbeat); `tasks list` does not.
 Existing sessions need no migration and display “No tasks yet” until populated.
 Atomic writes and a short per-session record lock serialize checklist edits with
 lifecycle saves, preserving task edits made during long-running validation.
@@ -95,7 +106,8 @@ inspection; they are never silently reclaimed.
 
 The current-task label shows the in-progress task's name, otherwise Not started,
 Between tasks, Blocked, All tasks skipped, or Tasks finished. Closed no-change
-sessions show No changes needed. Completed/total counts include skipped tasks
+sessions show No changes needed and abandoned sessions show Abandoned; neither
+accepts checklist edits until restored or replaced. Completed/total counts include skipped tasks
 in the total and report skipped counts separately in details. A checklist is
 complete when every task is completed or skipped; this does not mean integration
 or external rollout has completed.
@@ -147,7 +159,9 @@ browser tab leaves the server running until you stop the CLI. Each invocation
 starts its own server; a port already in use is reported rather than replaced.
 
 Choose a repository, search sessions, and filter by Active, Needs attention,
-Finished, or All sessions. The list is a compact table with one line per
+Finished, All sessions, or Abandoned. [Abandoned](#abandon--restore) sessions
+appear only under Abandoned, are excluded from repository counts, and offer no
+actions. The list is a compact table with one line per
 session: Session, Repository, Current task, Tasks, Status, and Updated. Hover a
 truncated cell for its full text. Choosing a repository hides the Repository
 column; narrow panes hide Current task, then Repository and Tasks.
@@ -155,12 +169,15 @@ Select a session for its checklist, saved milestones,
 source/validation/promotion details, and follow-ups. On smaller screens, use
 Back to sessions to return from details. `/` focuses search. The theme follows
 your system initially; Light theme / Dark theme saves your browser preference.
-Drag the repository panel’s right edge to resize it. The divider also supports
+Type in Filter repositories to narrow the repository panel by name; include `/`
+to match full paths. Enter opens the first match, Escape clears the filter, and
+the chosen repository stays listed. Drag the repository panel’s right edge to resize it. The divider also supports
 Left/Right arrows (Shift for larger steps), Home/End for its limits, and a
 double-click to reset. Width is remembered in the browser for this address;
 `--port` keeps that address consistent between launches. On small screens the
 repository list remains a horizontal strip.
-Updates preserve selection and detail scroll position. Disconnection and refresh
+Updates preserve selection and detail scroll position; the last update time is
+shown at the bottom right. Disconnection and refresh
 errors are shown with retry guidance. Status reflects saved records, not agent
 process liveness.
 
@@ -174,6 +191,43 @@ rejects stale session/configuration confirmations and permits only one dashboard
 command at a time. Resolve and stage conflicts outside the dashboard before
 Resume. Browser output shows the most recent 128K characters of command output; normal
 CLI evidence remains in the runtime. Closing a tab does not cancel a command.
+
+Settings, at the bottom of the repository panel, opens three tabs:
+
+- **Global**: default target branch, default pull-request reviewers and
+  assignees, lock wait, conflict resolution mode, delivery policy file, and
+  the program each agent harness runs. Leave a harness empty to use its
+  default on `PATH`.
+- **Repository**: choose a registered repository (the panel's selection by
+  default). Edit enablement, signing program, target branch override,
+  pull-request promotion (mode, production branch, remote, reviewers,
+  assignees), validation reuse, setup failure policy, and conflict
+  instructions. Registration facts are read-only. **Edit in JSON** opens this
+  repository's entry in the JSON tab to change its commands and validation
+  tiers.
+- **JSON**: edit the whole `config.json`, including commands, validation
+  tiers and harness commands. The editor shows parse errors as you type;
+  Format re-indents, and Ctrl/Cmd+S saves. Saving first shows the changed
+  settings and a line diff, and warns when the change affects programs seshx
+  runs. It opens even when the file is invalid, so you can repair it.
+  Repositories cannot be added, removed or moved here: use `seshx register`,
+  and keep each `path` and `gitCommonDir`.
+
+Save changes writes only the fields you changed to the runtime `config.json`,
+under the configuration lock. The server refuses values the CLI would reject,
+forms loaded before another edit, and repository changes while that
+repository's integration lock is held. Leave a field empty to inherit its
+default. Discard changes reloads the saved values. JSON saves rewrite the file
+with two-space indentation and lock every repository whose entry or
+enablement changed.
+
+**History**, under the JSON editor, lists earlier versions of `config.json`.
+Every change from the CLI (`register`, `enable`, `disable`) or the dashboard
+keeps the replaced file in the runtime's `config-history/` folder; the newest
+20 are kept. **Compare with current** shows a diff. **Restore** loads that
+version into the editor. Review it, then choose Save changes. Saving a
+restored version goes through the same checks and confirmation, and keeps
+the version it replaces, so a restore can be undone.
 
 The server rejects foreign Host/Origin headers and cross-site requests. It has
 no remote-listening or tunnel option. If a browser cannot be opened, use the
@@ -191,11 +245,16 @@ show No tasks yet and a dash for progress. Narrow tables use three labeled lines
 per session to keep the description, current task, progress, and status readable. The selected-item pane shows the ordered checklist, task
 descriptions and blocked/skipped reasons, next-action guidance, saved milestones,
 and the full session record. Active is the default filter and includes all
-unfinished sessions, including blocked sessions. Completed and All are available
-through the status filter. Task updates contribute to sorting and search;
+unfinished sessions, including blocked sessions. Completed, All and Abandoned
+are available through the status filter. Abandoned sessions appear only under
+Abandoned, never count as active or needing attention, and offer no actions;
+their details show the reason and restore command. Task updates contribute to sorting and search;
 blocked tasks appear in the needs-attention filter. Sessions default to most recent saved event first. Optional priority sorting
 puts blockers first, then the latest saved event.
 Activity and update times reflect recorded evidence, not a live process monitor.
+Both dashboards label an active session with no recorded activity for at least a
+day as Idle Nd (whole days) instead of In progress; its stored status stays
+active. Use `seshx abandon --all --idle-days <n>` to preview closing idle records.
 Wide terminals (at least 111 columns and 20 rows) show the split layout;
 smaller terminals use a compact list with full details available through Enter.
 At 115 columns and 27 rows, a framed header and main area, a table heading rule,
@@ -367,6 +426,42 @@ Sessions created by versions that did not record an observable Git baseline
 fail validation/integration with a migration message asking you to begin a new
 session; they are never silently interpreted using weaker cleanliness rules.
 
+#### Delivery policy, target sync and JSON output
+
+```bash
+seshx begin --create-worktree --sync-target --json \
+  --policy-file delivery-policy.json --harness claude --summary "PC-1: Add search"
+```
+
+- `--policy-file <path>` applies a
+  [central delivery policy](configuration.md#central-delivery-policy) and
+  records the repository's resolved rule on the session as `delivery`. Without
+  it, the global `deliveryPolicyFile` applies when configured. A missing or
+  invalid file fails `begin` before anything changes.
+- `--sync-target` fetches the target branch from its remote and moves the local
+  target only by fast-forward, before the worktree is created. It runs under
+  the repository integration lock. The remote is the policy's (or the
+  repository's) pull-request `remote`, else `origin`.
+- `--json` prints one [status document](#machine-readable-output) with `sync`
+  on stdout; all human output, including setup output, goes to stderr.
+
+`--sync-target` never resets, forces or discards anything:
+
+| Result             | Meaning                                                                          | `begin`   |
+| ------------------ | -------------------------------------------------------------------------------- | --------- |
+| `fast-forwarded`   | Local target moved to the remote commit, or was created there when absent.       | continues |
+| `up-to-date`       | Local target already equals the remote.                                          | continues |
+| `local-ahead`      | Local target already contains the remote commit; it is left unchanged.           | continues |
+| `no-remote-branch` | The remote has no such branch, or the remote is not configured (`remote: null`). | continues |
+| `target_diverged`  | Local and remote targets have diverged.                                          | fails     |
+| `target_dirty`     | The checked-out target worktree has changes or an unfinished operation.          | fails     |
+| `fetch_failed`     | The remote could not be inspected or fetched.                                    | fails     |
+
+A clean checked-out target worktree is fast-forwarded in place with
+`git merge --ff-only`; an unchecked-out target ref is updated atomically
+against its previous value. A dirty checkout fails only when the target must
+move. Failures change no ref, worktree or session.
+
 ### Explicit session selection
 
 Lifecycle commands continue to infer a session when run in its source worktree.
@@ -530,6 +625,294 @@ seshx status
 ```
 
 Shows every session, active/ready/waiting/succeeded/`needs_review`/`promotion_pending` state, staging and promoted commits, target branch, recovery phase, worktree paths, latest error, and current lock owners.
+
+Abandoned sessions are listed after the others under `Abandoned sessions: N`,
+with the abandon time, reason and restore command; `Sessions: N` counts only
+the rest. `status --session <id>` shows one session in full, including the
+evidence recorded when it was abandoned and any earlier restores.
+
+`status --session <id> --json` prints only that session's
+[status document](#machine-readable-output). `--json` requires `--session`.
+
+### Machine-readable output
+
+`begin --json`, `status --session <id> --json` and `policy check` print exactly
+one JSON document on stdout. Human output goes to stderr. This section is the
+canonical description of these formats. Within a schema version, fields may be
+added but never removed or retyped; consumers should ignore unknown fields.
+
+Status document, `sesh-integrator/session-status@1`:
+
+```json
+{
+  "schema": "sesh-integrator/session-status@1",
+  "session": {
+    "id": "session_…",
+    "status": "succeeded",
+    "harness": "claude",
+    "repositoryPath": "/path/to/repo",
+    "worktreePath": "/path/to/source-worktree",
+    "branch": "codex/session-…",
+    "startCommit": "<sha>",
+    "dependsOn": [],
+    "readyCommit": "<sha>",
+    "integratedCommit": "<sha>",
+    "promotedCommit": "<sha>",
+    "targetBranch": "dev",
+    "pullRequestUrl": "https://github.com/owner/name/pull/1",
+    "remotePromotedAt": "<ISO time>",
+    "recoveryPhase": null,
+    "latestError": null,
+    "awaitingConflictResolution": false,
+    "integrationWorktreePath": null,
+    "conflictPromptPath": null,
+    "rolloutDisposition": "none",
+    "rolloutFollowUps": [],
+    "delivery": {
+      "version": "…",
+      "sha256": "<hex>",
+      "repository": "owner/name",
+      "targetBranch": "dev",
+      "promotion": {
+        "type": "pull-request",
+        "mode": "shared-target",
+        "productionBranch": "main",
+        "remote": "origin"
+      },
+      "completion": "production-merged",
+      "source": "defaults"
+    }
+  },
+  "resumeCommand": null,
+  "sync": {
+    "remote": "origin",
+    "result": "fast-forwarded",
+    "branch": "dev",
+    "before": "<sha>",
+    "after": "<sha>"
+  }
+}
+```
+
+| Field                                                   | Type and meaning                                                                                                                                                                                                                       |
+| ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `session.status`                                        | `active`, `ready`, `validation_pending`, `promotion_pending`, `succeeded`, `no_changes`, `abandoned` or `needs_review`.                                                                                                                |
+| `session.harness`                                       | String, or `null` for legacy sessions (treated as `codex`).                                                                                                                                                                            |
+| `session.startCommit`                                   | Commit the task branch started from.                                                                                                                                                                                                   |
+| `session.readyCommit`                                   | Exact task commit being integrated, or `null` before `integrate`.                                                                                                                                                                      |
+| `session.integratedCommit`, `promotedCommit`            | Validated staging commit and promoted target commit, or `null`.                                                                                                                                                                        |
+| `session.targetBranch`                                  | Recorded target, or `null` until `integrate` for sessions without a delivery rule.                                                                                                                                                     |
+| `session.pullRequestUrl`, `remotePromotedAt`            | Pull-request URL and time of remote promotion, or `null`.                                                                                                                                                                              |
+| `session.recoveryPhase`                                 | `merge`, `post_integration`, `promotion`, `pull_request`, `remote_promotion`, `local_target`, or `null`.                                                                                                                               |
+| `session.latestError`                                   | Last recorded failure, or `null`.                                                                                                                                                                                                      |
+| `session.awaitingConflictResolution`                    | `true` while a conflict waits to be resolved and staged in `integrationWorktreePath`.                                                                                                                                                  |
+| `session.integrationWorktreePath`, `conflictPromptPath` | Paths for conflict recovery, or `null`.                                                                                                                                                                                                |
+| `session.rolloutDisposition`, `rolloutFollowUps`        | `none`, `applied`, `automated`, `manual` or `null`; recorded follow-up actions.                                                                                                                                                        |
+| `session.delivery`                                      | [Recorded delivery rule](configuration.md#what-a-session-records-and-uses), or `null` without a policy.                                                                                                                                |
+| `resumeCommand`                                         | Argument array such as `["seshx", "resume", "--session", "<id>"]` for `needs_review`, `validation_pending` and `promotion_pending` sessions; otherwise `null`. Run it from the session worktree or another checkout of the repository. |
+| `sync`                                                  | `begin --sync-target --json` only: `remote` (or `null`), `result`, `branch`, and the local target commits `before` and `after` (`null` when absent).                                                                                   |
+
+Error document, `sesh-integrator/error@1`, printed with a non-zero exit status:
+
+```json
+{
+  "schema": "sesh-integrator/error@1",
+  "error": { "code": "policy_invalid", "message": "Invalid delivery policy …" }
+}
+```
+
+| Code                                             | Cause                                                                  |
+| ------------------------------------------------ | ---------------------------------------------------------------------- |
+| `policy_missing`                                 | The selected policy file does not exist or cannot be read.             |
+| `policy_invalid`                                 | The policy file is not valid JSON or breaks the format rules.          |
+| `policy_conflict`                                | The policy target equals the repository's staging `integrationBranch`. |
+| `repository_unidentified`                        | No GitHub repository identity could be read from the remote fetch URL. |
+| `target_diverged`                                | `--sync-target`: local and remote targets diverged.                    |
+| `target_dirty`                                   | `--sync-target`: the checked-out target worktree is not clean.         |
+| `fetch_failed`                                   | `--sync-target`: the remote could not be inspected or fetched.         |
+| `unknown_session`                                | `status --session <id> --json` names no recorded session.              |
+| `usage`                                          | Invalid or missing arguments.                                          |
+| `begin_failed`, `status_failed`, `policy_failed` | Any other failure; `message` explains it.                              |
+
+`policy check` prints the normalized policy, or with `--repository` the rule
+object recorded as `delivery`, and uses the same error document.
+
+### `sessions audit`
+
+Find stale sessions before deciding what to close. The audit is read-only: it
+writes no session record, lock, index or file, and runs only non-mutating Git
+commands with `--no-optional-locks` (no fetch, prune or index refresh).
+
+```bash
+seshx sessions audit                       # Every unfinished session on this machine
+seshx sessions audit --repo ~/code/project # One repository (any path inside it)
+seshx sessions audit --idle-days 14        # Idle for at least 14 whole days
+seshx sessions audit --json                # Machine-readable report
+```
+
+Each unfinished session (any status except `succeeded`, `no_changes` and
+`abandoned`) appears once, in exactly one bucket, with the evidence behind it:
+
+| Bucket         | Meaning                                                                                                                                                                  |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `empty`        | No commits since start, clean worktree, no checklist.                                                                                                                    |
+| `delivered`    | The session's commits are already reachable from its target branch.                                                                                                      |
+| `unsaved work` | Uncommitted files in the session worktree, or session commits not reachable from the target.                                                                             |
+| `corrupt`      | Missing repository, worktree, session branch, start commit or pinned coordinator, or a worktree now checked out on another branch.                                       |
+| `in lifecycle` | `ready`, `validation_pending`, `promotion_pending` or `needs_review` status, recorded lock wait, recovery phase, open recovery bundle, or a held repository/record lock. |
+| `other`        | Anything else, such as a checklist without commits or incomplete inspection.                                                                                             |
+
+When several apply, the first match wins: in lifecycle, unsaved work, other
+(incomplete inspection), corrupt, delivered, empty, then other. Remaining
+findings are listed as notes. Commits that existed at the session's start
+commit are not counted as its work. Delivery is checked against the local
+target branch only; nothing is fetched. `--json` reports the bucket IDs
+`empty`, `delivered`, `unsaved`, `corrupt`, `lifecycle` and `other`, with
+structured `facts` for each session.
+
+Idle days are whole days since the last recorded activity: the later of the
+[`lastActivityAt` heartbeat](#last-activity-heartbeat) and the checklist's
+`tasksUpdatedAt`, falling back to `startedAt`, then the source worktree's
+modification time when the record has no usable time. The output names the
+source used. The audit itself never records activity.
+
+**Liveness is inferred, never proven.** An agent may still be working in any
+listed session, including one marked empty or idle. Confirm with its owner
+before closing it. The audit never changes or closes a session; use
+[`abandon`](#abandon--restore) for that.
+
+#### Last-activity heartbeat
+
+Session records carry an optional `lastActivityAt` timestamp. It is written
+under the per-session record lock whenever a command does work on the session:
+
+- `begin`, `commit`, `validate`, `integrate`, `resume`, `finish`, `restore`
+  and `reconcile --apply`, including failures they record
+- `tasks add`, `tasks update` and `tasks move`
+
+`abandon` deliberately keeps the existing value, so the idle evidence from
+before the session was abandoned is preserved.
+
+Commands that only observe never set it: `status`, `tasks list`,
+`sessions audit`, `dashboard`, `incident` and `doctor`. Dashboard actions run
+the lifecycle commands above, which record their own activity. Finding a legacy
+record and indexing it is not activity either. If `commit` creates the commit
+but cannot record the heartbeat, it warns instead of failing.
+
+Older records have no `lastActivityAt`. They are not backfilled and gain one
+at their next recorded activity. The field needs no state-contract change.
+Older coordinators read session records without validating fields and rewrite
+the whole record, so they keep the heartbeat. They do not refresh it, but their
+checklist edits still update `tasksUpdatedAt`, which is why idle time uses the
+later of the two.
+
+### `abandon` / `restore`
+
+Close a stale session without touching Git, after reviewing its
+[audit](#sessions-audit):
+
+```bash
+seshx abandon --session <session-id> --reason "Superseded by session_..."
+seshx abandon --session <session-id> --reason "Work kept on its branch" --include-unsaved
+seshx restore --session <session-id>
+```
+
+`abandon` first prints the session's audit bucket and evidence, then:
+
+- Refuses, changing nothing, when the session is not `active`, is in
+  lifecycle or recovery (`ready`, `validation_pending`, `promotion_pending`,
+  `needs_review`, a recorded lock wait, conflict, recovery phase or recovery
+  bundle, or a ready/staging/promoted commit), or holds the repository lock or
+  its session record lock.
+- Refuses sessions in the `unsaved work` bucket, or whose state could not be
+  fully inspected, unless you pass `--include-unsaved`.
+- Rechecks the session under its record lock immediately before saving, and
+  refuses if anything changed since the printed audit.
+- Records status `abandoned` with the reason, time, prior status, and the
+  bucket and evidence it observed, then prints the restore command.
+
+Only the session record changes. The branch, worktree, uncommitted files,
+commits, recovery bundles and refs, incidents and locks stay exactly as they
+were; nothing is deleted, reset, fetched or pushed. Abandon does not record
+activity, so the `lastActivityAt` idle evidence survives. The reason is
+required, single-line and at most 500 characters; never put secret values in it.
+
+Abandoned sessions are terminal: they no longer count as unfinished for
+`uninstall`, coordinator compatibility checks, worktree-location changes or
+`sessions audit`. Lifecycle and checklist commands refuse them and print the
+restore command; a save from a command that was already running is refused
+rather than reopening the session. `status`
+and both dashboards list them separately. Abandon and restore work from any
+directory, also for sessions whose repository is missing, unregistered or
+disabled.
+
+**If you abandoned the wrong session**, run `seshx restore --session <id>`.
+It returns the session to `active`, moves the abandonment to the record's
+`abandonmentHistory`, records activity, and prints the worktree to continue
+in. Keep using the session's pinned coordinator. Restore refuses if another
+unfinished session now uses the same worktree; finish or abandon that one first.
+
+Older coordinators see `abandoned` as an unknown, unfinished status: they still
+show it and defer uninstall for it, and they refuse to commit, validate,
+integrate, resume, finish or edit its checklist, so they cannot reopen it. Run
+`abandon` and `restore` with a coordinator that supports them. A coordinator
+that predates abandon and is already running a command for the session may
+still save over the record; abandon only sessions nobody is using.
+
+#### Batch abandon
+
+Close many stale sessions at once. Without `--apply` it only previews:
+
+```bash
+seshx abandon --all                                   # Preview; changes nothing
+seshx abandon --all --repo ~/code/project --idle-days 14
+seshx abandon --all --bucket delivered                # Only delivered sessions
+seshx abandon --all --include-unsaved                 # Also list unsaved work
+seshx abandon --all --idle-days 14 --apply --reason "Stale after release 1.2"
+```
+
+1. Run the preview. It prints the same audit as
+   [`sessions audit`](#sessions-audit) for each session it would close, then
+   each matching session it leaves alone and why, then the exact `--apply`
+   command for that selection.
+2. Confirm with the owners that nobody is using the listed sessions.
+3. Rerun with `--apply --reason "..."`. It audits again, prints the sessions
+   it will close, closes them one at a time, then reports `Closed` and
+   `Skipped` sessions with reasons. It exits 1 when any session was skipped.
+
+Selection:
+
+- `--repo <path>` and `--idle-days <n>` filter as in `sessions audit`.
+- By default the `empty`, `delivered` and `corrupt` buckets are closed.
+  `--bucket` takes a comma-separated list of those bucket IDs, plus `unsaved`.
+- `unsaved` sessions are closed only with `--include-unsaved`, which adds
+  `unsaved` to the default buckets (with `--bucket`, list `unsaved` too).
+  Each one is listed individually with its evidence. `--include-unsaved`
+  covers only sessions that the printed audit showed as unsaved.
+- `lifecycle` and `other` cannot be selected. Finish or resume sessions in
+  lifecycle; review `other` sessions (such as a checklist without commits, or
+  an incomplete inspection) and use `abandon --session <id>`.
+- Sessions the single-session form would refuse are left alone, for example
+  ready, staging or promoted commits, a recovery bundle, or a coordinator
+  contract this build does not support.
+
+Immediately before closing each session, `--apply` rechecks it under its record
+lock, exactly like `abandon --session`, and skips it, changing nothing, when:
+
+- It changed since the printed audit: new activity or checklist edits,
+  different heads, uncommitted paths, commit counts or bucket.
+- It entered lifecycle, recovery or a lock wait, or now holds the repository
+  lock.
+- Its session record lock is held by another command.
+
+Like `abandon --session`, only the closed sessions' records change. Every
+branch, worktree, uncommitted file, commit, recovery bundle and ref, incident
+and lock is preserved. Each closed session can be restored with
+`seshx restore --session <id>`. The preview is strictly read-only: it writes no
+record, index, lock or file and runs only non-mutating Git commands. Batch
+abandon checks each session's coordinator contract on its own rather than the
+whole runtime first, so an incompatible session is left alone without blocking
+the others.
 
 ### Failure incidents
 

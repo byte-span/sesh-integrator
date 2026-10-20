@@ -4,6 +4,7 @@ import {
   withCleanup,
   type FileLock,
 } from "./file-lock.js";
+import { recordConfigSnapshot } from "./config-history.js";
 import { validateHarnessConfig } from "./harness.js";
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
@@ -25,6 +26,7 @@ import type {
   RepositoryConfig,
   RuntimePaths,
   Session,
+  SessionAbandonment,
   SessionIndexEntry,
   SessionTask,
 } from "./types.js";
@@ -144,7 +146,17 @@ export async function readConfig(readOnly = false): Promise<Config> {
       return defaultConfig();
     throw error;
   }
+  return validateConfig(value, paths.config);
+}
+
+/**
+ * Validate a parsed configuration in place: fill defaults that readers rely
+ * on and attach inherited global policy. Throws on invalid or ambiguous values.
+ */
+export function validateConfig(value: Config, source: string): Config {
   if (
+    !value ||
+    typeof value !== "object" ||
     !Array.isArray(value.repositories) ||
     (value.disabledRepositories !== undefined &&
       (!Array.isArray(value.disabledRepositories) ||
@@ -155,9 +167,12 @@ export async function readConfig(readOnly = false): Promise<Config> {
     (value.defaultTargetBranch !== undefined &&
       (typeof value.defaultTargetBranch !== "string" ||
         value.defaultTargetBranch.length === 0)) ||
+    (value.deliveryPolicyFile !== undefined &&
+      (typeof value.deliveryPolicyFile !== "string" ||
+        value.deliveryPolicyFile.length === 0)) ||
     !isDefaultPromotionConfig(value.defaultPromotion)
   ) {
-    throw new Error(`Invalid configuration: ${paths.config}`);
+    throw new Error(`Invalid configuration: ${source}`);
   }
   for (const repository of value.repositories) {
     applyGlobalTargetPolicy(value, repository);
@@ -244,7 +259,7 @@ function isPromotionConfig(repository: RepositoryConfig): boolean {
   );
 }
 
-function isPlausibleBranchName(value: string): boolean {
+export function isPlausibleBranchName(value: string): boolean {
   return (
     value.length > 0 &&
     !value.startsWith("-") &&
@@ -280,9 +295,34 @@ function isOptionalParticipantList(value: unknown): boolean {
   );
 }
 
-export async function writeConfig(config: Config): Promise<void> {
+/** `source` names what made the change in the configuration history. */
+export async function writeConfig(
+  config: Config,
+  source = "seshx",
+): Promise<void> {
   const paths = await ensureRuntime();
-  await writeJsonAtomic(paths.config, config);
+  await writeConfigFile(paths.config, config, source);
+}
+
+/** Replace config.json, first keeping the text it replaces in its history. */
+export async function writeConfigFile(
+  path: string,
+  config: Config,
+  source: string,
+): Promise<void> {
+  let previous: string | null = null;
+  try {
+    previous = await readFile(path, "utf8");
+  } catch (error) {
+    if (!isNodeError(error) || error.code !== "ENOENT") throw error;
+  }
+  await recordConfigSnapshot(
+    path,
+    previous,
+    `${JSON.stringify(config, null, 2)}\n`,
+    source,
+  );
+  await writeJsonAtomic(path, config);
 }
 
 export async function readSessions(readOnly = false): Promise<Session[]> {
@@ -301,7 +341,20 @@ export async function readSessions(readOnly = false): Promise<Session[]> {
   return sessions.sort((a, b) => a.startedAt.localeCompare(b.startedAt));
 }
 
-export async function writeSession(session: Session): Promise<void> {
+export interface SessionWriteOptions {
+  /**
+   * Whether this save records work on the session (the default for lifecycle
+   * saves). Bookkeeping performed while only observing a session, such as
+   * lazily rebuilding a legacy index, passes false so it never refreshes the
+   * `lastActivityAt` heartbeat.
+   */
+  activity?: boolean;
+}
+
+export async function writeSession(
+  session: Session,
+  options: SessionWriteOptions = {},
+): Promise<void> {
   await withSessionRecordLock(session.id, async () => {
     // Lifecycle commands hold snapshots while running checks. Checklist edits
     // made meanwhile belong to the task command and must not be overwritten.
@@ -310,13 +363,48 @@ export async function writeSession(session: Session): Promise<void> {
       throw new Error(
         "Session is already finished without changes; start a new session.",
       );
+    // A stale snapshot must neither reopen an abandoned session nor abandon
+    // one; only `abandon` and `restore` change that status.
+    if (latest?.status === "abandoned" && session.status !== "abandoned")
+      throw new Error(abandonedSessionMessage(latest));
+    if (session.status === "abandoned" && latest?.status !== "abandoned")
+      throw new Error("Abandon a session only with seshx abandon.");
     if (latest) {
       if (latest.tasks) session.tasks = latest.tasks;
       else delete session.tasks;
       if (latest.tasksUpdatedAt) session.tasksUpdatedAt = latest.tasksUpdatedAt;
       else delete session.tasksUpdatedAt;
     }
+    // Like the checklist, the heartbeat follows the saved record rather than
+    // a possibly stale snapshot unless this save itself records work.
+    const recorded = latest ? latest.lastActivityAt : session.lastActivityAt;
+    if (options.activity !== false)
+      session.lastActivityAt = new Date().toISOString();
+    else if (recorded) session.lastActivityAt = recorded;
+    else delete session.lastActivityAt;
     await writeSessionRecord(session);
+  });
+}
+
+/**
+ * Record work that does not otherwise save the session, such as a source
+ * commit. Returns the saved record, or undefined for an unknown session.
+ * Sessions finished without changes or abandoned are left untouched.
+ */
+export async function recordSessionActivity(
+  sessionId: string,
+): Promise<Session | undefined> {
+  return withSessionRecordLock(sessionId, async () => {
+    const session = await readSession(sessionId);
+    if (
+      !session ||
+      session.status === "no_changes" ||
+      session.status === "abandoned"
+    )
+      return session;
+    session.lastActivityAt = new Date().toISOString();
+    await writeSessionRecord(session);
+    return session;
   });
 }
 
@@ -331,8 +419,11 @@ export async function updateSessionTasks(
       throw new Error(
         "Session is already finished without changes; start a new session.",
       );
+    if (session.status === "abandoned")
+      throw new Error(abandonedSessionMessage(session));
     session.tasks = update(session.tasks ?? []);
     session.tasksUpdatedAt = new Date().toISOString();
+    session.lastActivityAt = session.tasksUpdatedAt;
     await writeSessionRecord(session);
     return session;
   });
@@ -367,6 +458,72 @@ export async function finishNoChangesSession(
     await verify(session);
     session.status = "no_changes";
     session.closedAt = new Date().toISOString();
+    session.lastActivityAt = session.closedAt;
+    await writeSessionRecord(session);
+    return session;
+  });
+}
+
+export function abandonedSessionMessage(session: Session): string {
+  const at = session.abandonment?.abandonedAt;
+  return `Session ${session.id} was abandoned${at ? ` at ${at}` : ""}; nothing was saved. Restore it with seshx restore --session ${session.id} before continuing.`;
+}
+
+/**
+ * Abandon an active session under its record lock. `verify` receives the
+ * latest record, rechecks it (throwing to refuse) and returns the abandonment
+ * to store. Only the record changes, and the heartbeat is kept so the idle
+ * evidence from before abandoning survives.
+ */
+export async function abandonSessionRecord(
+  sessionId: string,
+  verify: (session: Session) => Promise<SessionAbandonment>,
+): Promise<Session> {
+  return withSessionRecordLock(sessionId, async () => {
+    const session = await readSession(sessionId);
+    if (!session) throw new Error(`Unknown session: ${sessionId}`);
+    if (session.status !== "active")
+      throw new Error(
+        `Only an active session can be abandoned; ${sessionId} is ${session.status}.`,
+      );
+    const abandonment = await verify(session);
+    session.status = "abandoned";
+    session.abandonment = abandonment;
+    await writeSessionRecord(session);
+    return session;
+  });
+}
+
+/**
+ * Return an abandoned session to the status it was abandoned from, keeping
+ * the abandonment in its history. Restoring is deliberate work on the
+ * session, so it records the heartbeat.
+ */
+export async function restoreSessionRecord(
+  sessionId: string,
+  verify: (session: Session) => Promise<void>,
+): Promise<Session> {
+  return withSessionRecordLock(sessionId, async () => {
+    const session = await readSession(sessionId);
+    if (!session) throw new Error(`Unknown session: ${sessionId}`);
+    const abandonment = session.abandonment;
+    if (session.status !== "abandoned" || !abandonment)
+      throw new Error(
+        `Only an abandoned session can be restored; ${sessionId} is ${session.status}.`,
+      );
+    if (abandonment.previousStatus !== "active")
+      throw new Error(
+        `Session ${sessionId} was abandoned from ${abandonment.previousStatus}; this coordinator restores only active sessions.`,
+      );
+    await verify(session);
+    const restoredAt = new Date().toISOString();
+    session.abandonmentHistory = [
+      ...(session.abandonmentHistory ?? []),
+      { ...abandonment, restoredAt },
+    ];
+    delete session.abandonment;
+    session.status = abandonment.previousStatus;
+    session.lastActivityAt = restoredAt;
     await writeSessionRecord(session);
     return session;
   });
@@ -479,7 +636,8 @@ export async function findLatestSessionForWorktree(
         item.worktreePath === worktreePath && statuses.includes(item.status),
     )
     .at(-1);
-  if (session) await writeSession(session);
+  // Lazily index the legacy record. Locating a session is not work on it.
+  if (session) await writeSession(session, { activity: false });
   return session;
 }
 

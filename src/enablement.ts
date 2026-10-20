@@ -61,7 +61,7 @@ export async function enablementCommand(
           await readFile(runtimePaths().config, "utf8"),
         ) as Config;
         stored.disabledRepositories = config.disabledRepositories;
-        await writeConfig(stored);
+        await writeConfig(stored, `seshx ${enabled ? "enable" : "disable"}`);
         const registered = config.repositories.some(
           (repo) => repo.gitCommonDir === commonDir,
         );

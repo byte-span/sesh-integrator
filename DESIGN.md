@@ -62,15 +62,24 @@ tabular numerals. Long titles and paths wrap rather than widen the workspace.
 
 Pin the desktop sidebar progress note to the viewport bottom, with repository
 navigation scrolling above it. Keep the existing compact mobile strip.
+Settings sits at the bottom of the sidebar, below a divider; on mobile it ends
+the horizontal strip.
 
 Desktop uses a 70px header, a resizable repository sidebar (210px by default),
 and main content with 32px
-padding and a maximum width of 1800px. Search and filters precede a bordered
-list/detail split with independently scrolling panes. Its divider resizes the details
-panel with pointer dragging, arrow keys (10px; Shift: 40px), Home/End, and
+padding and a maximum width of 1800px. The session view never scrolls: the page heading
+and footer stay in view while the list and detail panels shrink to fit. Search
+and filters precede two bordered panels separated by a 12px gap, each scrolling
+independently. The detail panel has a sticky "Selected session" heading that
+shares the table header's height and type so both panel headers line up. The gap
+holds the divider, which resizes the details panel with pointer dragging, arrow keys (10px; Shift: 40px), Home/End, and
 double-click reset. Remember the preferred width locally and clamp it to leave
 at least 240px for each pane. Hide the divider in the mobile detail view. Session rows use 18px
 padding; details use 24px. At 1600px and above, increase main and row spacing.
+
+A compact Filter repositories field sits under the sidebar heading. It matches
+repository names (full paths when the query contains a separator), keeps the
+chosen repository listed, and shows a muted note when nothing matches.
 
 The sidebar divider supports pointer dragging, arrow keys (10px; Shift: 40px),
 Home/End, and double-click reset. Hover, drag, and keyboard focus subtly thicken
@@ -91,8 +100,8 @@ do not turn routine session content into floating cards.
 
 ## Shapes
 
-Controls and next-action insets use the control radius; the main split uses the
-panel radius. Rows remain rectangular and share horizontal dividers.
+Controls and next-action insets use the control radius; the list and detail
+panels use the panel radius. Rows remain rectangular and share horizontal dividers.
 
 ## Components
 
@@ -106,6 +115,14 @@ panel radius. Rows remain rectangular and share horizontal dividers.
 - Keep the skip link, semantic buttons, selected-state attributes, status/error
   announcements, and 2px accent focus outline with 3px offset. `/` focuses search
   outside forms and dialogs. Preserve focus and detail scroll during updates.
+- Settings replaces the session view in the main area, with Global,
+  Repository and JSON tabs (arrow keys, Home/End). Tabs hold bordered groups of
+  labelled fields with hints, capped at 760px wide, and a sticky Save/Discard bar.
+  Repository opens on the sidebar's selected repository and offers a picker.
+  Commands and harness executables are read-only there. JSON is a 1100px-wide
+  monospace, non-wrapping editor for the whole file, with live parse status, a
+  Format button and Ctrl/Cmd+S to save. Unsaved edits survive live updates, and
+  leaving with unsaved edits asks for confirmation.
 - Empty, disconnected, and error states explain what happened and the next step.
   Command output remains selectable and keyboard-scrollable. No decorative
   animation is required.

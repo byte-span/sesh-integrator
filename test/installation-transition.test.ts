@@ -225,6 +225,23 @@ it.each([
   },
 );
 
+it("does not defer uninstall for abandoned sessions and keeps their records", async () => {
+  const f = await fixture();
+  f.ok(["begin", "--create-worktree", "--summary", "stale"]);
+  const s = (await f.sessions())[0]!;
+  f.ok(["abandon", "--session", s.id, "--reason", "No longer needed"]);
+  const path = join(f.runtime, "sessions", s.id + ".json");
+  const before = await readFile(path, "utf8");
+  const output = f.ok(["uninstall", "--harness", "codex", "--yes"]);
+  expect(output).not.toContain("Removal deferred");
+  expect(output).not.toContain(`Existing session ${s.id}`);
+  expect(
+    await readFile(join(f.home, ".codex/AGENTS.md"), "utf8").catch(() => ""),
+  ).not.toContain("managed:start");
+  expect(await readFile(path, "utf8")).toBe(before);
+  expect(f.git(f.repo, "worktree", "list")).toContain(s.worktreePath);
+});
+
 it("retries interrupted guidance receipts and ignores incomplete unpublished coordinator copies", async () => {
   const f = await fixture();
   const guidance = join(f.home, ".codex/AGENTS.md");

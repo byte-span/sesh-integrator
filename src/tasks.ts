@@ -18,6 +18,7 @@ const sessionStatuses: Session["status"][] = [
   "needs_review",
   "succeeded",
   "no_changes",
+  "abandoned",
 ];
 const markers: Record<TaskStatus, string> = {
   pending: "[ ]",
@@ -37,6 +38,7 @@ export function taskProgress(session?: Session): string {
 
 export function currentTask(session?: Session): string {
   if (session?.status === "no_changes") return "No changes needed";
+  if (session?.status === "abandoned") return "Abandoned";
   const tasks = session?.tasks ?? [];
   if (!tasks.length) return "No tasks yet";
   if (tasks.every((t) => t.status === "skipped")) return "All tasks skipped";
