@@ -27,29 +27,33 @@ export function targetBranchSource(
   return "defaultBranch";
 }
 
+/**
+ * Create a missing centrally managed target branch: one inherited from the
+ * global `defaultTargetBranch`, or (with `managed`) one set by a delivery
+ * policy. It tracks `<remote>/<branch>` when that exists, else starts at the
+ * registered default branch. Explicit repository targets must already exist.
+ */
 export async function ensureGlobalTargetBranch(
   repository: RepositoryConfig,
+  managed = repository.targetBranch === undefined &&
+    repository.globalDefaultTargetBranch !== undefined,
+  remote = "origin",
 ): Promise<void> {
-  if (
-    repository.targetBranch !== undefined ||
-    repository.globalDefaultTargetBranch === undefined
-  ) {
-    return;
-  }
+  if (!managed) return;
   const branch = targetBranch(repository);
   const localRef = `refs/heads/${branch}`;
   if (await refCommit(repository.path, localRef)) return;
 
-  const remoteRef = `refs/remotes/origin/${branch}`;
+  const remoteRef = `refs/remotes/${remote}/${branch}`;
   if (await refCommit(repository.path, remoteRef)) {
     const tracked = await run(
       "git",
-      ["branch", "--track", branch, `origin/${branch}`],
+      ["branch", "--track", branch, `${remote}/${branch}`],
       { cwd: repository.path },
     );
     if (tracked.code !== 0) {
       throw new PromotionBlockedError(
-        `Could not create local target branch ${branch} tracking origin/${branch}: ${(tracked.stderr || tracked.stdout).trim()}`,
+        `Could not create local target branch ${branch} tracking ${remote}/${branch}: ${(tracked.stderr || tracked.stdout).trim()}`,
       );
     }
     return;

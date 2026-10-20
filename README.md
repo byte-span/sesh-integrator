@@ -162,6 +162,12 @@ Local integration is the default. Optional
 [pull-request promotion](docs/configuration.md#optional-pull-request-promotion)
 can push and open or update a PR after checks pass. It never merges the PR for you.
 
+Automation that drives many repositories can apply a
+[central delivery policy](docs/configuration.md#central-delivery-policy) per
+repository, fast-forward the target before a task starts with
+`begin --sync-target`, and read [JSON status documents](docs/commands.md#machine-readable-output)
+from `begin --json` and `status --session <id> --json`.
+
 ## Track progress and recover
 
 ```bash
@@ -205,7 +211,7 @@ worktree to force progress. [Recovery details →](docs/commands.md#resume)
 | Looking for…                                           | Read                                    |
 | ------------------------------------------------------ | --------------------------------------- |
 | Setup, upgrades, uninstall, or a renamed installation  | [Installation](docs/installation.md)    |
-| Validation, target branches, caching, or PR promotion  | [Configuration](docs/configuration.md)  |
+| Validation, targets, caching, PRs, or delivery policy  | [Configuration](docs/configuration.md)  |
 | Every command, dashboard controls, or recovery details | [Command reference](docs/commands.md)   |
 | Harness paths, settings, and adapter differences       | [Coding harnesses](docs/harnesses.md)   |
 | Tests, benchmarks, signing, or maintainer safeguards   | [Development](docs/development.md)      |

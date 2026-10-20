@@ -102,6 +102,16 @@ export async function statusCommand(sessionId?: string): Promise<void> {
     ])
       process.stdout.write(`  ${terminalSafe(line)}\n`);
     process.stdout.write(`  target branch: ${session.targetBranch ?? "-"}\n`);
+    if (session.delivery) {
+      const { delivery } = session;
+      const promotion =
+        delivery.promotion.type === "pull-request"
+          ? `PR (${delivery.promotion.mode}) to ${delivery.promotion.productionBranch} via ${delivery.promotion.remote}`
+          : "no remote promotion";
+      process.stdout.write(
+        `  delivery policy: ${terminalSafe(`${delivery.repository} (${delivery.source}), ${promotion}, completion ${delivery.completion}, version ${delivery.version ?? "-"}, sha256 ${delivery.sha256}`)}\n`,
+      );
+    }
     process.stdout.write(`  started: ${session.startedAt}\n`);
     process.stdout.write(
       `  ready: ${session.readyAt ?? "-"} ${session.readyCommit ?? ""}\n`,
