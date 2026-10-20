@@ -117,6 +117,18 @@
       "acceptance": "Dashboard Settings shows config.json history in its own History tab (Global, Repository, JSON, History) instead of under the JSON editor, and a History button in the Settings header opens the same list in a drawer or dialog from any tab. Each entry shows its time and source with Compare with current and Restore. Restore opens the existing Save config.json? confirmation with the diff and saves only after confirmation, without loading the version into the JSON editor or discarding unsaved edits silently. The saved tab choice, keyboard tab navigation, and history-unavailable and empty states keep working, docs/commands.md describes the new placement, and dashboard tests cover the tab, the header button, and restore through confirmation.",
       "doc": "docs/commands.md",
       "evidence": []
+    },
+    {
+      "id": "SI-007",
+      "title": "Add searchable suggestion fields to dashboard Settings",
+      "status": "ready",
+      "order": 70,
+      "executor": "automated",
+      "device_requirement": [],
+      "blocked_by": [],
+      "acceptance": "Dashboard Settings replaces free-text inputs with an accessible, keyboard-operable combobox (type to filter, arrow keys, Enter, Escape) that still accepts typed values: Default target branch lists branches across all registered repositories with how many repositories have each (for example dev — 4 of 5 repos); repository Target branch and Production branch list that repository's branches; Remote lists that repository's git remotes; Reviewers and Assignees are chip inputs suggesting names already used in configuration; Signing program and agent commands suggest detected executables on PATH such as gpg, gpg2 and ssh-keygen. A typed branch that does not exist is offered as Use new branch \"<name>\", saves only the name, and shows a warning naming the repositories that lack it; saving never creates Git branches. Suggestions come from a read-only dashboard endpoint, the form still works with an empty or failed suggestion list, docs/commands.md describes the fields, and dashboard tests cover filtering, the new-branch option and warning, chip entry and removal, and the suggestion-failure fallback.",
+      "doc": "docs/commands.md",
+      "evidence": []
     }
   ]
 }
