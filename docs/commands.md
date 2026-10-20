@@ -195,19 +195,23 @@ CLI evidence remains in the runtime. Closing a tab does not cancel a command.
 Settings, at the bottom of the repository panel, opens three tabs:
 
 - **Global**: default target branch, default pull-request reviewers and
-  assignees, lock wait, conflict resolution mode, and delivery policy file.
-  Agent harness commands are shown read-only.
+  assignees, lock wait, conflict resolution mode, delivery policy file, and
+  the program each agent harness runs. Leave a harness empty to use its
+  default on `PATH`.
 - **Repository**: choose a registered repository (the panel's selection by
-  default). Edit enablement, target branch override, pull-request promotion
-  (mode, production branch, remote, reviewers, assignees), validation reuse,
-  setup failure policy, and conflict instructions. Registration facts,
-  setup/validation/post-integration commands, and validation tiers are
-  read-only.
+  default). Edit enablement, signing program, target branch override,
+  pull-request promotion (mode, production branch, remote, reviewers,
+  assignees), validation reuse, setup failure policy, and conflict
+  instructions. Registration facts are read-only. **Edit in JSON** opens this
+  repository's entry in the JSON tab to change its commands and validation
+  tiers.
 - **JSON**: edit the whole `config.json`, including commands, validation
   tiers and harness commands. The editor shows parse errors as you type;
-  Format re-indents, and Ctrl/Cmd+S saves. It opens even when the file is
-  invalid, so you can repair it. Repositories cannot be added, removed or
-  moved here: use `seshx register`, and keep each `path` and `gitCommonDir`.
+  Format re-indents, and Ctrl/Cmd+S saves. Saving first shows the changed
+  settings and a line diff, and warns when the change affects programs seshx
+  runs. It opens even when the file is invalid, so you can repair it.
+  Repositories cannot be added, removed or moved here: use `seshx register`,
+  and keep each `path` and `gitCommonDir`.
 
 Save changes writes only the fields you changed to the runtime `config.json`,
 under the configuration lock. The server refuses values the CLI would reject,
@@ -216,6 +220,14 @@ repository's integration lock is held. Leave a field empty to inherit its
 default. Discard changes reloads the saved values. JSON saves rewrite the file
 with two-space indentation and lock every repository whose entry or
 enablement changed.
+
+**History**, under the JSON editor, lists earlier versions of `config.json`.
+Every change from the CLI (`register`, `enable`, `disable`) or the dashboard
+keeps the replaced file in the runtime's `config-history/` folder; the newest
+20 are kept. **Compare with current** shows a diff. **Restore** loads that
+version into the editor. Review it, then choose Save changes. Saving a
+restored version goes through the same checks and confirmation, and keeps
+the version it replaces, so a restore can be undone.
 
 The server rejects foreign Host/Origin headers and cross-site requests. It has
 no remote-listening or tunnel option. If a browser cannot be opened, use the

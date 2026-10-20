@@ -191,7 +191,8 @@ async function registerRepository(
     if (autoConfig) {
       await autoConfigureRepository(existing);
     }
-    if (autoConfig || setupCommands.length > 0) await writeConfig(config);
+    if (autoConfig || setupCommands.length > 0)
+      await writeConfig(config, "seshx register");
     process.stdout.write(
       `Repository already registered:\n${JSON.stringify(existing, null, 2)}\n`,
     );
@@ -218,7 +219,7 @@ async function registerRepository(
     await ensureGlobalTargetBranch(repository);
   if (autoConfig) await autoConfigureRepository(repository);
   config.repositories.push(repository);
-  await writeConfig(config);
+  await writeConfig(config, "seshx register");
   process.stdout.write(`Registered ${repository.path}\n`);
   process.stdout.write(`Integration branch: ${repository.integrationBranch}\n`);
   process.stdout.write(`Target branch: ${targetBranch(repository)}\n`);

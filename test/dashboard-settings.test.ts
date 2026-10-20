@@ -69,6 +69,7 @@ const global = (overrides: Partial<GlobalSettings> = {}): GlobalSettings => ({
   reviewers: ["platform-team"],
   assignees: [],
   deliveryPolicyFile: "",
+  harnessCommands: { codex: "codex", claude: "", antigravity: "", grok: "" },
   ...overrides,
 });
 
@@ -88,6 +89,7 @@ const repository = (
   validationCache: "session",
   setupCommandPolicy: "advisory",
   conflictInstructions: "Keep both.",
+  gpgProgram: "",
   ...overrides,
 });
 
@@ -111,9 +113,12 @@ it("projects effective settings, inheritance and read-only commands", () => {
     assignees: [],
     conflictResolutionMode: "current-session",
   });
-  expect(view.global.harnessCommands).toContainEqual({
-    harness: "Codex CLI",
-    command: "codex",
+  expect(view.global.harnessCommands).toEqual(global().harnessCommands);
+  expect(view.harnesses).toContainEqual({
+    id: "antigravity",
+    name: "Antigravity CLI",
+    defaultCommand: "agy",
+    effectiveCommand: "agy",
   });
   const [repo] = view.repositories;
   expect(repo).toMatchObject({
@@ -267,6 +272,93 @@ it("edits a repository and refuses settings the CLI would reject", () => {
   expect(() =>
     applySettings(stored, { ...request(repository()), repository: "/gone" }),
   ).toThrow("no longer registered");
+});
+
+it("edits agent commands and signing programs, keeping the legacy alias in step", () => {
+  const stored = config();
+  const request = (values: GlobalSettings) =>
+    parseSettingsRequest({ scope: "global", revision, values });
+  const commands = (
+    overrides: Partial<GlobalSettings["harnessCommands"]>,
+  ): GlobalSettings["harnessCommands"] => ({
+    codex: "",
+    claude: "",
+    antigravity: "",
+    grok: "",
+    ...overrides,
+  });
+  const next = applySettings(
+    stored,
+    request(
+      global({
+        harnessCommands: commands({
+          codex: " /opt/codex ",
+          claude: "/usr/local/bin/claude",
+        }),
+      }),
+    ),
+  );
+  // Older coordinators read only codexCommand.
+  expect(next).toMatchObject({
+    codexCommand: "/opt/codex",
+    harnessCommands: { codex: "/opt/codex", claude: "/usr/local/bin/claude" },
+  });
+  expect(settingsView("{}", next).harnesses).toContainEqual({
+    id: "claude",
+    name: "Claude Code",
+    defaultCommand: "claude",
+    effectiveCommand: "/usr/local/bin/claude",
+  });
+  const cleared = applySettings(
+    next,
+    request(global({ harnessCommands: commands({}) })),
+  );
+  expect(cleared).not.toHaveProperty("harnessCommands");
+  expect(cleared).not.toHaveProperty("codexCommand");
+  // Commands for harnesses the form does not show are kept.
+  const legacy = { ...config(), harnessCommands: { gemini: "gemini" } };
+  expect(
+    applySettings(
+      legacy,
+      request(
+        global({ harnessCommands: commands({ codex: "codex", grok: "g" }) }),
+      ),
+    ).harnessCommands,
+  ).toEqual({ gemini: "gemini", grok: "g" });
+  for (const bad of [
+    { ...commands({}), gemini: "gemini" },
+    { codex: "codex" },
+    commands({ claude: "claude\n--dangerously-skip-permissions" }),
+  ])
+    expect(() =>
+      request(
+        global({ harnessCommands: bad as GlobalSettings["harnessCommands"] }),
+      ),
+    ).toThrow();
+
+  const repositoryRequest = (values: RepositorySettings) =>
+    ({
+      scope: "repository",
+      revision,
+      repository: "/work/alpha",
+      values,
+    }) as const;
+  const signed = applySettings(
+    stored,
+    repositoryRequest(repository({ gpgProgram: "/usr/bin/gpg2" })),
+  );
+  expect(signed.repositories[0]!.gpgProgram).toBe("/usr/bin/gpg2");
+  expect(settingsView("{}", signed).repositories[0]!.gpgProgram).toBe(
+    "/usr/bin/gpg2",
+  );
+  expect(
+    applySettings(signed, repositoryRequest(repository())).repositories[0],
+  ).not.toHaveProperty("gpgProgram");
+  expect(() =>
+    parseSettingsRequest(
+      repositoryRequest(repository({ gpgProgram: "gpg\rx" })),
+    ),
+  ).toThrow("single line");
 });
 
 it("saves under locks, rejects stale forms and never rewrites unchanged config", async () => {
