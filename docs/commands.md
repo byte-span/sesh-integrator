@@ -169,7 +169,9 @@ Select a session for its checklist, saved milestones,
 source/validation/promotion details, and follow-ups. On smaller screens, use
 Back to sessions to return from details. `/` focuses search. The theme follows
 your system initially; Light theme / Dark theme saves your browser preference.
-Drag the repository panel’s right edge to resize it. The divider also supports
+Type in Filter repositories to narrow the repository panel by name; include `/`
+to match full paths. Enter opens the first match, Escape clears the filter, and
+the chosen repository stays listed. Drag the repository panel’s right edge to resize it. The divider also supports
 Left/Right arrows (Shift for larger steps), Home/End for its limits, and a
 double-click to reset. Width is remembered in the browser for this address;
 `--port` keeps that address consistent between launches. On small screens the
