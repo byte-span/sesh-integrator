@@ -6,8 +6,9 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 `seshx` gives each task an isolated Git worktree, then integrates finished work
-one session at a time. It merges the exact committed changes, runs your configured
-checks, and promotes the result to your target branch.
+through a per-repository lock, batching sessions that finish together. It merges
+the exact committed changes, runs your configured checks, and promotes the result
+to your target branch.
 
 Works with:
 
@@ -52,7 +53,8 @@ the handoff between their worktrees and the branch you want to review:
 - **Keep tasks separate.** Start isolated worktrees without moving, stashing,
   or committing unrelated edits in your launch checkout.
 - **Integrate in order.** A per-repository lock serializes simultaneous finishes;
-  each merge uses the exact recorded source commit.
+  each merge uses the exact recorded source commit. Sessions waiting together are
+  validated together.
 - **Check before promotion.** Run configured validation against the combined work.
   Failed validation preserves the result for investigation and retry.
 - **Recover with context.** Resolve conflicts in the current agent session, then
@@ -147,12 +149,25 @@ the ID of the open `TASKS.json` task covering it.
 
 ```mermaid
 flowchart LR
-    A[Task A worktree] --> I[Integrate one session at a time]
-    B[Task B worktree] --> I
-    C[Task C worktree] --> I
-    I --> V[Validate combined work]
+    A[Task A worktree] --> L[Repository lock]
+    B[Task B worktree] --> L
+    C[Task C worktree] --> L
+    L --> I[Merge every waiting session]
+    I --> V[Validate combined work once]
     V --> T[Promote to target branch]
+    V -. fails .-> H[Validate halves until each failure is alone]
+    H --> T
 ```
+
+The lock holder merges the exact commit of every session waiting for the lock
+into one batch, validates the combined tree once, and promotes it. Each session
+keeps its own completion summary and follow-ups. A session whose merge conflicts
+is left out and integrates alone with the usual conflict prompt. If combined
+validation fails, the batch is split and validated in halves, so passing sessions
+still promote and only a session that fails alone waits for `resume`. Nothing is
+promoted on a tree that was not validated. Set
+[`integrationBatching`](docs/configuration.md#integration-batching) to change the
+batch size cap or turn batching off for a repository.
 
 The internal staging branch is separate from your target. Promotion verifies the
 expected target commit and preserves dirty checkout state. A blocked promotion

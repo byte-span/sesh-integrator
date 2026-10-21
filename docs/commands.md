@@ -573,6 +573,15 @@ to this checkout's `dist/cli.js`; other installations must update their CLI too.
 
 The ready SHA and timestamp are persisted before dependency or lock checks. Dependencies must already have succeeded. Simultaneous processes wait on an atomic per-repository directory lock, then merge against the current staging branch. Under that lock the CLI records the target's exact expected commit. The mutable source branch name is never merged.
 
+When several sessions wait for the lock, the next holder may integrate them
+together as an [integration batch](configuration.md#integration-batching). A
+waiting `integrate` then prints `Joined integration batch <id> led by <session>`
+and does not time out while that leader works on it. Once the batch resolves the
+session, the process exits with the session's own completion summary: promoted
+at the shared batch commit, or the result of integrating it alone after a
+combined validation failed. A session left out because its merge conflicts
+keeps waiting and then integrates alone with the normal conflict prompt.
+
 The staging branch starts from, or safely fast-forwards to, the current target.
 After setup, validation, and signing pass, the exact validated staging commit is
 promoted. An unheld target uses atomic `update-ref` with the expected old SHA
@@ -703,6 +712,7 @@ Status document, `sesh-integrator/session-status@1`:
     "conflictPromptPath": null,
     "rolloutDisposition": "none",
     "rolloutFollowUps": [],
+    "integrationBatch": null,
     "delivery": {
       "version": "…",
       "sha256": "<hex>",
@@ -743,6 +753,7 @@ Status document, `sesh-integrator/session-status@1`:
 | `session.awaitingConflictResolution`                    | `true` while a conflict waits to be resolved and staged in `integrationWorktreePath`.                                                                                                                                                  |
 | `session.integrationWorktreePath`, `conflictPromptPath` | Paths for conflict recovery, or `null`.                                                                                                                                                                                                |
 | `session.rolloutDisposition`, `rolloutFollowUps`        | `none`, `applied`, `automated`, `manual` or `null`; recorded follow-up actions.                                                                                                                                                        |
+| `session.integrationBatch`                              | [Batch](configuration.md#integration-batching) the session led or joined: `id`, `role`, `leaderSessionId`, `members`, `outcome` (`batched`, `isolated`, `excluded`, `released` or `null`), `stagingCommit`; else `null`.               |
 | `session.delivery`                                      | [Recorded delivery rule](configuration.md#what-a-session-records-and-uses), or `null` without a policy.                                                                                                                                |
 | `resumeCommand`                                         | Argument array such as `["seshx", "resume", "--session", "<id>"]` for `needs_review`, `validation_pending` and `promotion_pending` sessions; otherwise `null`. Run it from the session worktree or another checkout of the repository. |
 | `sync`                                                  | `begin --sync-target --json` only: `remote` (or `null`), `result`, `branch`, and the local target commits `before` and `after` (`null` when absent).                                                                                   |

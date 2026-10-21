@@ -50,6 +50,18 @@ export interface RepositoryConfig {
   postIntegrationCommands: Command[];
   conflictInstructions: string;
   validationCache?: "off" | "session" | "repository";
+  /** Overrides the global integrationBatching defaults for this repository. */
+  integrationBatching?: IntegrationBatchingConfig;
+}
+
+/**
+ * Batching of sessions that wait to integrate at the same time. Omitted keys
+ * fall back to the global value, then to enabled with at most 8 sessions.
+ */
+export interface IntegrationBatchingConfig {
+  enabled?: boolean;
+  /** Sessions merged into one candidate, including its leader (1-64). */
+  maxSessions?: number;
 }
 
 export type PromotionConfig =
@@ -105,6 +117,8 @@ export interface Config {
   defaultPromotion?: DefaultPromotionConfig;
   /** Delivery policy used by `begin` when `--policy-file` is not given. */
   deliveryPolicyFile?: string;
+  /** Defaults for every repository; repository settings override them. */
+  integrationBatching?: IntegrationBatchingConfig;
   repositories: RepositoryConfig[];
 }
 
@@ -243,10 +257,52 @@ export interface Session {
   integrationWorktreeDetached?: boolean;
   awaitingConflictResolution?: boolean;
   waitingForLock?: boolean;
+  /**
+   * Written by a batching-aware `integrate` process while it waits for the
+   * repository lock. Older coordinators never write it, so their waiting
+   * sessions are never claimed into a batch.
+   */
+  integrationWait?: IntegrationWaiter;
+  /** The latest integration batch this session led or joined. */
+  integrationBatch?: IntegrationBatchMembership;
+  /** Earlier batch memberships, oldest first. */
+  integrationBatchHistory?: IntegrationBatchMembership[];
   postIntegrationResults?: CommandExecutionResult[];
   gitBaseline?: GitObservation;
   recoveryBundle?: RecoveryBundlePointer;
   latestIncidentId?: string;
+}
+
+export interface IntegrationWaiter {
+  /** Batch protocol version the waiting process understands. */
+  batching: 1;
+  pid: number;
+  hostname: string;
+  since: string;
+}
+
+/**
+ * How a session took part in an integration batch.
+ * - `batched`: merged into a validated combined candidate; the session status
+ *   reports its promotion result.
+ * - `isolated`: integrated alone by the leader after a combined validation
+ *   failed; the session status reports that result.
+ * - `excluded`: its merge conflicted with the batch; it integrates alone.
+ * - `released`: the batch ended without integrating it; it integrates itself.
+ */
+export interface IntegrationBatchMembership {
+  id: string;
+  leaderSessionId: string;
+  role: "leader" | "member";
+  joinedAt: string;
+  /** Sessions merged into the latest candidate this session was part of, in merge order. */
+  members: string[];
+  outcome?: "batched" | "isolated" | "excluded" | "released";
+  reason?: string;
+  /** Validated staging commit shared by every member of the candidate. */
+  stagingCommit?: string;
+  validationTier?: string;
+  resolvedAt?: string;
 }
 
 export interface Incident {

@@ -180,9 +180,32 @@ export async function recordValidationRecovery(
   failure?: ValidationFailureRecord,
 ): Promise<void> {
   if (!session.recoveryBundle) return;
+  await recordBatchValidationRecovery(
+    repository,
+    session,
+    await git(["write-tree"], worktree),
+    outcome,
+    failure,
+  );
+  if (outcome === "passed")
+    await snapshotRecoveryState(repository, session, worktree);
+}
+
+/**
+ * Record a validation outcome for an exact tree without a merged-tree
+ * snapshot. Integration batches validate a combined commit that is not this
+ * session's own merge, so resume must rebuild its merge from the source.
+ */
+export async function recordBatchValidationRecovery(
+  repository: RepositoryConfig,
+  session: Session,
+  tree: string,
+  outcome: "passed" | "failed",
+  failure?: ValidationFailureRecord,
+): Promise<void> {
+  if (!session.recoveryBundle) return;
   const manifest = await readVerifiedManifest(session);
   const sequence = manifest.snapshots.length + 1;
-  const tree = await git(["write-tree"], worktree);
   const validation = {
     outcome,
     tree,
@@ -202,8 +225,6 @@ export async function recordValidationRecovery(
     object,
     validation,
   });
-  if (outcome === "passed")
-    await snapshotRecoveryState(repository, session, worktree);
 }
 
 export async function recordStagingCommitRecovery(
