@@ -9,6 +9,7 @@ import {
   writeSession,
 } from "./runtime.js";
 import type { Incident, Session } from "./types.js";
+import { validationFailureEvidence } from "./validation-output.js";
 
 type Diagnosis = Pick<
   Incident,
@@ -22,12 +23,7 @@ export async function recordIncident(
   const paths = await ensureRuntime();
   const now = new Date();
   const id = `CH-${now.toISOString().slice(0, 10).replaceAll("-", "")}-${randomBytes(3).toString("hex").toUpperCase()}`;
-  const fingerprint = createHash("sha256")
-    .update(
-      `${session.status}\0${session.recoveryPhase ?? "none"}\0${error.replace(/[0-9a-f]{7,40}/gi, "<sha>").replace(/\d+/g, "<n>")}`,
-    )
-    .digest("hex")
-    .slice(0, 12);
+  const fingerprint = incidentFingerprint(session, error);
   const investigation = await investigateFailure(session, error, fingerprint);
   const incident: Incident = {
     version: 1,
@@ -64,6 +60,34 @@ export async function recordIncident(
   session.latestIncidentId = id;
   await writeSession(session);
   return incident;
+}
+
+function normalizeForFingerprint(value: string): string {
+  return value.replace(/[0-9a-f]{7,40}/gi, "<sha>").replace(/\d+/g, "<n>");
+}
+
+/**
+ * Group incidents by what failed, not only by the command and exit code. A
+ * validation failure adds its failing test names, or else its first error line,
+ * so unrelated failures of one broad command (such as `pnpm test`) stay
+ * separate. Other errors keep their previous fingerprints.
+ */
+export function incidentFingerprint(session: Session, error: string): string {
+  const failure = session.validationFailure;
+  // A stale record from an earlier attempt must not describe a later error.
+  const current =
+    failure && error.includes(failure.message) ? failure : undefined;
+  const signature = current?.failingTests?.length
+    ? `tests:${current.failingTests.join("\n")}`
+    : current?.firstErrorLine
+      ? `error:${current.firstErrorLine}`
+      : "";
+  return createHash("sha256")
+    .update(
+      `${session.status}\0${session.recoveryPhase ?? "none"}\0${normalizeForFingerprint(error)}${signature ? `\0${normalizeForFingerprint(signature)}` : ""}`,
+    )
+    .digest("hex")
+    .slice(0, 12);
 }
 
 async function investigateFailure(
@@ -218,4 +242,11 @@ export async function incidentCommand(id: string): Promise<void> {
     );
   process.stdout.write(`Fingerprint: ${incident.fingerprint}\n`);
   process.stdout.write(`Recorded error: ${incident.error}\n`);
+  const failure = incident.evidence.validationFailure;
+  for (const [label, value] of failure
+    ? validationFailureEvidence(failure)
+    : [])
+    process.stdout.write(
+      `${label[0]!.toUpperCase()}${label.slice(1)}: ${value}\n`,
+    );
 }

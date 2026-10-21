@@ -283,6 +283,9 @@ pnpm benchmark:check
 
 It proves begin metadata, exact clean merges, simultaneous serialization, refreshed integration state, contextual conflict resolution, non-precedence of start time, dependencies, validation failure, unresolved conflicts, untouched source worktrees, conservative stale-lock behavior, read-only legacy audit, and both successful and failing read-only doctor checks.
 
+Vitest bounds its workers by the build queue concurrency; set
+`SESH_VITEST_MAX_WORKERS` to override it ([test workers](build-queue.md#test-workers)).
+
 ### Release smoke tests
 
 `pnpm test:smoke` checks installation from the npm tarball, the full CLI lifecycle,

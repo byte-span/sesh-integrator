@@ -10,7 +10,8 @@ joining the queue. Git operations and agent work do not consume a slot.
 task, or an older pinned coordinator, **remain outside the queue**. The queue
 does not cap a command's internal workers or coordinate other OS accounts, VMs,
 containers, or native Windows with WSL. Configure tool-specific worker limits
-when a single command is itself too large. This repository leaves Vitest worker selection at its normal default.
+when a single command is itself too large. This repository bounds its own
+Vitest workers; see [Test workers](#test-workers).
 
 ## Inspect and configure
 
@@ -128,6 +129,79 @@ Cancellation of a reuse waiter leaves the owner running. A crashed owner's mutex
 released by the OS; no success is published before verification. Its running queue
 entries still require the normal orphan recovery before new commands can start.
 Full local-target recovery continues to bypass validation reuse.
+
+## Test workers
+
+Each queue slot runs one command, but a test runner inside it may start one
+worker per CPU. Two such runs at once oversubscribe the machine. This
+repository's `vitest.config.ts` therefore bounds Vitest's `maxWorkers`:
+
+```text
+maxWorkers = max(1, floor((available CPUs - 1) / effective queue concurrency))
+```
+
+On a 16-thread host with concurrency `2`, each run uses 7 workers instead
+of 15. A single slot (`--concurrency 1`) keeps Vitest's own default. An
+`unlimited` or unreadable queue setting divides by the resource-aware `auto` estimate,
+because any number of runs may then overlap. The config only reads queue
+settings; it never joins the queue. Each run prints the bound it chose, for
+example `Vitest workers: 7 (16 CPUs / build queue concurrency 2)`.
+
+To override it, set a whole number from 1 to 1024. An invalid value stops the
+run with an error rather than being ignored:
+
+```sh
+SESH_VITEST_MAX_WORKERS=15 pnpm test
+```
+
+PowerShell uses `$env:SESH_VITEST_MAX_WORKERS = '15'`. Vitest's own
+`--maxWorkers` flag also takes precedence. Other repositories configure their
+own runner's worker limit the same way.
+
+The suite keeps its 30 s test and hook timeouts (`pnpm test` passes
+`--testTimeout=30000 --hookTimeout=30000`). They were reviewed on 2026-10-20 on
+a 16-thread, 11 GB WSL host with the queue at concurrency `2` and both slots
+running full suites with 7 workers each. Two measured runs passed 494 tests (2 skipped)
+in 352 s and 358 s. The slowest test took 18.0 s, including its
+`beforeEach`/`afterEach` hooks, and no other test exceeded 14 s, which leaves
+at least 1.6x headroom. `test/handoff.test.ts` runs its tests in sequence and
+sets the suite's wall time. Change a timeout only with new measurements; when
+a test times out, check its recorded queue load ([failure
+evidence](#failure-evidence)) first.
+
+## Failure evidence
+
+When a validation command fails, its failure record keeps more than the exit
+code. The session's `validationFailure` and its incident hold:
+
+- `outputTail`: the last 60 lines (at most 6 KiB) of stdout and of stderr;
+- `logPath`: the full output under `<runtime>/logs/validation/`, readable only
+  by the current user (`logError` explains a log that could not be written);
+- `failingTests`, or else `firstErrorLine`, parsed from the output;
+- `queueLoad`: running and waiting queue entries and the effective capacity
+  when the failure was recorded.
+
+`running` includes the failed command when it ran to an exit code; its slot is
+released just before sampling. A command that never started, such as one whose
+queue wait timed out, is not counted. A failure with several running entries or
+waiters suggests resource contention; a repeatable failure on an idle queue
+points to a code defect.
+`seshx status` and `seshx incident <ticket>` print these facts, and each failure
+prints its log path when it happens.
+
+Output is stripped of terminal control codes and redacted before it is stored:
+values of secret-named environment variables (for example `*_TOKEN`,
+`*_SECRET`, `*PASSWORD*`, `*_KEY`) and common shapes such as authorization
+headers, URL credentials, signed URL parameters, private keys, JWTs and
+provider tokens. Redaction is best-effort, so review a log before sharing it
+and keep credentials out of command output. Logs are written only for session
+validations and are never removed automatically; delete old files under
+`logs/validation/` when they are no longer needed.
+
+Incident fingerprints include the failing test names, or else the first error
+line, so unrelated failures of one broad command such as `pnpm test` no longer
+share a fingerprint. Durations, digits and SHAs are normalized, so a recurring
+failure still groups together. Other incidents keep their previous fingerprints.
 
 ## Measurement
 

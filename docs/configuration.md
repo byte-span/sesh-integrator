@@ -354,6 +354,11 @@ declared transient uses bounded exponential backoff; omitted retry values
 default to three attempts, 250 ms initial backoff, and a 2 s cap. Legacy
 `deterministic` declarations are accepted but treated as unclassified.
 
+A failed command's record keeps a bounded, redacted tail of its stdout and
+stderr, the path of a full redacted log under `<runtime>/logs/validation/`, the
+failing test names or first error line, and the build queue load at failure
+time. See [failure evidence](build-queue.md#failure-evidence).
+
 `validationCache` defaults to `session`: successful commands are reusable only
 for the same Git tree, command fingerprint, platform, architecture, and Node
 version and execution environment in that handoff. Set it to `repository` for content-addressed reuse
@@ -521,3 +526,10 @@ repositories and sessions. New machines default to `unlimited`; `auto` opts into
 resource-aware throttling. Existing explicit settings are retained. Queue configuration is machine-local and independent
 of this repository configuration. See [build queue settings, recovery, and limits](build-queue.md).
 Directly launched builds remain outside the queue.
+
+The queue limits how many commands run, not how many workers each command
+starts. This repository's Vitest config divides the available CPUs by the
+effective queue concurrency to bound `maxWorkers` (7 per run with concurrency
+`2` on 16 threads). Override it with `SESH_VITEST_MAX_WORKERS=<1-1024>`; see
+[test workers](build-queue.md#test-workers). Configure equivalent limits in
+other repositories' test runners.

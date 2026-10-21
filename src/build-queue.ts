@@ -101,7 +101,7 @@ export async function queueSettings(
     );
   return settings as QueueSettings;
 }
-function capacity(settings: QueueSettings): number {
+export function capacity(settings: QueueSettings): number {
   if (settings.concurrency === "unlimited") return Infinity;
   const constrained = process.constrainedMemory?.() || Infinity;
   return settings.concurrency === "auto"
