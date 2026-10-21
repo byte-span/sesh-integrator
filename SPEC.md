@@ -202,8 +202,8 @@ Example `~/.sesh-integrator/config.json`:
 ```
 
 Integrator-launched setup, preparation, validation and post-check commands share
-a machine-local queue with unrestricted default scheduling and optional capacity
-limits. Scheduling preserves required checks. Repository cache reuse also keys on
+a machine-local queue with a resource-aware default capacity limit, explicit
+machine overrides including `unlimited`, and no-progress wait timeouts. Scheduling preserves required checks. Repository cache reuse also keys on
 the execution environment and coalesces identical concurrent validation plans. Directly launched builds remain outside the queue.
 See [queue ownership, configuration and recovery](docs/build-queue.md).
 

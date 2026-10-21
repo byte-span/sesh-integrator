@@ -77,7 +77,7 @@ export async function runQueued(
       async () => {
         if (uncertain)
           process.stderr.write(
-            `Build queue slot retained: ${lease.entry.id}. Inspect the workload, then use seshx queue recover only after all descendants stopped.\n`,
+            `Build queue slot retained: ${lease.entry.id}. Inspect the workload; only after all descendants stopped, run seshx queue recover ${lease.entry.id} --confirmed-stopped.\n`,
           );
         else await releaseBuildSlot(lease);
       },
