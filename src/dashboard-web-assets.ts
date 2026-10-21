@@ -1259,13 +1259,63 @@ main > * {
 .detail {
   min-width: 0;
   min-height: 0;
-  overflow: auto;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--surface);
 }
 .session-list {
+  overflow: auto;
   container-type: inline-size;
+}
+/* The detail frame stays put and only its body scrolls, so the scrollbar
+   starts below the heading instead of running up into the top corner. */
+.detail {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+/* Pane scrollbars stop short of the rounded corners (9px inner radius), and
+   the session list track starts below its sticky header (9px + 16px + 9px
+   plus a 1px rule). Chromium ignores ::-webkit-scrollbar while
+   scrollbar-width or scrollbar-color is set, so these panes reset both;
+   other browsers keep the global thin scrollbar. */
+@supports selector(::-webkit-scrollbar) {
+  .session-list,
+  .detail-body {
+    scrollbar-color: auto;
+    scrollbar-width: auto;
+  }
+  .session-list::-webkit-scrollbar,
+  .detail-body::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  .session-list::-webkit-scrollbar-track,
+  .detail-body::-webkit-scrollbar-track,
+  .session-list::-webkit-scrollbar-corner,
+  .detail-body::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+  .session-list::-webkit-scrollbar-track:vertical {
+    margin: 35px 0 9px;
+  }
+  .session-list::-webkit-scrollbar-track:horizontal {
+    margin: 0 9px;
+  }
+  .detail-body::-webkit-scrollbar-track:vertical {
+    margin: 0 0 9px;
+  }
+  .session-list::-webkit-scrollbar-thumb,
+  .detail-body::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: 999px;
+    background: var(--line);
+    background-clip: padding-box;
+  }
+  .session-list::-webkit-scrollbar-thumb:hover,
+  .detail-body::-webkit-scrollbar-thumb:hover {
+    background-color: var(--muted);
+  }
 }
 .session-table {
   width: 100%;
@@ -1402,6 +1452,9 @@ main > * {
   border-bottom: 1px solid var(--line);
 }
 .detail-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   padding: 24px;
 }
 .detail-body h2 {
@@ -1783,7 +1836,7 @@ dialog p {
     display: none;
   }
   .split.show-detail .detail {
-    display: block;
+    display: flex;
   }
   .back {
     display: block;
@@ -2281,7 +2334,7 @@ function renderDetail(r) {
   const key = JSON.stringify([r, !!state.job?.running]);
   if (detailKey === key) return;
   const oldId = pane.dataset.session,
-    scroll = pane.scrollTop,
+    scroll = body.scrollTop,
     focus = document.activeElement?.dataset.control,
     expanded = pane.querySelector("details")?.open;
   detailKey = key;
@@ -2396,7 +2449,7 @@ function renderDetail(r) {
     el("pre", r.details.join("\n"), "record"),
   );
   body.append(details);
-  pane.scrollTop = oldId === r.id ? scroll : 0;
+  body.scrollTop = oldId === r.id ? scroll : 0;
   if (focus && oldId === r.id)
     pane.querySelector('[data-control="' + focus + '"]')?.focus();
 }
