@@ -30,7 +30,8 @@ import type {
   SessionIndexEntry,
   SessionTask,
 } from "./types.js";
-import { isValidationStepList } from "./validation.js";
+import { isValidationStepList, queueBypassConfigError } from "./validation.js";
+import { isIntegrationBatchingConfig } from "./batch-settings.js";
 
 export const DEFAULT_INTEGRATION_BRANCH = "sesh-integrator/integration";
 
@@ -174,6 +175,10 @@ export function validateConfig(value: Config, source: string): Config {
   ) {
     throw new Error(`Invalid configuration: ${source}`);
   }
+  if (!isIntegrationBatchingConfig(value.integrationBatching))
+    throw new Error(
+      `Invalid integrationBatching in ${source}: use { "enabled": true|false, "maxSessions": 1-64 }`,
+    );
   for (const repository of value.repositories) {
     applyGlobalTargetPolicy(value, repository);
     repository.setupCommands ??= [];
@@ -191,6 +196,10 @@ export function validateConfig(value: Config, source: string): Config {
         `Invalid validation configuration for ${repository.path}`,
       );
     }
+    if (!isIntegrationBatchingConfig(repository.integrationBatching))
+      throw new Error(
+        `Invalid integrationBatching for ${repository.path}: use { "enabled": true|false, "maxSessions": 1-64 }`,
+      );
     for (const tier of repository.validationTiers) {
       if (
         !isValidationStepList(tier.sourceValidationCommands) ||
@@ -200,7 +209,17 @@ export function validateConfig(value: Config, source: string): Config {
           `Invalid validation tier ${tier.name} for ${repository.path}`,
         );
       }
+      if (
+        tier.reuseSourceValidationOnTargetMove !== undefined &&
+        typeof tier.reuseSourceValidationOnTargetMove !== "boolean"
+      ) {
+        throw new Error(
+          `Invalid reuseSourceValidationOnTargetMove for validation tier ${tier.name} in ${repository.path}: use true or false`,
+        );
+      }
     }
+    const queueBypassError = queueBypassConfigError(repository);
+    if (queueBypassError) throw new Error(queueBypassError);
     // targetBranch intentionally remains optional for backward compatibility.
     // Its effective value inherits the optional global policy, then falls back
     // to the registered defaultBranch.
@@ -391,6 +410,23 @@ export async function writeSession(
  * commit. Returns the saved record, or undefined for an unknown session.
  * Sessions finished without changes or abandoned are left untouched.
  */
+/**
+ * Read-modify-write one session record under its record lock. `update`
+ * returns true to save its changes. Resolves to the latest record, or
+ * undefined for an unknown session. The heartbeat is left unchanged.
+ */
+export async function updateSessionRecord(
+  sessionId: string,
+  update: (session: Session) => boolean | Promise<boolean>,
+): Promise<Session | undefined> {
+  return withSessionRecordLock(sessionId, async () => {
+    const session = await readSession(sessionId);
+    if (!session) return undefined;
+    if (await update(session)) await writeSessionRecord(session);
+    return session;
+  });
+}
+
 export async function recordSessionActivity(
   sessionId: string,
 ): Promise<Session | undefined> {

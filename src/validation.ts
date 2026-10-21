@@ -12,6 +12,50 @@ export interface SelectedValidation {
   sourceCommands: ValidationStep[];
   integrationCommands: ValidationStep[];
   bypassIntegrationWorktree: boolean;
+  /** The selected tier's commands run without a build queue slot. */
+  bypassBuildQueue: boolean;
+}
+
+/**
+ * Why a selected plan's commands skip the build queue, or undefined when they
+ * queue. Only an explicitly marked tier bypasses; the full fallback never does.
+ */
+export function validationQueueBypass(
+  validation: Pick<SelectedValidation, "name" | "bypassBuildQueue">,
+): string | undefined {
+  return validation.bypassBuildQueue
+    ? `lightweight validation tier ${validation.name}`
+    : undefined;
+}
+
+/** Why setup commands skip the build queue, or undefined when they queue. */
+export function setupQueueBypass(
+  repository: Pick<RepositoryConfig, "setupBypassBuildQueue">,
+): string | undefined {
+  return repository.setupBypassBuildQueue === true
+    ? "lightweight setup commands"
+    : undefined;
+}
+
+/**
+ * Reject non-boolean queue bypass options. Unknown values must never silently
+ * bypass or silently queue, so a typo stops every command with this message.
+ */
+export function queueBypassConfigError(
+  repository: RepositoryConfig,
+): string | undefined {
+  if (
+    repository.setupBypassBuildQueue !== undefined &&
+    typeof repository.setupBypassBuildQueue !== "boolean"
+  )
+    return `Invalid setupBypassBuildQueue for ${repository.path}: use true or false`;
+  for (const tier of repository.validationTiers ?? [])
+    if (
+      tier.bypassBuildQueue !== undefined &&
+      typeof tier.bypassBuildQueue !== "boolean"
+    )
+      return `Invalid bypassBuildQueue in validation tier ${tier.name} for ${repository.path}: use true or false`;
+  return undefined;
 }
 
 export function isValidationStepList(value: unknown): boolean {
@@ -32,20 +76,29 @@ export function isValidationStepList(value: unknown): boolean {
   );
 }
 
+/**
+ * The first tier, in configuration order, whose patterns match every path.
+ * This is the single precedence rule for selecting a tier from paths.
+ */
+export function findValidationTier(
+  repository: RepositoryConfig,
+  paths: string[],
+): ValidationTier | undefined {
+  return (repository.validationTiers ?? []).find(
+    (candidate) =>
+      paths.length > 0 &&
+      paths.every((path) =>
+        candidate.paths.some((pattern) => matchesPath(pattern, path)),
+      ),
+  );
+}
+
 export function selectValidation(
   repository: RepositoryConfig,
   paths: string[],
   allowTiers = true,
 ): SelectedValidation {
-  const tier = allowTiers
-    ? (repository.validationTiers ?? []).find(
-        (candidate) =>
-          paths.length > 0 &&
-          paths.every((path) =>
-            candidate.paths.some((pattern) => matchesPath(pattern, path)),
-          ),
-      )
-    : undefined;
+  const tier = allowTiers ? findValidationTier(repository, paths) : undefined;
   return tier
     ? selectedTier(tier, paths)
     : {
@@ -54,6 +107,7 @@ export function selectValidation(
         sourceCommands: repository.sourceValidationCommands,
         integrationCommands: repository.integrationValidationCommands,
         bypassIntegrationWorktree: false,
+        bypassBuildQueue: false,
       };
 }
 
@@ -67,6 +121,7 @@ function selectedTier(
     sourceCommands: tier.sourceValidationCommands,
     integrationCommands: tier.integrationValidationCommands,
     bypassIntegrationWorktree: tier.bypassIntegrationWorktree === true,
+    bypassBuildQueue: tier.bypassBuildQueue === true,
   };
 }
 

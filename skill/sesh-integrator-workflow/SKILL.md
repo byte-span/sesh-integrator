@@ -406,6 +406,15 @@ If another session is integrating the repository, `seshx integrate` may wait for
 
 Do not start an alternative merge while waiting.
 
+The lock holder may integrate waiting sessions together as an integration batch.
+`integrate` then names the batch it joined and keeps waiting while the leader
+works. When the batch resolves the session, `integrate` exits with this
+session's completion summary: treat it like any other `integrate` result. A
+promoted session is done; do not integrate it again. A session left out after a
+merge conflict keeps waiting and then reports the normal resumable conflict. A
+failure from integrating it alone after a combined validation failed is a normal
+`validation_pending` result for this session; follow the recovery steps above.
+
 Never monitor that wait with an unbounded shell polling loop such as
 `while pgrep`. Use the execution tool's session-aware wait operation, or bounded
 retries against a specific process/session identifier with an explicit timeout.

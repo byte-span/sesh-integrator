@@ -5,21 +5,24 @@ validation, and post-integration commands share one local queue per user account
 and host. Parallel validation groups still run all their checks, subject to the
 shared capacity. Commands with named resources acquire those resources before
 joining the queue. Git operations and agent work do not consume a slot.
+Validation tiers and setup commands explicitly marked
+[lightweight](#lightweight-commands) run without a slot.
 
 **Builds and tests launched directly**, such as `pnpm build`, `npm test`, an IDE
 task, or an older pinned coordinator, **remain outside the queue**. The queue
 does not cap a command's internal workers or coordinate other OS accounts, VMs,
 containers, or native Windows with WSL. Configure tool-specific worker limits
-when a single command is itself too large. This repository leaves Vitest worker selection at its normal default.
+when a single command is itself too large. This repository bounds its own
+Vitest workers; see [Test workers](#test-workers).
 
 ## Inspect and configure
 
 ```sh
-seshx queue status
+seshx queue status                          # effective settings and entries
+seshx queue configure --concurrency auto    # resource-aware limit (default)
+seshx queue configure --concurrency 2       # fixed limit, 1–64
 seshx queue configure --concurrency unlimited
-seshx queue configure --concurrency 2
-seshx queue configure --wait-seconds 1800
-seshx queue configure --concurrency auto
+seshx queue configure --wait-seconds 1800   # time allowed without progress
 ```
 
 `seshx status` also prints the queue. Running and waiting messages identify the
@@ -27,13 +30,51 @@ session, queue position and capacity; queue status includes worktree and owner
 PID. Setup and post-checks without a session argument identify their owning CLI
 process and worktree. No command arguments or environment values are saved.
 
-The default is `unlimited`, restoring unrestricted parallel scheduling. Status,
-cancellation and orphan protection remain active. Existing explicit machine
-settings are preserved. Opt into `auto` for the smallest of four commands, half the available CPU threads,
-and one command per 4 GiB of memory after reserving 2 GiB, with a minimum of one.
-Memory uses the lower of OS total memory and Node's process constraint when
-available. This is a conservative estimate, not a guarantee against exhausting
-memory. It uses stable capacity rather than changing free-memory samples.
+### Defaults
+
+A machine without a queue `config.json` uses:
+
+- **`concurrency: auto`**: the smallest of four commands, half the available CPU
+  threads, and one command per 4 GiB of memory after reserving 2 GiB, with a
+  minimum of one. Memory uses the lower of OS total memory and Node's process
+  constraint when available. It uses stable capacity rather than changing
+  free-memory samples. This is a conservative estimate, not a guarantee against
+  exhausting memory.
+- **`waitSeconds: 900`**: the time a request may wait **without progress**.
+
+`queue status` shows the effective values, whether each is the default or a
+machine setting, and the CPU and memory figures behind `auto`.
+
+Explicit machine settings are always preserved. To restore the previous
+unrestricted scheduling, run `seshx queue configure --concurrency unlimited`.
+Status, cancellation and orphan protection stay active with `unlimited`.
+
+Earlier versions defaulted to `unlimited`. That default restored pre-queue
+speed after `auto` resolved to one slot on a 16-thread, 7.5 GiB benchmark
+machine and serialized four concurrent validations, about three times slower
+([measurements](validation-reuse-results.md)). Unrestricted scheduling also
+restores the higher peak memory use that can exhaust smaller machines, so `auto`
+is the default again for machines nobody has tuned. Admission fills every free
+slot at once, and progress-based waiting keeps a slower but moving queue from
+timing out. Where `auto` allows only one command and you have verified memory
+headroom, set a fixed limit such as `--concurrency 2`, or `unlimited`.
+
+### Waiting
+
+`waitSeconds` limits time without progress, not total wait. The deadline
+restarts whenever a running entry finishes or the request moves up the queue,
+so a busy queue that keeps moving never times out. A request fails only after
+`waitSeconds` with no running command finishing and no movement; the error
+names its position and capacity. Matching-validation reuse waits
+(`validationCache: "repository"`) are separate and remain a total wait of
+`waitSeconds`.
+
+If a running entry's owner process has exited, waiters fail at once instead of
+waiting out the deadline. The error names each orphaned entry and the exact
+`seshx queue recover <entry-id> --confirmed-stopped` command; see
+[recovery](#cancellation-and-recovery).
+
+### Settings file
 
 The machine-local `config.json` lives in the path printed by `queue status`:
 `~/.sesh-integrator/build-queue/<hostname-hash>/`. Windows resolves `~` using the
@@ -42,18 +83,94 @@ configuration, so different repositories and custom integrator runtime homes
 share the same capacity. Do not commit or sync this directory between hosts.
 
 `concurrency` accepts `unlimited`, `auto` or 1–64. `waitSeconds` accepts 1–86400 (default 900).
-Older pinned coordinators retain their original defaults and do not coalesce
-validation plans. Coordinators predating `unlimited` cannot read that explicit
-setting; finish their sessions before writing it to a shared configuration.
+`configure` writes both values, so changing only the wait records the current
+concurrency explicitly too.
 Changing capacity affects new admissions without interrupting existing work.
 Wait-time changes apply to newly queued requests. Invalid settings stop admission
 rather than disabling the queue.
+
+Older pinned coordinators keep their own defaults, waiting rules and orphan
+handling, do not coalesce validation plans, and queue
+[lightweight commands](#lightweight-commands) normally. Coordinators released while the
+default was `unlimited` keep scheduling without a limit on a machine with no
+`config.json`. To limit them too, write the setting explicitly with
+`seshx queue configure --concurrency auto`; every queue-aware coordinator reads
+it. Coordinators predating `unlimited` cannot read that explicit setting; finish
+their sessions before writing it to a shared configuration.
 
 For isolated tests or an alternative **local** location, set
 `SESH_BUILD_QUEUE_HOME` consistently for every participating process. A different
 path is a separate queue. Do not use a network share. POSIX shells use
 `export SESH_BUILD_QUEUE_HOME=/local/path`; PowerShell uses
 `$env:SESH_BUILD_QUEUE_HOME = 'C:\local\path'`.
+
+## Lightweight commands
+
+A `TASKS.json`-only change should not wait minutes behind full test suites for
+a two-second schema and format check. Mark a validation tier with
+`bypassBuildQueue: true` and its commands start at once, without waiting for or
+holding a slot:
+
+```json
+{
+  "name": "task-register",
+  "paths": ["TASKS.json"],
+  "sourceValidationCommands": [
+    ["qtask", "validate", "."],
+    ["corepack", "pnpm", "exec", "prettier", "--check", "TASKS.json"]
+  ],
+  "integrationValidationCommands": [
+    ["qtask", "validate", "."],
+    ["corepack", "pnpm", "exec", "prettier", "--check", "TASKS.json"]
+  ],
+  "bypassBuildQueue": true
+}
+```
+
+For a quick setup step, such as a warm-cache
+`pnpm install --frozen-lockfile`, set the repository's
+`setupBypassBuildQueue: true`. It covers every `setupCommands` entry wherever
+setup runs: `begin`, integration, batches and remote recovery.
+
+**Use it only for** checks that take seconds and little CPU or memory:
+formatter `--check` runs, schema or task-register validators, link checks.
+**Never for builds, type checks or test suites.** Those are what the queue
+protects the machine from; bypassing them runs them all at once again.
+
+**Still queued:**
+
+- tiers and setup commands without the option;
+- a change whose paths do not all match the lightweight tier, such as
+  `TASKS.json` plus source files: it selects a code tier or the full fallback,
+  which queue as before;
+- post-integration commands, local-target recovery and remote-recovery
+  revalidation, which always run the full commands;
+- inferred framework preparation (for example `next typegen`). It is not one of
+  the tier's configured commands, so in such repositories a lightweight tier
+  still waits for that one step unless every command is cached.
+
+**Batches.** A [batch](configuration.md#integration-batching) uses a shared
+tier only when every member selected it and the combined paths still match it.
+That run bypasses the queue too, because it runs the same lightweight commands
+on lightweight paths. Any other combination selects the queued full fallback.
+
+**What you see.** Each bypassing command prints, for example,
+`Build queue bypassed (lightweight validation tier task-register; no slot used): source validation [<session>]`,
+and `validate` and `integrate` add `lightweight, bypasses the build queue` to
+the `Validation tier:` line. While it runs, `seshx queue status` lists it as
+`bypassed queue (...; no slot used)` with its session, PID and worktree. These
+records live in `bypassed/` under the queue directory. They hold no capacity
+and need no recovery: a record left by a crashed owner shows `owner exited` and
+the next bypassing command removes it. [Failure evidence](#failure-evidence)
+counts bypassing commands separately as `bypassed`, never as running slots.
+
+**Values** must be `true` or `false`; anything else stops every command with a
+configuration error. Named `resources` and transient retries still apply.
+
+**Older pinned coordinators** ignore both keys and keep queueing these commands
+without failing. That is why setup uses a sibling key instead of an object
+entry inside `setupCommands`: older coordinators run each entry as an argument
+array, so an object entry would make their setup fail.
 
 ## Cancellation and recovery
 
@@ -67,8 +184,8 @@ or an automatic transient retry.
 
 The admission mutex is a short-lived exclusive loopback listener. It accepts no
 requests and is closed after each queue transaction; the OS releases it on a
-crash. There is no queue daemon or installed service. Waiting is bounded by a
-deadline. A port collision or local network restriction fails closed with an
+crash. There is no queue daemon or installed service. Waiting is bounded by the
+no-progress deadline. A port collision or local network restriction fails closed with an
 error; it never admits uncounted work. Queue inspection remains available.
 
 Its port, derived from the queue path, lies in 10000–19999, below the Linux and
@@ -78,7 +195,9 @@ before this change, so they stay excluded. It skips that port only while a
 non-listening socket occupies it, which rejects their listeners too.
 
 Dead local waiting owners are safely removed on the next admission. A dead
-**running** owner may have surviving children, so its slot stays occupied and new admissions pause until recovery. Age,
+**running** owner may have surviving children, so its slot stays occupied and
+new admissions stop until recovery: each waiter fails promptly with the entry
+and its recover command rather than waiting out its deadline. Age,
 PID reuse, foreign-host records, malformed records, and permission errors never
 justify automatic release. If a PID was reused, recovery refuses until ownership
 can be established; do not kill that PID to clear the queue.
@@ -128,6 +247,81 @@ Cancellation of a reuse waiter leaves the owner running. A crashed owner's mutex
 released by the OS; no success is published before verification. Its running queue
 entries still require the normal orphan recovery before new commands can start.
 Full local-target recovery continues to bypass validation reuse.
+
+## Test workers
+
+Each queue slot runs one command, but a test runner inside it may start one
+worker per CPU. Two such runs at once oversubscribe the machine. This
+repository's `vitest.config.ts` therefore bounds Vitest's `maxWorkers`:
+
+```text
+maxWorkers = max(1, floor((available CPUs - 1) / effective queue concurrency))
+```
+
+On a 16-thread host with concurrency `2`, each run uses 7 workers instead
+of 15. A single slot (`--concurrency 1`) keeps Vitest's own default. An
+`unlimited` or unreadable queue setting divides by the resource-aware `auto` estimate,
+because any number of runs may then overlap. The config only reads queue
+settings; it never joins the queue. Each run prints the bound it chose, for
+example `Vitest workers: 7 (16 CPUs / build queue concurrency 2)`.
+
+To override it, set a whole number from 1 to 1024. An invalid value stops the
+run with an error rather than being ignored:
+
+```sh
+SESH_VITEST_MAX_WORKERS=15 pnpm test
+```
+
+PowerShell uses `$env:SESH_VITEST_MAX_WORKERS = '15'`. Vitest's own
+`--maxWorkers` flag also takes precedence. Other repositories configure their
+own runner's worker limit the same way.
+
+The suite keeps its 30 s test and hook timeouts (`pnpm test` passes
+`--testTimeout=30000 --hookTimeout=30000`). They were reviewed on 2026-10-20 on
+a 16-thread, 11 GB WSL host with the queue at concurrency `2` and both slots
+running full suites with 7 workers each. Two measured runs passed 494 tests (2 skipped)
+in 352 s and 358 s. The slowest test took 18.0 s, including its
+`beforeEach`/`afterEach` hooks, and no other test exceeded 14 s, which leaves
+at least 1.6x headroom. `test/handoff.test.ts` runs its tests in sequence and
+sets the suite's wall time. Change a timeout only with new measurements; when
+a test times out, check its recorded queue load ([failure
+evidence](#failure-evidence)) first.
+
+## Failure evidence
+
+When a validation command fails, its failure record keeps more than the exit
+code. The session's `validationFailure` and its incident hold:
+
+- `outputTail`: the last 60 lines (at most 6 KiB) of stdout and of stderr;
+- `logPath`: the full output under `<runtime>/logs/validation/`, readable only
+  by the current user (`logError` explains a log that could not be written);
+- `failingTests`, or else `firstErrorLine`, parsed from the output;
+- `queueLoad`: running and waiting queue entries and the effective capacity
+  when the failure was recorded, plus `bypassed`: commands running without a
+  slot under [`bypassBuildQueue`](#lightweight-commands).
+
+`running` includes the failed command when it ran to an exit code; its slot is
+released just before sampling. A failed lightweight command is counted in
+`bypassed` instead. A command that never started, such as one whose
+queue wait timed out, is not counted. A failure with several running entries or
+waiters suggests resource contention; a repeatable failure on an idle queue
+points to a code defect.
+`seshx status` and `seshx incident <ticket>` print these facts, and each failure
+prints its log path when it happens.
+
+Output is stripped of terminal control codes and redacted before it is stored:
+values of secret-named environment variables (for example `*_TOKEN`,
+`*_SECRET`, `*PASSWORD*`, `*_KEY`) and common shapes such as authorization
+headers, URL credentials, signed URL parameters, private keys, JWTs and
+provider tokens. Redaction is best-effort, so review a log before sharing it
+and keep credentials out of command output. Logs are written only for session
+validations and are never removed automatically; delete old files under
+`logs/validation/` when they are no longer needed.
+
+Incident fingerprints include the failing test names, or else the first error
+line, so unrelated failures of one broad command such as `pnpm test` no longer
+share a fingerprint. Durations, digits and SHAs are normalized, so a recurring
+failure still groups together. Other incidents keep their previous fingerprints.
 
 ## Measurement
 

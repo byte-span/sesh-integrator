@@ -5,8 +5,10 @@
 Commands below run from the repository root unless stated otherwise.
 
 - [`register`](#register)
+- [Integration batching](#integration-batching)
 - [Optional pull-request promotion](#optional-pull-request-promotion)
 - [Stable default branch with a development target](#stable-default-branch-with-a-development-target)
+- [Reusing source validation when the target moves](#reusing-source-validation-when-the-target-moves)
 - [Central delivery policy](#central-delivery-policy)
 
 ### `register`
@@ -124,6 +126,101 @@ their staging meaning. An explicit `targetBranch` equal to `integrationBranch`
 is supported as a legacy-style opt-in, but then there is no separate final ref
 and that branch cannot already be checked out in another worktree. No branch is
 pushed unless pull-request promotion is explicitly configured.
+
+### Integration batching
+
+Integration validation runs while the repository lock is held, so sessions
+that finish together used to be validated one after another. With batching,
+the next lock holder (the batch leader) merges every waiting session into one
+candidate, validates it once and promotes it. Batching is on by default:
+
+```json
+{
+  "integrationBatching": { "enabled": true, "maxSessions": 8 },
+  "repositories": [
+    {
+      "path": "/Users/you/Developer/my-project",
+      "integrationBatching": { "enabled": false }
+    }
+  ]
+}
+```
+
+| Key           | Meaning                                                                      |
+| ------------- | ---------------------------------------------------------------------------- |
+| `enabled`     | `false` integrates one session at a time. Default `true`.                    |
+| `maxSessions` | Sessions in one candidate, including the leader: an integer 1-64. Default 8. |
+
+The global `integrationBatching` sets defaults; a repository's
+`integrationBatching` overrides them key by key. Invalid values or unknown
+keys stop every command with a configuration error. `maxSessions: 1` also
+turns batching off.
+
+**Who joins.** A session joins only while its own `integrate` process waits
+for the lock on this machine and its dependencies have succeeded. It must
+target the same branch with the same promotion settings as the leader, and
+have no earlier integration attempt (recovery bundle, preserved merge or
+staged commit). The oldest ready sessions join first, up to the cap; the rest
+wait for the next lock holder.
+
+**What happens.** Under the lock, the leader:
+
+1. Merges each member's exact `readyCommit` in ready-time order (then session
+   ID) with Git plumbing. Each merge is an ordinary
+   `Integrate <session>: <task>` merge commit on top of the target.
+2. Leaves out a member whose merge conflicts. That session integrates alone
+   after the batch and gets the normal conflict prompt and `resume` flow.
+3. Validates the combined commit once in a detached batch worktree
+   (`worktrees/<repo-id>-batch`). It runs setup, then the strictest selection
+   any member needs: a shared validation tier when every member selected the
+   same tier and the combined paths still match it, otherwise the full
+   integration commands. A shared tier marked `bypassBuildQueue` runs without
+   a build queue slot; the full commands always queue.
+4. Advances staging with an expected-old check, then promotes the target with
+   the usual expected-previous-target check, post-integration commands and
+   pull-request promotion.
+
+Every member records the shared staging and promoted commit, keeps its own
+completion summary, rollout classification and follow-ups, and gets its own
+recovery bundle. A waiting `integrate` names the batch it joined and does not
+time out while the leader works on it. When the batch resolves the session,
+the process exits with that session's completion summary instead of
+integrating again.
+
+**When combined validation fails**, no member is promoted on that tree. The
+leader splits the members into halves and validates each half on its own,
+recursively. A single remaining session is integrated alone through the
+normal path, so passing sessions still promote and only a session that fails
+alone becomes `validation_pending`, with the usual preserved state for
+`resume`. A half whose combined tree already failed in this batch is split
+again without rerunning it.
+
+**When promotion is blocked** (for example a dirty checked-out target), every
+member of the validated candidate becomes `promotion_pending` with the same
+staged commit, and the leader stops batching. Run `seshx resume` for each
+member as usual; the first promotes the commit and the rest find it promoted.
+
+**Older coordinators** neither lead nor join batches, ignore the
+`integrationBatching` keys, and keep integrating one session at a time.
+Sessions that older coordinators run never advertise themselves to a batch
+leader. Member records use the same fields and recovery bundles as a single
+integration, so the session state contract does not change.
+
+If a batch leader stops while holding the lock, the lock stays in place for
+manual inspection as before. After it is cleared, members rerun
+`seshx integrate`; a claim left without a result is released under the lock.
+
+#### Batches and validation reuse
+
+A combined batch tree never equals any member's source-validated tree. Batch
+validation therefore runs every selected command, without session,
+repository-cache or source-result reuse. The
+[`reuseSourceValidationOnTargetMove`](#reusing-source-validation-when-the-target-moves)
+opt-in does not apply to a batch candidate either: every other member's
+changes count as target movement, so the strictest selection runs in full.
+Sessions integrated alone (a conflicting member, a member isolated after a
+failed combined validation, or a leader with no waiting sessions) follow the
+normal single-session rules, including that opt-in.
 
 ### Optional pull-request promotion
 
@@ -321,6 +418,9 @@ unsupported Git fall back to the normal integration worktree. A clean,
 tool-owned integration worktree may be removed before this update; user
 worktrees are never removed.
 
+A tier can also mark quick checks with `bypassBuildQueue` so they skip the
+build queue; see [lightweight tiers and setup](#lightweight-tiers-and-setup).
+
 Validation command lists also accept explicit `{ "parallel": [...] }` groups.
 Commands within a group run concurrently; groups and ordinary commands still
 run in order and any failed member stops validation. Auto-configuration groups
@@ -354,6 +454,11 @@ declared transient uses bounded exponential backoff; omitted retry values
 default to three attempts, 250 ms initial backoff, and a 2 s cap. Legacy
 `deterministic` declarations are accepted but treated as unclassified.
 
+A failed command's record keeps a bounded, redacted tail of its stdout and
+stderr, the path of a full redacted log under `<runtime>/logs/validation/`, the
+failing test names or first error line, and the build queue load at failure
+time. See [failure evidence](build-queue.md#failure-evidence).
+
 `validationCache` defaults to `session`: successful commands are reusable only
 for the same Git tree, command fingerprint, platform, architecture, and Node
 version and execution environment in that handoff. Set it to `repository` for content-addressed reuse
@@ -363,6 +468,114 @@ required local artifacts or external mutable inputs; see [reuse boundaries](buil
 setup is skipped only when its manifest/lockfile fingerprint matches and the
 worktree still has its dependency marker. Explicit required setup is never
 skipped.
+
+#### Lightweight tiers and setup
+
+A validation tier may set `bypassBuildQueue` to `true` when every command in it
+is a quick check, such as a task-register validator or a formatter's `--check`. Its
+source and integration commands then start at once instead of waiting behind
+builds and test suites in the [build queue](build-queue.md#lightweight-commands).
+For quick setup such as a warm-cache `pnpm install --frozen-lockfile`, set the
+repository's `setupBypassBuildQueue` to `true`; it covers every
+`setupCommands` entry:
+
+```json
+{
+  "setupCommands": [["corepack", "pnpm", "install", "--frozen-lockfile"]],
+  "setupBypassBuildQueue": true,
+  "validationTiers": [
+    {
+      "name": "task-register",
+      "paths": ["TASKS.json"],
+      "sourceValidationCommands": [["qtask", "validate", "."]],
+      "integrationValidationCommands": [["qtask", "validate", "."]],
+      "bypassBuildQueue": true
+    }
+  ]
+}
+```
+
+- **Not for builds, type checks or test suites.** The queue exists to keep
+  those from overloading the machine. Leave the option off for any tier or
+  setup that compiles or runs tests, and for setup that usually downloads or
+  builds dependencies.
+- Only an exact tier match bypasses. Mixed changes that select a code tier or
+  the full fallback, tiers and setup without the option, inferred framework
+  preparation, recovery revalidation and post-integration commands still queue.
+- An integration batch bypasses only when it runs a shared lightweight tier
+  ([batching](#integration-batching)).
+- Values must be `true` or `false`; anything else is a configuration error.
+  Older pinned coordinators ignore both keys and keep queueing.
+- `setupBypassBuildQueue` is a repository key beside `setupCommands` rather
+  than an object form of a setup entry, because older coordinators expect each
+  entry to be an argument array and would fail on an object.
+
+### Reusing source validation when the target moves
+
+Integration reuses `seshx validate` results only for the exact tree they
+checked. If other work moved the target first, the merged tree differs and
+every selected integration command runs again, even when the target moved only
+by a `TASKS.json` update. A tier can opt in to keep the source results in that
+case:
+
+```json
+{
+  "name": "task-register",
+  "paths": ["TASKS.json"],
+  "sourceValidationCommands": [["qtask", "validate", "."]],
+  "integrationValidationCommands": [
+    ["qtask", "validate", "."],
+    ["pnpm", "exec", "prettier", "--check", "TASKS.json"]
+  ],
+  "reuseSourceValidationOnTargetMove": true
+}
+```
+
+**What the opt-in asserts.** `reuseSourceValidationOnTargetMove: true` states
+that changes confined to this tier's paths cannot change the result of any
+other validation command, beyond what this tier's own integration commands
+check on the merged tree. Opt in only when that holds, for example a task
+register that no test, build or lint step reads, with its format checked by
+the tier itself. Do not opt in a tier whose paths tests, builds, generators,
+packaging or formatters read without the tier checking them, such as
+documentation that tests or a repository-wide format check cover, packaged
+guidance, or configuration. A tier without integration commands asserts that
+its paths need no check at all.
+
+**When it applies.** Integration lists every path that differs between the
+session's validated source tree and the merged tree, listing both sides of a
+rename. Source results are reused only when all of these hold:
+
+1. The exact ready commit passed `seshx validate`.
+2. `validationCache` is not `off`.
+3. The session is not in local target recovery (`recoveryPhase` `local_target`).
+4. The first tier in configuration order whose patterns match every differing
+   path (the rule that selects a session's tier) sets the option to `true`.
+
+Integration then runs that tier's integration commands on the merged tree,
+reuses the session's source results for its other selected integration
+commands, and runs every command without a source result, such as an
+integration-only `build`, on the merged tree. A differing path outside that
+tier, a mixed movement, or a matching tier without the opt-in keeps the full
+rerun. Reused results are never recorded as results for the merged tree.
+
+**What you see.** `integrate` prints `Source validation reuse:` with the tier
+and differing paths, then `Reusing source validation: <command> (target moved
+only by <tier> paths)` for each reused command. Otherwise it prints `Source
+validation reuse skipped:` and the reason. The session's performance record
+under `<runtime>/performance/` stores `integrationSourceReuse` (`exact-tree`,
+`applied` or `skipped`), `integrationSourceReuseReason`,
+`integrationSourceReuseTier`, `integrationSourceReuseDifferingPaths`,
+`integrationSourceReusedCommands` and `integrationSourceReusedCommandList`.
+
+When the session's own tier sets
+[`bypassBuildQueue`](#lightweight-tiers-and-setup), the reused plan keeps
+skipping the build queue only if the tier whose commands were added sets it
+too, or adds no commands; otherwise the plan queues.
+
+Any value other than `true` or `false` stops every command with a
+configuration error. Older coordinators ignore the key and rerun the full
+plan. [Integration batches](#batches-and-validation-reuse) never use it.
 
 ## Central delivery policy
 
@@ -517,7 +730,19 @@ when an entry matched. The session's `targetBranch` is set at `begin`.
 ## Machine-local build capacity
 
 Use `seshx queue configure --concurrency <unlimited|auto|1-64>` to limit commands across
-repositories and sessions. New machines default to `unlimited`; `auto` opts into
-resource-aware throttling. Existing explicit settings are retained. Queue configuration is machine-local and independent
-of this repository configuration. See [build queue settings, recovery, and limits](build-queue.md).
-Directly launched builds remain outside the queue.
+repositories and sessions. Machines without an explicit setting default to `auto`,
+a resource-aware limit; `seshx queue configure --concurrency unlimited` restores
+the earlier unrestricted default. `--wait-seconds` (default 900) limits how long a
+command waits without queue progress, not its total wait. Existing explicit
+settings are retained, and `seshx queue status` shows the effective values.
+Queue configuration is machine-local and independent of this repository
+configuration. See [build queue defaults, recovery, and limits](build-queue.md#defaults).
+Directly launched builds remain outside the queue. Repository tiers and setup
+marked [lightweight](#lightweight-tiers-and-setup) skip it by explicit opt-in.
+
+The queue limits how many commands run, not how many workers each command
+starts. This repository's Vitest config divides the available CPUs by the
+effective queue concurrency to bound `maxWorkers` (7 per run with concurrency
+`2` on 16 threads). Override it with `SESH_VITEST_MAX_WORKERS=<1-1024>`; see
+[test workers](build-queue.md#test-workers). Configure equivalent limits in
+other repositories' test runners.

@@ -1,17 +1,18 @@
 import { spawn, execFileSync, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
-import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { connect, createServer, type AddressInfo, type Socket } from "node:net";
-import { hostname } from "node:os";
+import { availableParallelism, hostname, totalmem } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createHash, randomUUID } from "node:crypto";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import {
   acquireBuildSlot,
   admissionPorts,
   defaultConcurrency,
   gate,
+  queueCapacity,
   queueCommand,
   queueEntries,
   queueRoot,
@@ -117,6 +118,178 @@ it("validates machine overrides and preserves independent settings", async () =>
   await writeFile(join(queueRoot(), "config.json"), '{"concurrency":0}');
   await expect(queueSettings()).rejects.toThrow("Invalid");
 });
+async function statusOutput(): Promise<string> {
+  let output = "";
+  const spy = vi
+    .spyOn(process.stdout, "write")
+    .mockImplementation((chunk: string | Uint8Array) => {
+      output += String(chunk);
+      return true;
+    });
+  try {
+    await queueCommand(["status"]);
+  } finally {
+    spy.mockRestore();
+  }
+  return output;
+}
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+async function holdSlots(count: number) {
+  const leases = [];
+  for (let i = 0; i < count; i++)
+    leases.push(
+      await acquireBuildSlot(
+        queueRoot(),
+        `held-${i}`,
+        "test",
+        new AbortController().signal,
+      ),
+    );
+  return leases;
+}
+// Starts a waiter and returns once it is registered, so queue order is stable.
+// The lease is wrapped because an async function would otherwise adopt it.
+async function enqueue(label: string, signal = new AbortController().signal) {
+  const lease = acquireBuildSlot(queueRoot(), label, "test", signal);
+  void lease.catch(() => undefined);
+  await until(async () =>
+    (await queueEntries()).some((e) => e.label === label),
+  );
+  await sleep(5);
+  return { lease };
+}
+
+it("defaults to the resource-aware auto limit without a machine setting", async () => {
+  await rm(join(queueRoot(), "config.json"));
+  expect(await queueSettings()).toEqual({
+    concurrency: "auto",
+    waitSeconds: 900,
+  });
+  const limit = queueCapacity({ concurrency: "auto", waitSeconds: 900 });
+  const memory = Math.min(
+    totalmem(),
+    process.constrainedMemory?.() || Infinity,
+  );
+  expect(limit).toBe(defaultConcurrency(availableParallelism(), memory));
+  const status = await statusOutput();
+  expect(status).toContain(
+    `concurrency: ${limit} (auto, default: resource-aware limit for ${availableParallelism()} CPU threads`,
+  );
+  expect(status).toContain("wait: 900s without progress (default)");
+  expect(status).toContain("settings: built-in defaults (no config.json)");
+  const leases = await holdSlots(limit);
+  const abort = new AbortController();
+  const { lease: extra } = await enqueue("over limit", abort.signal);
+  await sleep(250);
+  expect(
+    (await queueEntries()).find((e) => e.label === "over limit")?.state,
+  ).toBe("waiting");
+  abort.abort();
+  await expect(extra).rejects.toThrow();
+  for (const lease of leases) await releaseBuildSlot(lease);
+  expect(await queueEntries()).toEqual([]);
+});
+it("keeps explicit machine settings, including unlimited, and shows them", async () => {
+  await queueCommand(["configure", "--concurrency", "unlimited"]);
+  await queueCommand(["configure", "--wait-seconds", "1800"]);
+  expect(await queueSettings()).toEqual({
+    concurrency: "unlimited",
+    waitSeconds: 1800,
+  });
+  const status = await statusOutput();
+  expect(status).toContain(
+    "concurrency: unlimited (no throttling; machine setting)",
+  );
+  expect(status).toContain("wait: 1800s without progress (machine setting)");
+  expect(status).toContain(`settings: ${join(queueRoot(), "config.json")}`);
+  // Unlimited restores unrestricted scheduling: nothing waits.
+  const leases = await holdSlots(8);
+  expect((await queueEntries()).every((e) => e.state === "running")).toBe(true);
+  for (const lease of leases) await releaseBuildSlot(lease);
+  await queueCommand(["configure", "--concurrency", "3"]);
+  expect(await statusOutput()).toContain("concurrency: 3 (machine setting)");
+});
+it("resets the wait deadline whenever a running entry finishes or the waiter moves up", async () => {
+  await config(1, 2);
+  let current = await acquireBuildSlot(
+    queueRoot(),
+    "holder",
+    "test",
+    new AbortController().signal,
+  );
+  const ahead = [
+    (await enqueue("ahead-1")).lease,
+    (await enqueue("ahead-2")).lease,
+  ];
+  const started = Date.now();
+  const { lease: waiter } = await enqueue("waiter");
+  // Each step finishes one running entry after half the no-progress limit, so
+  // the waiter moves up but waits well past waitSeconds in total.
+  for (const next of ahead) {
+    await sleep(1000);
+    await releaseBuildSlot(current);
+    current = await next;
+  }
+  await sleep(1000);
+  await releaseBuildSlot(current);
+  const lease = await waiter;
+  expect(Date.now() - started).toBeGreaterThan(2500);
+  await releaseBuildSlot(lease);
+  expect(await queueEntries()).toEqual([]);
+}, 20000);
+it("times out after waitSeconds without queue progress", async () => {
+  await config(1, 1);
+  const holder = await acquireBuildSlot(
+    queueRoot(),
+    "holder",
+    "test",
+    new AbortController().signal,
+  );
+  const started = Date.now();
+  await expect(
+    acquireBuildSlot(
+      queueRoot(),
+      "stalled",
+      "test",
+      new AbortController().signal,
+    ),
+  ).rejects.toThrow(
+    "Timed out after 1s without build queue progress (#1, 1/1 running)",
+  );
+  expect(Date.now() - started).toBeGreaterThanOrEqual(1000);
+  expect((await queueEntries()).map((e) => e.id)).toEqual([holder.entry.id]);
+  await releaseBuildSlot(holder);
+}, 20000);
+it("fails waiters promptly with the recovery command when a running owner dies", async () => {
+  await config(1, 600);
+  const owner = launch(
+    `import {acquireBuildSlot} from ${JSON.stringify(queueModule)};await acquireBuildSlot(${JSON.stringify(queueRoot())},'crash','crashed-session',new AbortController().signal);console.log('OWNED');setTimeout(()=>{},20000);`,
+  );
+  await until(() => owner.output().includes("OWNED"));
+  const [orphan] = await queueEntries();
+  const { lease: waiter } = await enqueue("waiting behind");
+  const started = Date.now();
+  owner.child.kill("SIGKILL");
+  await owner.done;
+  const error = await waiter.then(
+    () => undefined,
+    (e: unknown) => e as Error,
+  );
+  expect(Date.now() - started).toBeLessThan(5000);
+  expect(error?.message).toContain(
+    `${orphan!.id}: crash; session crashed-session`,
+  );
+  expect(error?.message).toContain(
+    `2. Run: seshx queue recover ${orphan!.id} --confirmed-stopped`,
+  );
+  // The failed waiter removed its own entry; the orphan stays for recovery.
+  expect((await queueEntries()).map((e) => e.id)).toEqual([orphan!.id]);
+  expect(await statusOutput()).toContain(
+    `seshx queue recover ${orphan!.id} --confirmed-stopped`,
+  );
+  await queueCommand(["recover", orphan!.id, "--confirmed-stopped"]);
+  expect(await queueEntries()).toEqual([]);
+});
 it.each([1, 2])(
   "limits concurrent sessions across repositories and runtime homes to %i",
   async (limit) => {
@@ -207,7 +380,7 @@ it("reclaims a dead waiter but preserves dead running ownership until confirmed 
       "test",
       new AbortController().signal,
     ),
-  ).rejects.toThrow("Timed out");
+  ).rejects.toThrow(`seshx queue recover ${dead.id} --confirmed-stopped`);
   expect((await queueEntries()).map((e) => e.id)).toEqual([dead.id]);
   await expect(queueCommand(["recover", dead.id])).rejects.toThrow("Usage");
   await queueCommand(["recover", dead.id, "--confirmed-stopped"]);
@@ -301,6 +474,7 @@ it("retains ownership while an orphaned real workload finishes after owner death
     }
   });
   run.child.kill("SIGKILL");
+  await run.done;
   await expect(
     acquireBuildSlot(
       queueRoot(),
@@ -308,8 +482,7 @@ it("retains ownership while an orphaned real workload finishes after owner death
       "test",
       new AbortController().signal,
     ),
-  ).rejects.toThrow("Timed out");
-  await run.done;
+  ).rejects.toThrow("Build queue blocked");
   await until(async () =>
     (await readFile(events, "utf8")).includes('"kind":"end"'),
   );

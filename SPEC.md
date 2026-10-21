@@ -202,8 +202,8 @@ Example `~/.sesh-integrator/config.json`:
 ```
 
 Integrator-launched setup, preparation, validation and post-check commands share
-a machine-local queue with unrestricted default scheduling and optional capacity
-limits. Scheduling preserves required checks. Repository cache reuse also keys on
+a machine-local queue with a resource-aware default capacity limit, explicit
+machine overrides including `unlimited`, and no-progress wait timeouts. Scheduling preserves required checks. A validation tier marked `bypassBuildQueue: true`, and setup when the repository sets `setupBypassBuildQueue: true`, run those lightweight commands without a slot; status and command output report the bypass. Repository cache reuse also keys on
 the execution environment and coalesces identical concurrent validation plans. Directly launched builds remain outside the queue.
 See [queue ownership, configuration and recovery](docs/build-queue.md).
 
@@ -517,6 +517,21 @@ atomically advances the dedicated staging branch, and then uses the same safe
 target-promotion path. Conflicts or an unsafe tool-owned worktree fall back to
 normal integration. It never removes a user worktree or pushes.
 
+A tier may explicitly request `bypassBuildQueue` for quick checks. Its source
+and integration commands, including a batch that runs it as the shared tier,
+then run without waiting for or holding a build queue slot. The full fallback,
+mixed changes, inferred preparation, recovery revalidation and post-integration
+commands still queue. Non-boolean values are configuration errors; older
+coordinators ignore the key and queue.
+
+A tier may explicitly set `reuseSourceValidationOnTargetMove` (boolean; other
+values are configuration errors, and older coordinators ignore it). It asserts
+that changes confined to the tier's paths cannot change other validation
+commands' results beyond what the tier's own integration commands check. See
+10.6 for when integration applies it. When reuse adds the tier's commands to a
+plan that bypasses the build queue, the plan keeps the bypass only if that tier
+also sets `bypassBuildQueue` or adds no commands.
+
 Auto-configuration may add conservative documentation-only and test-only tiers
 and may group independent inferred checks in explicit parallel groups.
 Before a non-empty validation plan, the tool also inspects package manifests
@@ -591,6 +606,44 @@ If lock exists:
 4. after acquiring it, refresh integration branch state before merging
 5. capture the current target commit as the exact expected promotion baseline
 
+### 10.3.1 Integration batches
+
+Validation runs while the lock is held, so the next lock holder batches the
+sessions that wait for the same lock. A waiting batching-aware process records
+its PID and host on its session. The holder (leader) claims live waiting
+sessions with the same target and promotion, succeeded dependencies and no
+earlier integration attempt, oldest ready first, up to the configured cap
+(`integrationBatching.maxSessions`, default 8; `enabled: false` disables
+batching per repository or globally). Claims are atomic under the session
+record lock; a waiter that reaches its deadline withdraws atomically unless
+already claimed, and never times out while claimed.
+
+The leader merges each member's exact ready commit in ready-time order with
+`git merge-tree --write-tree` and one `Integrate <session>` merge commit each.
+A conflicting member is left out and integrates alone through the normal
+conflict-resume flow. The combined commit is validated once in a detached,
+tool-owned batch worktree with the strictest selection any member needs (a
+shared tier, otherwise full), without cache or source-result reuse (including
+`reuseSourceValidationOnTargetMove`). Staging
+advances with an expected-old check (fast-forwarding a clean canonical
+integration worktree in place), and the target is promoted with the
+expected-previous-target check, post-integration commands and configured PR
+promotion. Every member gets its own recovery bundle and records the shared
+staging and promoted commits with its own summary, rollout and follow-ups.
+
+A failing combined validation promotes nothing: the members are split in
+halves and each half is processed the same way; a single session goes through
+the normal single-session path, so only sessions that fail alone become
+`validation_pending`. A combined tree that already failed in the batch is not
+rerun. Blocked promotion leaves every member of that candidate
+`promotion_pending` for its own `resume`. Incident investigations run only
+after the lock is released: a live waiter records its own incident.
+
+The waiting process exits with its session's completion summary once the
+leader resolves it. Older coordinators never advertise themselves or lead
+batches; member records keep single-session fields, so the state contract is
+unchanged.
+
 ### 10.4 Integration Worktree
 
 Use one dedicated worktree:
@@ -637,6 +690,19 @@ If the staged merge tree is identical to the source-validated tree, reuse only
 matching successful command fingerprints and run every integration-only or
 otherwise unmatched command. A retry may reuse a successful command only while
 the exact tree and fingerprint remain unchanged.
+
+If the trees differ, list every differing path with `git diff-tree -r -z
+--no-renames` between the source-validated tree and the staged merge tree.
+When the exact ready commit passed `seshx validate`, `validationCache` is not
+`off`, the session is not in `local_target` recovery, and the first tier (in
+configuration order) matching every differing path sets
+`reuseSourceValidationOnTargetMove: true`, run that tier's integration
+commands on the merged tree, reuse source-tree results for the session's other
+selected integration commands, and run commands without a source result (for
+example `build`). Otherwise run the full selection. Reused results are never
+recorded for the merged tree. Output and the performance record name the
+outcome (`exact-tree`, `applied`, `skipped`), reason, tier, differing path count
+and reused commands. Batch candidates never use this reuse.
 
 ### 10.6.1 Performance records
 
@@ -712,10 +778,14 @@ If unresolved or validation fails:
 - preserve integration worktree
 - preserve all validation failures as resumable `validation_pending`
 - let the agent assess preserved evidence before choosing retry or escalation
-- keep enough state/logs to diagnose
+- keep enough state/logs to diagnose: a failed validation command's record
+  keeps its exit code, a bounded secret-redacted output tail, the path of a
+  full redacted log under the runtime `logs/validation/` directory, its failing
+  test names or first error line, and the build queue load at failure time
 - release lock only after state is persisted
 - exit non-zero
-- create an immutable incident ticket with a stable failure fingerprint,
+- create an immutable incident ticket with a stable failure fingerprint
+  (including failing test names or the first error line for validation failures),
   concise diagnosis, proposed fix, scope, confidence, and preserved evidence
 - print the ticket in the failure summary and offer to implement its fix in a
   separate user-approved session
@@ -893,6 +963,10 @@ The MVP is ready when disposable repo tests prove:
     across concurrent sessions.
 28. Transient validation failures use bounded retry, preserve exhausted state,
     and resume against the unchanged integration snapshot.
+29. Sessions waiting together are validated once as a batch; conflicting
+    members integrate alone, failing members are isolated so passing members
+    still promote, the cap and per-repository disable are honored, and
+    coordinators without batching keep integrating one session at a time.
 
 ## Session task tracking
 

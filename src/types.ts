@@ -28,6 +28,19 @@ export interface ValidationTier {
   sourceValidationCommands: ValidationStep[];
   integrationValidationCommands: ValidationStep[];
   bypassIntegrationWorktree?: boolean;
+  /**
+   * Lightweight checks only: run this tier's commands at once, without waiting
+   * for or holding a build queue slot. Never for builds or test suites.
+   */
+  bypassBuildQueue?: boolean;
+  /**
+   * Asserts that changes confined to this tier's paths cannot change other
+   * validation commands' results. When the merged integration tree differs
+   * from a session's validated source tree only in this tier's paths, the
+   * tier's integration commands run on the merged tree and the session's
+   * source results are reused for its other integration commands.
+   */
+  reuseSourceValidationOnTargetMove?: boolean;
 }
 
 export interface RepositoryConfig {
@@ -44,12 +57,30 @@ export interface RepositoryConfig {
   gpgProgram?: string;
   setupCommands: Command[];
   setupCommandPolicy?: "advisory" | "required";
+  /**
+   * Quick setup only (such as a warm-cache frozen-lockfile install): run every
+   * setupCommands entry without a build queue slot. A sibling key, not an
+   * object form, so older coordinators keep running plain argument arrays.
+   */
+  setupBypassBuildQueue?: boolean;
   sourceValidationCommands: ValidationStep[];
   integrationValidationCommands: ValidationStep[];
   validationTiers?: ValidationTier[];
   postIntegrationCommands: Command[];
   conflictInstructions: string;
   validationCache?: "off" | "session" | "repository";
+  /** Overrides the global integrationBatching defaults for this repository. */
+  integrationBatching?: IntegrationBatchingConfig;
+}
+
+/**
+ * Batching of sessions that wait to integrate at the same time. Omitted keys
+ * fall back to the global value, then to enabled with at most 8 sessions.
+ */
+export interface IntegrationBatchingConfig {
+  enabled?: boolean;
+  /** Sessions merged into one candidate, including its leader (1-64). */
+  maxSessions?: number;
 }
 
 export type PromotionConfig =
@@ -105,6 +136,8 @@ export interface Config {
   defaultPromotion?: DefaultPromotionConfig;
   /** Delivery policy used by `begin` when `--policy-file` is not given. */
   deliveryPolicyFile?: string;
+  /** Defaults for every repository; repository settings override them. */
+  integrationBatching?: IntegrationBatchingConfig;
   repositories: RepositoryConfig[];
 }
 
@@ -243,10 +276,52 @@ export interface Session {
   integrationWorktreeDetached?: boolean;
   awaitingConflictResolution?: boolean;
   waitingForLock?: boolean;
+  /**
+   * Written by a batching-aware `integrate` process while it waits for the
+   * repository lock. Older coordinators never write it, so their waiting
+   * sessions are never claimed into a batch.
+   */
+  integrationWait?: IntegrationWaiter;
+  /** The latest integration batch this session led or joined. */
+  integrationBatch?: IntegrationBatchMembership;
+  /** Earlier batch memberships, oldest first. */
+  integrationBatchHistory?: IntegrationBatchMembership[];
   postIntegrationResults?: CommandExecutionResult[];
   gitBaseline?: GitObservation;
   recoveryBundle?: RecoveryBundlePointer;
   latestIncidentId?: string;
+}
+
+export interface IntegrationWaiter {
+  /** Batch protocol version the waiting process understands. */
+  batching: 1;
+  pid: number;
+  hostname: string;
+  since: string;
+}
+
+/**
+ * How a session took part in an integration batch.
+ * - `batched`: merged into a validated combined candidate; the session status
+ *   reports its promotion result.
+ * - `isolated`: integrated alone by the leader after a combined validation
+ *   failed; the session status reports that result.
+ * - `excluded`: its merge conflicted with the batch; it integrates alone.
+ * - `released`: the batch ended without integrating it; it integrates itself.
+ */
+export interface IntegrationBatchMembership {
+  id: string;
+  leaderSessionId: string;
+  role: "leader" | "member";
+  joinedAt: string;
+  /** Sessions merged into the latest candidate this session was part of, in merge order. */
+  members: string[];
+  outcome?: "batched" | "isolated" | "excluded" | "released";
+  reason?: string;
+  /** Validated staging commit shared by every member of the candidate. */
+  stagingCommit?: string;
+  validationTier?: string;
+  resolvedAt?: string;
 }
 
 export interface Incident {
@@ -333,6 +408,36 @@ export interface ValidationFailureRecord {
   exclusiveResources: string[];
   failedAt: string;
   message: string;
+  /** Exit code of the failed command; absent when it could not be run. */
+  exitCode?: number;
+  /** Bounded, best-effort secret-redacted tail of the failed command output. */
+  outputTail?: { stdout: string; stderr: string; truncated: boolean };
+  /** Full redacted output under the runtime logs directory. */
+  logPath?: string;
+  /** Why the full log could not be written; the tail is still recorded. */
+  logError?: string;
+  /** Failing test names parsed from the output, when the runner reports them. */
+  failingTests?: string[];
+  /** First error line of the output when no failing test names were found. */
+  firstErrorLine?: string;
+  /** Shared build queue load when the failure was recorded. */
+  queueLoad?: QueueLoadNote;
+}
+
+export interface QueueLoadNote {
+  sampledAt: string;
+  /** Running queue entries, counting the failed command when it ran. */
+  running?: number;
+  /** Waiting queue entries with live owners. */
+  waiting?: number;
+  capacity?: number | "unlimited";
+  /**
+   * Lightweight commands running outside the queue (bypassBuildQueue),
+   * counting the failed command when it ran without a slot.
+   */
+  bypassed?: number;
+  /** Why the queue could not be inspected. */
+  unavailable?: string;
 }
 
 export interface GitCommandObservation extends CommandResult {

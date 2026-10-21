@@ -248,6 +248,8 @@ export function settingsView(text: string | null, stored: Config) {
         source: stepLines(tier.sourceValidationCommands),
         integration: stepLines(tier.integrationValidationCommands),
         bypassIntegrationWorktree: !!tier.bypassIntegrationWorktree,
+        reuseSourceValidationOnTargetMove:
+          tier.reuseSourceValidationOnTargetMove === true,
       })),
     })),
   };

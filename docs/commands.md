@@ -573,6 +573,15 @@ to this checkout's `dist/cli.js`; other installations must update their CLI too.
 
 The ready SHA and timestamp are persisted before dependency or lock checks. Dependencies must already have succeeded. Simultaneous processes wait on an atomic per-repository directory lock, then merge against the current staging branch. Under that lock the CLI records the target's exact expected commit. The mutable source branch name is never merged.
 
+When several sessions wait for the lock, the next holder may integrate them
+together as an [integration batch](configuration.md#integration-batching). A
+waiting `integrate` then prints `Joined integration batch <id> led by <session>`
+and does not time out while that leader works on it. Once the batch resolves the
+session, the process exits with the session's own completion summary: promoted
+at the shared batch commit, or the result of integrating it alone after a
+combined validation failed. A session left out because its merge conflicts
+keeps waiting and then integrates alone with the normal conflict prompt.
+
 The staging branch starts from, or safely fast-forwards to, the current target.
 After setup, validation, and signing pass, the exact validated staging commit is
 promoted. An unheld target uses atomic `update-ref` with the expected old SHA
@@ -585,6 +594,10 @@ preserved for `resume`.
 When the staged integration tree equals the source-validated tree, matching
 integration commands reuse their exact-tree results; integration-only commands
 still run. Retries reuse successes only while every fingerprint remains exact.
+When the target moved only by paths of a tier that sets
+[`reuseSourceValidationOnTargetMove`](configuration.md#reusing-source-validation-when-the-target-moves),
+that tier's integration commands run on the merged tree and the other source
+results are reused; `integrate` prints which commands were reused and why.
 
 On conflict, `integrate` preserves the merge and saves a contextual prompt under
 `~/.sesh-integrator/logs/`. The workflow skill directs the current agent session to
@@ -647,8 +660,10 @@ the promoted target worktree.
 A validation failure leaves that session's integration worktree intact, records `validation_pending`, releases the one-shot lock, and exits nonzero so the agent can assess the evidence and resume safely. An unresolved conflict records `needs_review`. Later sessions use detached session-owned integration worktrees when the canonical worktree contains preserved review state, and atomically advance staging only after validation. A failed post-integration command also records `needs_review`, but preserves the already-promoted target commit; its command, exit code, stdout, and stderr remain in the session record for diagnosis. If post-integration commands are configured and the target is not checked out in exactly one clean accessible worktree, promotion remains pending. Post-integration commands are skipped when the ready commit was already present and the staging branch did not advance. The source worktree is never modified.
 
 Every integration validation failure records `validation_pending`, including
-its command, declared or unclassified status, attempt limit, resource keys, and
-failure time. After the agent assesses the preserved evidence, `resume` verifies
+its command, declared or unclassified status, attempt limit, resource keys,
+failure time, exit code, a bounded redacted output tail, the full log path,
+failing test names or first error line, and build queue load
+([failure evidence](build-queue.md#failure-evidence)). After the agent assesses the preserved evidence, `resume` verifies
 the clean merge, reacquires its resources, and retries validation.
 
 ### `status`
@@ -701,6 +716,7 @@ Status document, `sesh-integrator/session-status@1`:
     "conflictPromptPath": null,
     "rolloutDisposition": "none",
     "rolloutFollowUps": [],
+    "integrationBatch": null,
     "delivery": {
       "version": "…",
       "sha256": "<hex>",
@@ -741,6 +757,7 @@ Status document, `sesh-integrator/session-status@1`:
 | `session.awaitingConflictResolution`                    | `true` while a conflict waits to be resolved and staged in `integrationWorktreePath`.                                                                                                                                                  |
 | `session.integrationWorktreePath`, `conflictPromptPath` | Paths for conflict recovery, or `null`.                                                                                                                                                                                                |
 | `session.rolloutDisposition`, `rolloutFollowUps`        | `none`, `applied`, `automated`, `manual` or `null`; recorded follow-up actions.                                                                                                                                                        |
+| `session.integrationBatch`                              | [Batch](configuration.md#integration-batching) the session led or joined: `id`, `role`, `leaderSessionId`, `members`, `outcome` (`batched`, `isolated`, `excluded`, `released` or `null`), `stagingCommit`; else `null`.               |
 | `session.delivery`                                      | [Recorded delivery rule](configuration.md#what-a-session-records-and-uses), or `null` without a policy.                                                                                                                                |
 | `resumeCommand`                                         | Argument array such as `["seshx", "resume", "--session", "<id>"]` for `needs_review`, `validation_pending` and `promotion_pending` sessions; otherwise `null`. Run it from the session worktree or another checkout of the repository. |
 | `sync`                                                  | `begin --sync-target --json` only: `remote` (or `null`), `result`, `branch`, and the local target commits `before` and `after` (`null` when absent).                                                                                   |
@@ -960,7 +977,8 @@ seshx incident CH-YYYYMMDD-XXXXXX
 
 Instruction or code fixes proposed by an incident are implemented only in a
 new, user-approved session. Repeated failure fingerprints provide evidence for
-future workflow improvements. Diagnosis is produced by an ephemeral, read-only,
+future workflow improvements. A validation failure's fingerprint includes its
+failing test names or first error line, not only its command and exit code. Diagnosis is produced by an ephemeral, read-only,
 schema-validated agent investigation after releasing the repository lock;
 code owns evidence and safety rather than an expanding failure-rule chain. If
 that investigation is unavailable or invalid, the ticket records a neutral

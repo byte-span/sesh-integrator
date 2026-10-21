@@ -27,6 +27,12 @@ import type {
   ValidationFailureRecord,
 } from "./types.js";
 import { validationCommandValue } from "./validation.js";
+import {
+  captureValidationOutput,
+  describeQueueLoad,
+  sampleQueueLoad,
+  type ValidationOutputEvidence,
+} from "./validation-output.js";
 
 export class ValidationFailure extends Error {
   constructor(readonly record: ValidationFailureRecord) {
@@ -131,22 +137,38 @@ export async function runValidation(
   cwd: string,
   options: {
     cachedFingerprints?: Set<string>;
+    /**
+     * Commands whose successful result on a different, validated source tree
+     * is reused instead of running them on this tree, and why.
+     */
+    sourceReuse?: { fingerprints: Set<string>; reason: string };
     onCommandSuccess?: (command: Command, fingerprint: string) => Promise<void>;
     sessionId?: string;
     resourceWaitSeconds?: number;
     phase?: "source" | "integration";
+    /**
+     * Reason the plan's commands skip the build queue (an explicit
+     * bypassBuildQueue tier). Inferred preparation still takes a slot.
+     */
+    queueBypass?: string;
   } = {},
-): Promise<{ cacheHits: number; executed: number }> {
+): Promise<{
+  cacheHits: number;
+  executed: number;
+  /** Present only when a source result was reused. */
+  sourceReused?: Command[];
+}> {
   return withQueueCancellation(async (signal) => {
+    const skipped = (fingerprint: string) =>
+      options.cachedFingerprints?.has(fingerprint) === true ||
+      options.sourceReuse?.fingerprints.has(fingerprint) === true;
     if (
       commands.some((step) => {
         const group =
           Array.isArray(step) || "command" in step ? [step] : step.parallel;
         return group.some(
           (entry) =>
-            !options.cachedFingerprints?.has(
-              commandFingerprint(validationCommandValue(entry)),
-            ),
+            !skipped(commandFingerprint(validationCommandValue(entry))),
         );
       })
     ) {
@@ -154,6 +176,7 @@ export async function runValidation(
     }
     let cacheHits = 0;
     let executed = 0;
+    const sourceReused: Command[] = [];
     for (const step of commands) {
       const group =
         Array.isArray(step) || "command" in step ? [step] : step.parallel;
@@ -165,6 +188,13 @@ export async function runValidation(
             `Using cached validation: ${command.join(" ")}\n`,
           );
           cacheHits += 1;
+          return false;
+        }
+        if (options.sourceReuse?.fingerprints.has(fingerprint)) {
+          process.stdout.write(
+            `Reusing source validation: ${command.join(" ")} (${options.sourceReuse.reason})\n`,
+          );
+          sourceReused.push(command);
           return false;
         }
         return true;
@@ -187,7 +217,11 @@ export async function runValidation(
         await options.onCommandSuccess?.(command, commandFingerprint(command));
       }
     }
-    return { cacheHits, executed };
+    return {
+      cacheHits,
+      executed,
+      ...(sourceReused.length > 0 ? { sourceReused } : {}),
+    };
   });
 }
 
@@ -199,6 +233,7 @@ async function runValidationCommand(
     sessionId?: string;
     resourceWaitSeconds?: number;
     phase?: "source" | "integration";
+    queueBypass?: string;
   },
 ): Promise<void> {
   const command = validationCommandValue(entry);
@@ -238,11 +273,22 @@ async function runValidationCommand(
             cwd,
             `${options.phase ?? "source"} validation`,
             options.sessionId,
+            options.queueBypass,
           );
           if (result.code === 0) return true;
           const message = `Validation failed (${result.code}): ${command.join(" ")}`;
           if (classification !== "transient" || attempt === maxAttempts) {
-            throw failure(message, attempt);
+            throw await failure(
+              message,
+              attempt,
+              await captureValidationOutput(result, {
+                command,
+                cwd,
+                phase: options.phase ?? "source",
+                attempt,
+                ...(options.sessionId ? { sessionId: options.sessionId } : {}),
+              }),
+            );
           }
           throw new Error(message);
         },
@@ -259,7 +305,7 @@ async function runValidationCommand(
       )
         throw error;
       if (classification !== "transient" || attempt === maxAttempts) {
-        throw failure(
+        throw await failure(
           error instanceof Error ? error.message : String(error),
           attempt,
         );
@@ -275,8 +321,18 @@ async function runValidationCommand(
     await cancellableDelay(backoff, undefined, { signal: options.signal });
   }
 
-  function failure(message: string, attempts: number): ValidationFailure {
-    return new ValidationFailure({
+  async function failure(
+    message: string,
+    attempts: number,
+    evidence: ValidationOutputEvidence = {},
+  ): Promise<ValidationFailure> {
+    // Queue load separates resource contention from a code defect. Output
+    // evidence exists only when the command ran to an exit code.
+    const queueLoad = await sampleQueueLoad(
+      evidence.exitCode !== undefined,
+      options.queueBypass !== undefined,
+    );
+    const record: ValidationFailureRecord = {
       phase: options.phase ?? "source",
       command,
       classification,
@@ -289,7 +345,19 @@ async function runValidationCommand(
       exclusiveResources,
       failedAt: new Date().toISOString(),
       message,
-    });
+      ...evidence,
+      queueLoad,
+    };
+    process.stderr.write(
+      `Validation failure evidence for ${command.join(" ")}: ${
+        record.logPath
+          ? `full output ${record.logPath}`
+          : record.logError
+            ? `full output not saved (${record.logError})`
+            : "output tail kept in the failure record"
+      }; build queue ${describeQueueLoad(queueLoad)}\n`,
+    );
+    return new ValidationFailure(record);
   }
 }
 
@@ -324,13 +392,21 @@ export async function runRequiredCommands(
   commands: Command[],
   cwd: string,
   label: string,
+  queueBypass?: string,
 ): Promise<void> {
   return withQueueCancellation(async () => {
     for (const [command, ...args] of commands) {
       process.stdout.write(
         `Running ${label}: ${[command, ...args].join(" ")}\n`,
       );
-      const result = await runQueued(command, args, cwd, label);
+      const result = await runQueued(
+        command,
+        args,
+        cwd,
+        label,
+        undefined,
+        queueBypass,
+      );
       if (result.code !== 0) {
         throw new Error(
           `${capitalize(label)} failed (${result.code}): ${[command, ...args].join(" ")}`,

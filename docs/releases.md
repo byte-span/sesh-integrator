@@ -23,6 +23,43 @@ the archive and GitHub source downloads have the correct version without bot
 pushes to protected branches or a version-sync PR. Existing tags are never moved.
 Prerelease tags do not participate in version selection.
 
+## Next release notes
+
+Add these to the next release's GitHub Release notes (**Releases → Edit** on
+that release), then keep them here under its version heading.
+
+**Build queue changes for existing users:**
+
+- **Default concurrency is now `auto`.** On a machine without a queue
+  `config.json`, integrator-launched setup, validation and post-checks run up to a
+  resource-aware number of commands at once instead of all at once. Explicit
+  machine settings are unchanged. Run `seshx queue status` to see the effective
+  values and whether each is a default or a machine setting.
+  - To keep the previous unrestricted scheduling, run
+    `seshx queue configure --concurrency unlimited`.
+  - If you ran `seshx queue configure --wait-seconds` while `unlimited` was the
+    default, your file already records `unlimited` and status shows
+    `machine setting`. Run `seshx queue configure --concurrency auto` to adopt
+    the new default.
+- **Waits time out only without progress.** `--wait-seconds` (default 900) now
+  limits time with no running command finishing and no movement up the queue,
+  not total wait. A busy but moving queue no longer times out.
+- **Orphaned entries fail fast.** If a running entry's owner process has exited,
+  waiters fail at once with the entry ID and the exact
+  `seshx queue recover <entry-id> --confirmed-stopped` command. Confirm its
+  workload stopped before recovering.
+- Coordinators pinned by unfinished sessions keep their old defaults until those
+  sessions finish. Write `--concurrency auto` explicitly to limit them too.
+- **Lightweight commands can skip the queue (opt-in).** Set
+  `bypassBuildQueue: true` on a validation tier of quick checks, such as a
+  `TASKS.json` validator and formatter check, and `setupBypassBuildQueue: true`
+  on a repository whose setup is a quick warm-cache install. They then run at
+  once instead of waiting behind test suites. Nothing changes until you set
+  them; never set them for builds or tests.
+  [Lightweight commands →](build-queue.md#lightweight-commands)
+
+See [build queue defaults](build-queue.md#defaults).
+
 ## Install a release
 
 Download the `.tgz` from the repository's **Releases** page, then run:

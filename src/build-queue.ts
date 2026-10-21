@@ -35,7 +35,32 @@ export interface QueueLease {
   root: string;
   entry: QueueEntry;
 }
-const defaults: QueueSettings = { concurrency: "unlimited", waitSeconds: 900 };
+/**
+ * A lightweight command running without a slot (bypassBuildQueue). Kept in
+ * `bypassed/`, never `entries/`: it holds no capacity, admission ignores it,
+ * and older coordinators, which reject unknown entry states, never read it.
+ */
+export interface QueueBypass {
+  version: 1;
+  id: string;
+  pid: number;
+  hostname: string;
+  sessionId: string;
+  cwd: string;
+  label: string;
+  reason: string;
+  startedAt: string;
+}
+export interface QueueBypassLease {
+  root: string;
+  bypass: QueueBypass;
+}
+// Machines without config.json get a resource-aware limit. 7f64fc1 defaulted to
+// "unlimited" because "auto" gave one slot on a 7.5 GiB benchmark machine,
+// serializing concurrent validations (about 3x slower than pre-queue). That
+// trades memory protection for speed, so "unlimited" is now opt-in; waits time
+// out only without progress, so a slower but moving queue does not fail.
+const defaults: QueueSettings = { concurrency: "auto", waitSeconds: 900 };
 
 // Stable capacity, not a fluctuating free-memory snapshot. Leave room for the UI,
 // OS and editors, and assume builds may each have their own worker pools.
@@ -71,11 +96,17 @@ export function queueRoot(): string {
 export async function queueSettings(
   root = queueRoot(),
 ): Promise<QueueSettings> {
+  return (await loadQueueSettings(root)).settings;
+}
+async function loadQueueSettings(
+  root: string,
+): Promise<{ settings: QueueSettings; explicit: boolean }> {
   let value: unknown;
   try {
     value = JSON.parse(await readFile(join(root, "config.json"), "utf8"));
   } catch (error) {
-    if (code(error) === "ENOENT") return { ...defaults };
+    if (code(error) === "ENOENT")
+      return { settings: { ...defaults }, explicit: false };
     throw error;
   }
   const settings = value as Partial<QueueSettings> | null;
@@ -99,17 +130,21 @@ export async function queueSettings(
     throw new Error(
       `Invalid build queue config: ${join(root, "config.json")}. Use concurrency "unlimited", "auto" or 1–64 and waitSeconds 1–86400.`,
     );
-  return settings as QueueSettings;
+  return { settings: settings as QueueSettings, explicit: true };
 }
-function capacity(settings: QueueSettings): number {
-  if (settings.concurrency === "unlimited") return Infinity;
+// Memory uses the lower of OS total memory and Node's process constraint.
+function autoInputs(): { cpus: number; memoryBytes: number } {
   const constrained = process.constrainedMemory?.() || Infinity;
-  return settings.concurrency === "auto"
-    ? defaultConcurrency(
-        availableParallelism(),
-        Math.min(totalmem(), constrained),
-      )
-    : settings.concurrency;
+  return {
+    cpus: availableParallelism(),
+    memoryBytes: Math.min(totalmem(), constrained),
+  };
+}
+export function queueCapacity(settings: QueueSettings): number {
+  if (settings.concurrency === "unlimited") return Infinity;
+  if (settings.concurrency !== "auto") return settings.concurrency;
+  const { cpus, memoryBytes } = autoInputs();
+  return defaultConcurrency(cpus, memoryBytes);
 }
 export function ownerAlive(
   entry: Pick<QueueEntry, "pid" | "hostname">,
@@ -311,7 +346,12 @@ export async function acquireBuildSlot(
   };
   const lease = { root, entry };
   let registered = false;
-  const deadline = Date.now() + settings.waitSeconds * 1000;
+  // waitSeconds bounds time without progress, not total wait: a running entry
+  // finishing or this request moving up restarts the deadline.
+  const waitMs = settings.waitSeconds * 1000;
+  let deadline = Date.now() + waitMs;
+  let seenRunning = new Set<string>();
+  let lastPosition = Infinity;
   let announced = "";
   try {
     for (;;) {
@@ -332,29 +372,44 @@ export async function acquireBuildSlot(
           const active = entries.filter(
             (e) => e.state === "running" || ownerAlive(e),
           );
-          const running = active.filter((e) => e.state === "running").length;
+          const runningEntries = active.filter((e) => e.state === "running");
+          const running = runningEntries.length;
           const waiting = active.filter((e) => e.state === "waiting");
-          const limit = capacity(await queueSettings(root));
+          const limit = queueCapacity(await queueSettings(root));
           const position = waiting.findIndex((e) => e.id === entry.id);
           if (position < 0)
             throw new Error(`Build queue ownership lost: ${entry.id}`);
-          const orphaned = active.some(
-            (e) => e.state === "running" && !ownerAlive(e),
-          );
+          // An orphan blocks every admission until a person confirms its
+          // workload stopped, so waiting out the deadline cannot help.
+          const orphans = runningEntries.filter((e) => !ownerAlive(e));
+          if (orphans.length) throw new Error(orphanedMessage(orphans, root));
+          const progressed =
+            position < lastPosition ||
+            [...seenRunning].some(
+              (id) => !runningEntries.some((e) => e.id === id),
+            );
+          seenRunning = new Set(runningEntries.map((e) => e.id));
+          lastPosition = position;
+          const capacityLabel = limit === Infinity ? "unlimited" : limit;
           // Reserve capacity for earlier waiters without forcing each free slot
           // to wait for the head waiter's next polling interval.
-          if (position < limit - running && !orphaned) {
+          if (position < limit - running) {
             entry.state = "running";
             entry.startedAt = new Date().toISOString();
             await atomicJson(entryPath(root, entry.id), entry);
             return {
               admitted: true,
-              message: `Build queue running (${running + 1}/${limit === Infinity ? "unlimited" : limit}): ${label} [${sessionId}]`,
+              progressed,
+              place: "",
+              message: `Build queue running (${running + 1}/${capacityLabel}): ${label} [${sessionId}]`,
             };
           }
+          const place = `#${position + 1}, ${running}/${capacityLabel} running`;
           return {
             admitted: false,
-            message: `Build queue waiting (#${position + 1}, ${running}/${limit === Infinity ? "unlimited" : limit} running${orphaned ? "; orphaned owner needs recovery" : ""}): ${label} [${sessionId}]`,
+            progressed,
+            place,
+            message: `Build queue waiting (${place}): ${label} [${sessionId}]`,
           };
         },
         signal,
@@ -364,9 +419,10 @@ export async function acquireBuildSlot(
         announced = result.message;
       }
       if (result.admitted) return lease;
-      if (Date.now() >= deadline)
+      if (result.progressed) deadline = Date.now() + waitMs;
+      else if (Date.now() >= deadline)
         throw new Error(
-          `Timed out waiting for build queue after ${settings.waitSeconds}s. Run seshx queue status; queue: ${root}`,
+          `Timed out after ${settings.waitSeconds}s without build queue progress (${result.place}): no running command finished and this request did not move up. Run seshx queue status to inspect the running commands; raise the limit with seshx queue configure --wait-seconds <1-86400>. Queue: ${root}`,
         );
       await delay(100, undefined, { signal });
     }
@@ -396,18 +452,137 @@ export async function releaseBuildSlot(lease: QueueLease): Promise<void> {
     await unlink(entryPath(lease.root, lease.entry.id));
   });
 }
+function bypassPath(root: string, id: string): string {
+  return join(root, "bypassed", `${id}.json`);
+}
+/**
+ * Record a command that runs without a slot so queue status can show it. No
+ * admission mutex: the record changes no capacity. Records of dead local
+ * owners are pruned here because they never held a slot to recover.
+ */
+export async function registerQueueBypass(
+  cwd: string,
+  label: string,
+  sessionId: string,
+  reason: string,
+): Promise<QueueBypassLease> {
+  const root = queueRoot();
+  await mkdir(join(root, "bypassed"), { recursive: true, mode: 0o700 });
+  for (const stale of await queueBypasses(root))
+    if (!ownerAlive(stale))
+      await unlink(bypassPath(root, stale.id)).catch(() => undefined);
+  const bypass: QueueBypass = {
+    version: 1,
+    id: randomUUID(),
+    pid: process.pid,
+    hostname: hostname(),
+    sessionId,
+    cwd,
+    label,
+    reason,
+    startedAt: new Date().toISOString(),
+  };
+  await atomicJson(bypassPath(root, bypass.id), bypass);
+  return { root, bypass };
+}
+export async function releaseQueueBypass(
+  lease: QueueBypassLease,
+): Promise<void> {
+  try {
+    await unlink(bypassPath(lease.root, lease.bypass.id));
+  } catch (error) {
+    if (code(error) !== "ENOENT") throw error;
+  }
+}
+/** Commands currently running without a slot. Unreadable records are skipped. */
+export async function queueBypasses(
+  root = queueRoot(),
+): Promise<QueueBypass[]> {
+  let names: string[];
+  try {
+    names = await readdir(join(root, "bypassed"));
+  } catch (error) {
+    if (code(error) === "ENOENT") return [];
+    throw error;
+  }
+  const records: QueueBypass[] = [];
+  for (const name of names.filter((name) => name.endsWith(".json"))) {
+    let value: Partial<QueueBypass> | null;
+    try {
+      value = JSON.parse(
+        await readFile(join(root, "bypassed", name), "utf8"),
+      ) as Partial<QueueBypass> | null;
+    } catch {
+      continue; // Removed or mid-write; it holds no capacity either way.
+    }
+    if (
+      value &&
+      value.version === 1 &&
+      typeof value.id === "string" &&
+      name === `${value.id}.json` &&
+      Number.isSafeInteger(value.pid) &&
+      typeof value.hostname === "string" &&
+      typeof value.sessionId === "string" &&
+      typeof value.cwd === "string" &&
+      typeof value.label === "string" &&
+      typeof value.reason === "string" &&
+      typeof value.startedAt === "string"
+    )
+      records.push(value as QueueBypass);
+  }
+  return records.sort(
+    (a, b) =>
+      a.startedAt.localeCompare(b.startedAt) || a.id.localeCompare(b.id),
+  );
+}
+function orphanedMessage(orphans: QueueEntry[], root: string): string {
+  const plain = stripVTControlCharacters;
+  return [
+    `Build queue blocked: ${orphans.length === 1 ? "the owner of this running entry exited. Its" : "the owners of these running entries exited. Their"} build/test commands may still be running, so no new command can start until recovery.`,
+    ...orphans.map(
+      (e) =>
+        `  ${e.id}: ${plain(e.label)}; session ${plain(e.sessionId)}; pid ${e.pid}; ${plain(e.cwd)}`,
+    ),
+    "To recover:",
+    "  1. Confirm in the OS process tools (for example ps or Task Manager) that the original CLI and all its descendants stopped. Never kill an unrelated or reused PID.",
+    ...orphans.map(
+      (e, i) =>
+        `  ${i === 0 ? "2. Run:" : "   Run:"} seshx queue recover ${e.id} --confirmed-stopped`,
+    ),
+    "  3. Retry this command with its pinned coordinator.",
+    `Queue: ${root}`,
+  ].join("\n");
+}
 export async function printBuildQueue(): Promise<void> {
   const root = queueRoot();
-  const settings = await queueSettings(root);
+  const { settings, explicit } = await loadQueueSettings(root);
   const entries = await queueEntries(root);
+  const source = explicit ? "machine setting" : "default";
+  let concurrency: string;
+  if (settings.concurrency === "unlimited")
+    concurrency = `unlimited (no throttling; ${source})`;
+  else if (settings.concurrency === "auto") {
+    const { cpus, memoryBytes } = autoInputs();
+    concurrency = `${queueCapacity(settings)} (auto, ${source}: resource-aware limit for ${cpus} CPU threads and ${(memoryBytes / 1024 ** 3).toFixed(1)} GiB memory)`;
+  } else concurrency = `${settings.concurrency} (${source})`;
   process.stdout.write(
-    `Build queue: ${root}\n  concurrency: ${settings.concurrency === "unlimited" ? "unlimited" : capacity(settings)} (${settings.concurrency === "auto" ? "resource-aware limit" : settings.concurrency === "unlimited" ? "no throttling" : "machine override"}); wait: ${settings.waitSeconds}s\n`,
+    `Build queue: ${root}\n  concurrency: ${concurrency}\n  wait: ${settings.waitSeconds}s without progress (${source})\n  settings: ${explicit ? join(root, "config.json") : "built-in defaults (no config.json)"}\n`,
   );
   for (const entry of entries)
     process.stdout.write(
-      `  ${entry.id} ${entry.state}${!ownerAlive(entry) ? " (orphaned; inspect before recovery)" : ""}: ${stripVTControlCharacters(entry.label)}; session ${stripVTControlCharacters(entry.sessionId)}; pid ${entry.pid}; ${stripVTControlCharacters(entry.cwd)}\n`,
+      `  ${entry.id} ${entry.state}${ownerAlive(entry) ? "" : entry.state === "running" ? ` (orphaned; after confirming its workload stopped: seshx queue recover ${entry.id} --confirmed-stopped)` : " (orphaned; inspect before recovery)"}: ${stripVTControlCharacters(entry.label)}; session ${stripVTControlCharacters(entry.sessionId)}; pid ${entry.pid}; ${stripVTControlCharacters(entry.cwd)}\n`,
     );
-  if (!entries.length) process.stdout.write("  idle\n");
+  // Bypassing commands hold no slot and need no recovery; a dead owner's
+  // record is only pruned, by the next bypassing command.
+  const bypasses = await queueBypasses(root);
+  for (const bypass of bypasses)
+    process.stdout.write(
+      `  ${bypass.id} bypassed queue (${stripVTControlCharacters(bypass.reason)}; no slot used${ownerAlive(bypass) ? "" : "; owner exited"}): ${stripVTControlCharacters(bypass.label)}; session ${stripVTControlCharacters(bypass.sessionId)}; pid ${bypass.pid}; ${stripVTControlCharacters(bypass.cwd)}\n`,
+    );
+  if (!entries.length)
+    process.stdout.write(
+      bypasses.length ? "  no queue slots in use\n" : "  idle\n",
+    );
 }
 export async function queueCommand(args: string[]): Promise<void> {
   if (!args.length || (args.length === 1 && args[0] === "status"))

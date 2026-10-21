@@ -15,6 +15,7 @@ import { readLockMetadata } from "./lock.js";
 import { targetBranch, targetBranchSource } from "./promotion.js";
 import { pullRequestPromotion } from "./pull-request.js";
 import type { Session } from "./types.js";
+import { validationFailureEvidence } from "./validation-output.js";
 import {
   readConfig,
   readSession,
@@ -119,6 +120,12 @@ export async function statusCommand(sessionId?: string): Promise<void> {
     process.stdout.write(
       `  validation: ${session.validationTier ?? "-"} (${session.changedPaths?.length ?? 0} changed path(s))\n`,
     );
+    if (session.integrationBatch) {
+      const batch = session.integrationBatch;
+      process.stdout.write(
+        `  integration batch: ${batch.id} (${batch.role === "leader" ? "leader" : `led by ${batch.leaderSessionId}`}; ${batch.outcome ?? "in progress"}${batch.members.length ? `; members ${batch.members.join(", ")}` : ""}${batch.reason ? `; ${terminalSafe(batch.reason)}` : ""})\n`,
+      );
+    }
     process.stdout.write(
       `  staged/validated: ${session.integratedAt ?? "-"} ${
         session.integratedCommit ?? ""
@@ -179,6 +186,8 @@ export async function statusCommand(sessionId?: string): Promise<void> {
       process.stdout.write(
         `  validation command: ${failure.command.join(" ")}\n`,
       );
+      for (const [label, value] of validationFailureEvidence(failure))
+        process.stdout.write(`  ${label}: ${value}\n`);
     }
     if (selected && (session.readyCommit || session.status === "no_changes"))
       writeCompletionSummary(session);
