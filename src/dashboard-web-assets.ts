@@ -1,17 +1,33 @@
 // Embedded assets ship with the TypeScript build; no CDN, bundler or network fonts.
+
+// Merge-arrow mark traced from docs/assets/branding/sesh-integrator-symbol-transparent.png.
+const logoPath =
+  "M1.2 0 44.9 0 47.6 0.4 50.4 1.1 54.4 3 58 5.5 60.4 8 72.9 23.5 76.7 26.5 63.4 26.7 60.3 27.3 56 29 46.5 18.1 44.3 16.6 41.9 15.7 39.6 15.3 5.1 15.3 3.4 14.9 2.3 14.2 1.3 13.4 0.4 11.9 0.1 10.7 0 1.7 0.3 0.6Z M83.4 17.6 84.4 17.6 85.1 18 88.2 20.4 102.7 32.6 103.4 33.5 103.8 34.7 103.6 35.9 102.6 37.2 84.4 52.4 83.7 52.7 83 52.6 82.5 52.3 82.1 51.6 82 44 81.8 43.7 69.1 43.6 65.9 44.3 63 45.9 60.9 47.5 54.9 54.6 52.8 56.7 49.4 59 46.6 60.4 44.4 61 41.3 61.5 1.7 61.5 0.8 61.2 0.3 60.7 0 59.8 0.1 51.3 1 49.1 2.7 47.5 4.9 46.8 34.5 46.8 38.1 46.1 40.4 44.9 42.3 43.5 48.9 35.7 51 33.7 54.2 31.6 57.3 30 61.7 28.7 64.3 28.3 81.8 28.2 82 27.8 82.1 19.1 82.5 18.1Z";
+
+export const webFaviconSvg = String.raw`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <rect width="128" height="128" rx="28" fill="#202936" />
+  <path fill="#fff" transform="translate(12.1 33.25)" d="${logoPath}" />
+</svg>
+`;
+
 export const webHtml = String.raw`<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Sessions · sesh-integrator</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/app.css" />
     <script src="/app.js" defer></script>
   </head>
   <body>
     <a id="skip" class="skip" href="#sessions">Skip to sessions</a>
     <header>
-      <a class="brand" href="/">sesh<span> / </span>integrator</a>
+      <a class="brand" href="/"
+        ><svg class="brand-mark" viewBox="0 0 103.8 61.5" fill="currentColor" aria-hidden="true">
+          <path d="${logoPath}" /></svg
+        >sesh<span> / </span>integrator</a
+      >
       <div class="header-actions">
         <span id="connection" role="status" tabindex="0" title="Connecting…">
           <!-- Artwork: user-supplied satellite-radar-svgrepo-com.svg (SVG Repo). -->
@@ -503,6 +519,9 @@ header {
   border-bottom: 1px solid var(--line);
 }
 .brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
   text-decoration: none;
   color: var(--ink);
   font-size: 18px;
@@ -513,6 +532,11 @@ header {
 .brand span {
   color: var(--muted);
   font-weight: 400;
+}
+.brand-mark {
+  width: 38px;
+  height: auto;
+  flex-shrink: 0;
 }
 .header-actions {
   margin-left: auto;
@@ -1677,6 +1701,9 @@ dialog p {
   }
   .brand {
     font-size: 16px;
+  }
+  .brand-mark {
+    width: 32px;
   }
   .workspace {
     display: flex;

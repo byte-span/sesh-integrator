@@ -36,7 +36,12 @@ import {
 } from "./dashboard-settings.js";
 import { currentTask, taskProgress } from "./tasks.js";
 import { targetBranch } from "./promotion.js";
-import { webHtml, webCss, webScript } from "./dashboard-web-assets.js";
+import {
+  webHtml,
+  webCss,
+  webFaviconSvg,
+  webScript,
+} from "./dashboard-web-assets.js";
 
 export interface WebOptions {
   port: number;
@@ -319,14 +324,17 @@ export async function startWebDashboard(
         if (
           req.url === "/" ||
           req.url === "/app.css" ||
-          req.url === "/app.js"
+          req.url === "/app.js" ||
+          req.url === "/favicon.svg"
         ) {
           const asset =
             req.url === "/"
               ? ["text/html", webHtml]
               : req.url === "/app.css"
                 ? ["text/css", webCss]
-                : ["text/javascript", webScript];
+                : req.url === "/favicon.svg"
+                  ? ["image/svg+xml", webFaviconSvg]
+                  : ["text/javascript", webScript];
           res.writeHead(200, { "Content-Type": `${asset[0]}; charset=utf-8` });
           res.end(asset[1]);
           return;
