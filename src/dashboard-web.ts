@@ -27,6 +27,7 @@ import {
   loadSettingsHistory,
   loadSettingsJson,
   loadSettingsSnapshot,
+  loadSettingsSuggestions,
   maxSettingsJsonLength,
   parseSettingsJsonRequest,
   parseSettingsRequest,
@@ -246,6 +247,7 @@ export async function startWebDashboard(
       saveJson: typeof saveSettingsJson;
       loadHistory: typeof loadSettingsHistory;
       loadSnapshot: typeof loadSettingsSnapshot;
+      loadSuggestions: typeof loadSettingsSuggestions;
     };
     run?: WebRunner;
     watch?: typeof watchDashboard;
@@ -260,6 +262,7 @@ export async function startWebDashboard(
     saveJson: saveSettingsJson,
     loadHistory: loadSettingsHistory,
     loadSnapshot: loadSettingsSnapshot,
+    loadSuggestions: loadSettingsSuggestions,
   };
   const clients = new Set<ServerResponse>();
   let origin = "";
@@ -348,6 +351,10 @@ export async function startWebDashboard(
         }
         if (req.url === "/api/settings/json") {
           json(res, 200, await settings.loadJson());
+          return;
+        }
+        if (req.url === "/api/settings/suggestions") {
+          json(res, 200, await settings.loadSuggestions());
           return;
         }
         if (req.url === "/api/settings/history") {

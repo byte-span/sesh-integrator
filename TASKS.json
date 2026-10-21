@@ -125,14 +125,22 @@
     {
       "id": "SI-007",
       "title": "Add searchable suggestion fields to dashboard Settings",
-      "status": "ready",
+      "status": "completed",
       "order": 70,
       "executor": "automated",
       "device_requirement": [],
       "blocked_by": [],
       "acceptance": "Dashboard Settings replaces free-text inputs with an accessible, keyboard-operable combobox (type to filter, arrow keys, Enter, Escape) that still accepts typed values: Default target branch lists branches across all registered repositories with how many repositories have each (for example dev — 4 of 5 repos); repository Target branch and Production branch list that repository's branches; Remote lists that repository's git remotes; Reviewers and Assignees are chip inputs suggesting names already used in configuration; Signing program and agent commands suggest detected executables on PATH such as gpg, gpg2 and ssh-keygen. A typed branch that does not exist is offered as Use new branch \"<name>\", saves only the name, and shows a warning naming the repositories that lack it; saving never creates Git branches. Suggestions come from a read-only dashboard endpoint, the form still works with an empty or failed suggestion list, docs/commands.md describes the fields, and dashboard tests cover filtering, the new-branch option and warning, chip entry and removal, and the suggestion-failure fallback.",
       "doc": "docs/commands.md",
-      "evidence": []
+      "evidence": [
+        "src/dashboard-suggestions.ts",
+        "src/dashboard-settings.ts",
+        "src/dashboard-web.ts",
+        "src/dashboard-web-assets.ts",
+        "test/dashboard-suggestions.test.ts",
+        "test/dashboard-web-script.test.ts",
+        "docs/commands.md"
+      ]
     },
     {
       "id": "SI-008",
