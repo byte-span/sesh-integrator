@@ -157,11 +157,11 @@
     {
       "id": "SI-009",
       "title": "Let lightweight commands bypass the build queue",
-      "status": "ready",
+      "status": "blocked",
       "order": 90,
       "executor": "automated",
       "device_requirement": [],
-      "blocked_by": [],
+      "blocked_by": ["SI-008"],
       "acceptance": "A validation tier can mark its commands as lightweight with an explicit, validated configuration option, and those commands run at once without waiting for or using a build queue slot, so a TASKS.json-only change no longer waits minutes behind full test suites for a two-second qtask and prettier check. Repository setup commands can opt in the same way for quick steps such as a warm-cache pnpm install --frozen-lockfile. Tiers and setup commands without the option, mixed changes that select a code tier or the full fallback, and post-integration checks still use the queue. Command output and seshx queue status say when a command bypassed the queue. Invalid option values are rejected, older pinned coordinators that read the same config keep queueing without failing, docs/build-queue.md and docs/configuration.md explain when to use the option and that it is not for builds or test suites, and tests cover a lightweight tier running while the queue is full, a normal tier still waiting, and a mixed change using the queued full fallback.",
       "doc": "docs/build-queue.md",
       "evidence": []
@@ -193,11 +193,11 @@
     {
       "id": "SI-012",
       "title": "Reuse source validation when the target moved only by lightweight-tier changes",
-      "status": "ready",
+      "status": "blocked",
       "order": 120,
       "executor": "automated",
       "device_requirement": [],
-      "blocked_by": [],
+      "blocked_by": ["SI-011"],
       "acceptance": "Integration already reuses source validation results when the merged tree matches the validated source tree (session_mvh2l5y8_fa64bc2695 on 2026-10-20 reran only build, with 2.8s of integration validation), but any target movement changes the tree and reruns the whole plan: four sessions integrated on 2026-10-20 after the target moved and each reran format:check, typecheck, test and build. When every path that differs between the validated source tree and the merged integration tree matches one configured validation tier that opts in (for example task-register or docs, so the target moved only by such commits), integration runs that tier's integration commands on the merged tree, reuses the source results for the other commands, and still runs integration-only commands such as build. A differing path outside that tier, a tier without the opt-in, recovery reconciliation (recoveryPhase local_target), or validationCache off keeps the current full rerun. The opt-in is an explicit per-tier option that is validated, rejected when invalid, and ignored by older pinned coordinators without failing. Integration output and performance metrics say which commands were reused and why. docs/configuration.md explains that the opt-in asserts the tier's paths cannot change other checks' results, and disposable-repository tests cover a TASKS.json-only target movement reusing results, a code movement rerunning everything, a mixed movement rerunning everything, and a tier without the opt-in.",
       "doc": "docs/configuration.md",
       "evidence": []
