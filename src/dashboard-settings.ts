@@ -9,6 +9,10 @@ import {
   type ConfigSnapshot,
   type ConfigSnapshotSummary,
 } from "./config-history.js";
+import {
+  settingsSuggestions,
+  type SettingsSuggestions,
+} from "./dashboard-suggestions.js";
 import { withCleanup } from "./file-lock.js";
 import {
   harnessCommand,
@@ -782,6 +786,14 @@ export async function loadSettingsHistory(): Promise<{
     limit: configHistoryLimit,
     entries: await listConfigHistory(runtimePaths().config),
   };
+}
+
+/** Read-only suggestions for the Settings form fields. */
+export async function loadSettingsSuggestions(): Promise<SettingsSuggestions> {
+  const stored = await readStoredConfig();
+  return settingsSuggestions(
+    validateConfig(structuredClone(stored.config), runtimePaths().config),
+  );
 }
 
 export async function loadSettingsSnapshot(

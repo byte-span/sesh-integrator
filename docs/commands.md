@@ -192,7 +192,8 @@ command at a time. Resolve and stage conflicts outside the dashboard before
 Resume. Browser output shows the most recent 128K characters of command output; normal
 CLI evidence remains in the runtime. Closing a tab does not cancel a command.
 
-Settings, at the bottom of the repository panel, opens three tabs:
+Settings, at the bottom of the repository panel, opens four tabs. Arrow keys,
+Home and End move between them, and the dashboard reopens the last one used:
 
 - **Global**: default target branch, default pull-request reviewers and
   assignees, lock wait, conflict resolution mode, delivery policy file, and
@@ -212,6 +213,33 @@ Settings, at the bottom of the repository panel, opens three tabs:
   runs. It opens even when the file is invalid, so you can repair it.
   Repositories cannot be added, removed or moved here: use `seshx register`,
   and keep each `path` and `gitCommonDir`.
+- **History**: earlier versions of `config.json`. The **History** button in
+  the Settings header opens the same list in a dialog from any tab.
+
+Branch, remote, program, reviewer and assignee fields suggest values as you
+type. Type to filter, use the arrow keys to move through the list, Enter to
+choose, and Escape to close it. Any typed value is still accepted:
+
+- **Default target branch** lists branches across all registered
+  repositories, most common first, with how many have each (for example
+  `dev — 4 of 5 repos`).
+- **Target branch**, **Production branch** and **Remote** list that
+  repository's branches and Git remotes. Production branch also lists the
+  chosen remote's branches.
+- A branch that does not exist is offered as **Use new branch "name"**.
+  Saving stores only the name and never creates Git branches; a warning names
+  the repositories that lack it. Create it there before integrating.
+- **Reviewers** and **Assignees** are chips. Type a name and press Enter (or a
+  comma or space), or choose a name already used in the configuration; teams
+  are suggested only as reviewers. Backspace in the empty field removes the
+  last chip, and × removes any one.
+- **Signing program** and agent commands suggest programs found on `PATH`,
+  such as `gpg`, `gpg2` and `ssh-keygen`, by name and by full path.
+
+Suggestions come from the read-only `GET /api/settings/suggestions`, which
+lists local and remote-tracking branches with `git for-each-ref`, without the
+staging branch and seshx task branches. If it fails, the fields work as plain
+text inputs.
 
 Save changes writes only the fields you changed to the runtime `config.json`,
 under the configuration lock. The server refuses values the CLI would reject,
@@ -221,13 +249,18 @@ default. Discard changes reloads the saved values. JSON saves rewrite the file
 with two-space indentation and lock every repository whose entry or
 enablement changed.
 
-**History**, under the JSON editor, lists earlier versions of `config.json`.
-Every change from the CLI (`register`, `enable`, `disable`) or the dashboard
-keeps the replaced file in the runtime's `config-history/` folder; the newest
-20 are kept. **Compare with current** shows a diff. **Restore** loads that
-version into the editor. Review it, then choose Save changes. Saving a
-restored version goes through the same checks and confirmation, and keeps
-the version it replaces, so a restore can be undone.
+**History** lists earlier versions of `config.json` with when each was
+replaced and by what. Every change from the CLI (`register`, `enable`,
+`disable`) or the dashboard keeps the replaced file in the runtime's
+`config-history/` folder; the newest 20 are kept. **Compare with current**
+shows a diff. **Restore** opens the same **Save config.json?** confirmation,
+with the changed settings and diff, and saves only when you choose Save
+config.json; Cancel changes nothing. Restoring never loads the version into
+the JSON editor: unsaved edits in any tab stay in place, and the confirmation
+names the tabs that have them. Those edits are then out of date, so copy what
+you need and choose Discard changes before saving that tab. A restore goes
+through the same checks as a JSON save and keeps the version it replaces, so
+it can be undone.
 
 The server rejects foreign Host/Origin headers and cross-site requests. It has
 no remote-listening or tunnel option. If a browser cannot be opened, use the

@@ -1,17 +1,33 @@
 // Embedded assets ship with the TypeScript build; no CDN, bundler or network fonts.
+
+// Merge-arrow mark traced from docs/assets/branding/sesh-integrator-symbol-transparent.png.
+const logoPath =
+  "M1.2 0 44.9 0 47.6 0.4 50.4 1.1 54.4 3 58 5.5 60.4 8 72.9 23.5 76.7 26.5 63.4 26.7 60.3 27.3 56 29 46.5 18.1 44.3 16.6 41.9 15.7 39.6 15.3 5.1 15.3 3.4 14.9 2.3 14.2 1.3 13.4 0.4 11.9 0.1 10.7 0 1.7 0.3 0.6Z M83.4 17.6 84.4 17.6 85.1 18 88.2 20.4 102.7 32.6 103.4 33.5 103.8 34.7 103.6 35.9 102.6 37.2 84.4 52.4 83.7 52.7 83 52.6 82.5 52.3 82.1 51.6 82 44 81.8 43.7 69.1 43.6 65.9 44.3 63 45.9 60.9 47.5 54.9 54.6 52.8 56.7 49.4 59 46.6 60.4 44.4 61 41.3 61.5 1.7 61.5 0.8 61.2 0.3 60.7 0 59.8 0.1 51.3 1 49.1 2.7 47.5 4.9 46.8 34.5 46.8 38.1 46.1 40.4 44.9 42.3 43.5 48.9 35.7 51 33.7 54.2 31.6 57.3 30 61.7 28.7 64.3 28.3 81.8 28.2 82 27.8 82.1 19.1 82.5 18.1Z";
+
+export const webFaviconSvg = String.raw`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <rect width="128" height="128" rx="28" fill="#202936" />
+  <path fill="#fff" transform="translate(12.1 33.25)" d="${logoPath}" />
+</svg>
+`;
+
 export const webHtml = String.raw`<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Sessions · sesh-integrator</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/app.css" />
     <script src="/app.js" defer></script>
   </head>
   <body>
     <a id="skip" class="skip" href="#sessions">Skip to sessions</a>
     <header>
-      <a class="brand" href="/">sesh<span> / </span>integrator</a>
+      <a class="brand" href="/"
+        ><svg class="brand-mark" viewBox="0 0 103.8 61.5" fill="currentColor" aria-hidden="true">
+          <path d="${logoPath}" /></svg
+        >sesh<span> / </span>integrator</a
+      >
       <div class="header-actions">
         <span id="connection" role="status" tabindex="0" title="Connecting…">
           <!-- Artwork: user-supplied satellite-radar-svgrepo-com.svg (SVG Repo). -->
@@ -199,6 +215,20 @@ export const webHtml = String.raw`<!doctype html>
           <div class="page-title">
             <h1 id="settings-title">Settings</h1>
           </div>
+          <button
+            id="settings-history-button"
+            class="page-action"
+            type="button"
+            aria-haspopup="dialog"
+            aria-controls="history-dialog"
+            title="Earlier versions of config.json"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M3 12a9 9 0 1 0 2.6-6.4L3 8" />
+              <path d="M3 3v5h5" />
+              <path d="M12 7v5l3 2" /></svg
+            >History
+          </button>
         </div>
         <p id="settings-source" class="settings-source"></p>
         <div class="tabs" role="tablist" aria-label="Settings scope">
@@ -230,7 +260,17 @@ export const webHtml = String.raw`<!doctype html>
             aria-controls="panel-json"
             tabindex="-1"
           >
-            JSON
+            JSON</button
+          ><button
+            id="tab-history"
+            class="tab"
+            role="tab"
+            type="button"
+            aria-selected="false"
+            aria-controls="panel-history"
+            tabindex="-1"
+          >
+            History
           </button>
         </div>
         <div id="settings-error" class="settings-error" role="alert" hidden></div>
@@ -255,6 +295,14 @@ export const webHtml = String.raw`<!doctype html>
           class="settings-panel json-panel"
           role="tabpanel"
           aria-labelledby="tab-json"
+          tabindex="-1"
+          hidden
+        ></section>
+        <section
+          id="panel-history"
+          class="settings-panel"
+          role="tabpanel"
+          aria-labelledby="tab-history"
           tabindex="-1"
           hidden
         ></section>
@@ -292,6 +340,7 @@ export const webHtml = String.raw`<!doctype html>
           values they loaded. The current file is kept in History, so you can
           restore it.
         </p>
+        <p id="json-confirm-context" class="context" hidden></p>
         <p id="json-confirm-warning" class="warning" hidden></p>
         <ul id="json-confirm-changes" class="change-list"></ul>
         <pre id="json-confirm-diff" class="diff" tabindex="0"></pre>
@@ -302,6 +351,17 @@ export const webHtml = String.raw`<!doctype html>
           </button>
         </div>
       </form>
+    </dialog>
+    <dialog
+      id="history-dialog"
+      class="wide-dialog"
+      aria-labelledby="history-dialog-title"
+    >
+      <h2 id="history-dialog-title">History</h2>
+      <div id="history-dialog-body" class="history-body" tabindex="-1"></div>
+      <div class="form-actions">
+        <button id="history-dialog-close" type="button">Close</button>
+      </div>
     </dialog>
   </body>
 </html>
@@ -459,6 +519,9 @@ header {
   border-bottom: 1px solid var(--line);
 }
 .brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
   text-decoration: none;
   color: var(--ink);
   font-size: 18px;
@@ -469,6 +532,11 @@ header {
 .brand span {
   color: var(--muted);
   font-weight: 400;
+}
+.brand-mark {
+  width: 38px;
+  height: auto;
+  flex-shrink: 0;
 }
 .header-actions {
   margin-left: auto;
@@ -816,6 +884,96 @@ html.page-hidden #connection.connected .signal {
 .repository-picker {
   margin-top: 0;
 }
+/* Suggestion fields: a text input with a filtered list below it. */
+.combobox {
+  position: relative;
+  width: min(100%, 440px);
+}
+.setting .combobox input {
+  width: 100%;
+}
+.combobox-list {
+  position: absolute;
+  z-index: 5;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 260px;
+  margin: 0;
+  padding: 4px;
+  overflow-y: auto;
+  list-style: none;
+  border: var(--control-border-width) solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 16%);
+}
+.combobox-list [role="option"] {
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 7px 9px;
+  border-radius: 5px;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.combobox-list [role="option"]:hover {
+  background: var(--hover);
+}
+.combobox-list [role="option"][aria-selected="true"] {
+  background: var(--selected);
+  outline: 1px solid var(--accent);
+}
+.combobox-list .option-detail {
+  flex: none;
+  max-width: 55%;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: right;
+}
+.combobox-list .create {
+  font-style: italic;
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  width: min(100%, 440px);
+}
+.chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 2px 2px 9px;
+  border: var(--control-border-width) solid var(--line);
+  border-radius: 999px;
+  background: var(--code);
+  font-size: 13px;
+}
+.chip .chip-remove {
+  min-height: 0;
+  padding: 1px 7px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  line-height: 1.2;
+}
+.chips .combobox {
+  flex: 1 1 180px;
+}
+.setting .field-warning {
+  color: var(--warning);
+  font-weight: 550;
+}
 .settings-facts {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
@@ -892,6 +1050,26 @@ html.page-hidden #connection.connected .signal {
 .settings-group .group-action {
   margin: 12px 0 18px;
 }
+.page-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+.page-action svg {
+  width: 16px;
+  height: 16px;
+}
+.history-body:focus {
+  outline: none;
+}
+.history-status:empty {
+  display: none;
+}
+.history-status {
+  display: block;
+  margin: 12px 0 0;
+}
 .history-list {
   margin: 14px 0 18px;
   padding: 0;
@@ -950,6 +1128,10 @@ pre.diff,
 }
 dialog.wide-dialog {
   width: min(900px, calc(100vw - 32px));
+}
+dialog .context {
+  color: var(--ink);
+  font-weight: 600;
 }
 dialog .warning {
   color: var(--warning);
@@ -1077,13 +1259,63 @@ main > * {
 .detail {
   min-width: 0;
   min-height: 0;
-  overflow: auto;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--surface);
 }
 .session-list {
+  overflow: auto;
   container-type: inline-size;
+}
+/* The detail frame stays put and only its body scrolls, so the scrollbar
+   starts below the heading instead of running up into the top corner. */
+.detail {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+/* Pane scrollbars stop short of the rounded corners (9px inner radius), and
+   the session list track starts below its sticky header (9px + 16px + 9px
+   plus a 1px rule). Chromium ignores ::-webkit-scrollbar while
+   scrollbar-width or scrollbar-color is set, so these panes reset both;
+   other browsers keep the global thin scrollbar. */
+@supports selector(::-webkit-scrollbar) {
+  .session-list,
+  .detail-body {
+    scrollbar-color: auto;
+    scrollbar-width: auto;
+  }
+  .session-list::-webkit-scrollbar,
+  .detail-body::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  .session-list::-webkit-scrollbar-track,
+  .detail-body::-webkit-scrollbar-track,
+  .session-list::-webkit-scrollbar-corner,
+  .detail-body::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+  .session-list::-webkit-scrollbar-track:vertical {
+    margin: 35px 0 9px;
+  }
+  .session-list::-webkit-scrollbar-track:horizontal {
+    margin: 0 9px;
+  }
+  .detail-body::-webkit-scrollbar-track:vertical {
+    margin: 0 0 9px;
+  }
+  .session-list::-webkit-scrollbar-thumb,
+  .detail-body::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: 999px;
+    background: var(--line);
+    background-clip: padding-box;
+  }
+  .session-list::-webkit-scrollbar-thumb:hover,
+  .detail-body::-webkit-scrollbar-thumb:hover {
+    background-color: var(--muted);
+  }
 }
 .session-table {
   width: 100%;
@@ -1220,6 +1452,9 @@ main > * {
   border-bottom: 1px solid var(--line);
 }
 .detail-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   padding: 24px;
 }
 .detail-body h2 {
@@ -1520,6 +1755,9 @@ dialog p {
   .brand {
     font-size: 16px;
   }
+  .brand-mark {
+    width: 32px;
+  }
   .workspace {
     display: flex;
     flex-direction: column;
@@ -1598,7 +1836,7 @@ dialog p {
     display: none;
   }
   .split.show-detail .detail {
-    display: block;
+    display: flex;
   }
   .back {
     display: block;
@@ -2096,7 +2334,7 @@ function renderDetail(r) {
   const key = JSON.stringify([r, !!state.job?.running]);
   if (detailKey === key) return;
   const oldId = pane.dataset.session,
-    scroll = pane.scrollTop,
+    scroll = body.scrollTop,
     focus = document.activeElement?.dataset.control,
     expanded = pane.querySelector("details")?.open;
   detailKey = key;
@@ -2211,7 +2449,7 @@ function renderDetail(r) {
     el("pre", r.details.join("\n"), "record"),
   );
   body.append(details);
-  pane.scrollTop = oldId === r.id ? scroll : 0;
+  body.scrollTop = oldId === r.id ? scroll : 0;
   if (focus && oldId === r.id)
     pane.querySelector('[data-control="' + focus + '"]')?.focus();
 }
@@ -2335,16 +2573,25 @@ $("action-form").onsubmit = async (event) => {
     $("submit").disabled = false;
   }
 };
-// Settings view: Global and Repository tabs edit the central config.json.
+// Settings view: Global, Repository and JSON tabs edit the central
+// config.json; History lists and restores its earlier versions.
 let settingsOpen = false,
   settingsTab = "global",
   settingsRepository = "",
   settingsData = null,
   settingsJson = null,
   settingsHistory = null,
+  settingsHistoryStatus = ["", ""],
+  settingsLoaded = false,
   settingsFetching = false,
-  settingsAgain = false;
-const settingsTabs = ["global", "repository", "json"];
+  settingsAgain = false,
+  historyBusy = false;
+const settingsTabs = ["global", "repository", "json", "history"];
+const settingsTabNames = {
+  global: "Global",
+  repository: "Repository",
+  json: "JSON",
+};
 const settingsForms = { global: null, repository: null, json: null };
 try {
   const saved = localStorage.getItem("sesh-settings-tab");
@@ -2375,9 +2622,11 @@ function showSettingsView(open) {
 }
 function openSettings() {
   if (repository) settingsRepository = repository;
+  setHistoryStatus("");
   showSettingsView(true);
   renderSettings();
   void loadSettings();
+  void loadSettingsSuggestions();
   $("tab-" + settingsTab).focus();
 }
 function closeSettings() {
@@ -2449,6 +2698,7 @@ async function loadSettings() {
     if (raw.status === "fulfilled") settingsJson = raw.value;
     // History is optional: the editor still works without it.
     settingsHistory = history.status === "fulfilled" ? history.value : null;
+    settingsLoaded = true;
     const failed = [view, raw].find((r) => r.status === "rejected");
     $("settings-error").textContent = failed
       ? "Could not load settings: " +
@@ -2476,12 +2726,11 @@ function renderSettings() {
       source.configPath +
       (source.exists ? "" : " · created when you first save")
     : "Loading settings…";
-  if (settingsJson) {
+  if (settingsJson)
     renderSettingsForm("json", settingsJson.revision, () =>
       jsonSettingsForm(settingsJson),
     );
-    renderSettingsHistory();
-  }
+  renderSettingsHistory();
   if (!data) return;
   if (!data.repositories.some((r) => r.path === settingsRepository))
     settingsRepository = data.repositories[0]?.path || "";
@@ -2553,16 +2802,361 @@ function settingField(parent, o) {
   if (o.track === false) input.dataset.track = "false";
   const label = el("label", o.label);
   label.htmlFor = id;
-  wrap.append(...(check ? [input, label] : [label, input]));
+  const box = o.suggest ? el("div", undefined, "combobox") : null;
+  box?.append(input);
+  wrap.append(...(check ? [input, label] : [label, box || input]));
   if (o.hint) {
     const hint = el("p", o.hint, "hint");
     hint.id = id + "-hint";
     input.setAttribute("aria-describedby", hint.id);
     wrap.append(hint);
   }
+  if (box) attachCombobox(wrap, box, input, o.suggest);
   parent.append(wrap);
   return input;
 }
+// Suggestion fields. The typed text is always the value: suggestions only
+// fill it in, so every field still works when none could be loaded.
+let settingsSuggestions = null,
+  suggestionsRequest = 0,
+  comboboxes = [];
+async function loadSettingsSuggestions() {
+  const request = ++suggestionsRequest;
+  let result = null;
+  try {
+    result = await getJson("/api/settings/suggestions");
+  } catch {}
+  if (request !== suggestionsRequest) return;
+  settingsSuggestions = result;
+  comboboxes = comboboxes.filter((c) => c.input.isConnected !== false);
+  for (const c of comboboxes) c.refresh();
+}
+/** Options whose value or label contains the query, prefix matches first. */
+function matchOptions(options, query) {
+  const q = query.trim().toLowerCase();
+  if (!q) return options;
+  const text = (o) => (o.value + " " + (o.label || "")).toLowerCase();
+  const found = options.filter((o) => text(o).includes(q));
+  return [
+    ...found.filter((o) => o.value.toLowerCase().startsWith(q)),
+    ...found.filter((o) => !o.value.toLowerCase().startsWith(q)),
+  ];
+}
+/**
+ * Make input an ARIA combobox: typing filters, arrow keys move, Enter picks,
+ * Escape closes. s.options() lists { value, label?, detail? }; s.create(text)
+ * may add an option for a typed value with no exact match; s.pick replaces
+ * filling in the input; s.warning(value) describes a problem with a value.
+ */
+function attachCombobox(wrap, box, input, s) {
+  const list = el("ul", undefined, "combobox-list");
+  list.id = input.id + "-options";
+  list.setAttribute("role", "listbox");
+  list.setAttribute("aria-label", "Suggestions");
+  list.hidden = true;
+  box.append(list);
+  input.setAttribute("role", "combobox");
+  input.setAttribute("aria-autocomplete", "list");
+  input.setAttribute("aria-expanded", "false");
+  input.setAttribute("aria-controls", list.id);
+  let shown = [],
+    active = -1,
+    filtering = false,
+    warning = null;
+  if (s.warning) {
+    warning = el("p", "", "hint field-warning");
+    warning.id = input.id + "-warning";
+    warning.hidden = true;
+    warning.setAttribute("aria-live", "polite");
+    wrap.append(warning);
+    const described = input.getAttribute("aria-describedby");
+    input.setAttribute(
+      "aria-describedby",
+      (described ? described + " " : "") + warning.id,
+    );
+  }
+  const warn = (clearOnly) => {
+    if (!warning) return;
+    const text = s.warning(input.value.trim()) || "";
+    if (clearOnly && text) return;
+    warning.textContent = text;
+    warning.hidden = !text;
+  };
+  const close = () => {
+    list.hidden = true;
+    list.replaceChildren();
+    shown = [];
+    active = -1;
+    input.setAttribute("aria-expanded", "false");
+    input.removeAttribute("aria-activedescendant");
+  };
+  const highlight = (index) => {
+    active = index;
+    Array.from(list.children).forEach((item, i) =>
+      item.setAttribute("aria-selected", String(i === index)),
+    );
+    const item = list.children[index];
+    if (!item) return input.removeAttribute("aria-activedescendant");
+    input.setAttribute("aria-activedescendant", item.id);
+    item.scrollIntoView({ block: "nearest" });
+  };
+  const choose = (index) => {
+    const option = shown[index];
+    close();
+    if (!option) return;
+    if (s.pick) s.pick(option.value);
+    else {
+      input.value = option.value;
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+  };
+  const open = (filter) => {
+    filtering = filter;
+    const text = input.value.trim(),
+      options = s.options();
+    shown = filter ? matchOptions(options, text) : options.slice();
+    const extra =
+      filter && text && !options.some((o) => o.value === text)
+        ? s.create?.(text)
+        : null;
+    if (extra) shown.push({ ...extra, create: true });
+    shown = shown.slice(0, 100);
+    if (!shown.length) return close();
+    list.replaceChildren(
+      ...shown.map((option, i) => {
+        const item = el("li", undefined, option.create ? "create" : undefined);
+        item.id = list.id + "-" + i;
+        item.setAttribute("role", "option");
+        item.setAttribute("aria-selected", "false");
+        item.append(el("span", option.label || option.value));
+        if (option.detail) {
+          item.append(el("span", option.detail, "option-detail"));
+          item.setAttribute(
+            "aria-label",
+            (option.label || option.value) + " — " + option.detail,
+          );
+        }
+        // Keep focus in the input so choosing does not blur it first.
+        item.addEventListener("mousedown", (event) => event.preventDefault());
+        item.addEventListener("click", () => choose(i));
+        return item;
+      }),
+    );
+    active = -1;
+    list.hidden = false;
+    input.setAttribute("aria-expanded", "true");
+    input.removeAttribute("aria-activedescendant");
+  };
+  input.addEventListener("input", () => {
+    open(true);
+    warn(true);
+  });
+  input.addEventListener("change", () => warn(false));
+  input.addEventListener("click", () => (list.hidden ? open(false) : close()));
+  input.addEventListener("blur", close);
+  input.addEventListener("keydown", (event) => {
+    const expanded = !list.hidden;
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      if (!expanded) {
+        open(false);
+        if (event.altKey) return;
+      }
+      const n = shown.length;
+      if (!n) return;
+      highlight(
+        event.key === "ArrowDown"
+          ? (active + 1) % n
+          : active <= 0
+            ? n - 1
+            : active - 1,
+      );
+    } else if (event.key === "Enter" && expanded && active >= 0) {
+      event.preventDefault();
+      choose(active);
+    } else if (event.key === "Escape" && expanded) {
+      event.preventDefault();
+      event.stopPropagation();
+      close();
+    } else if (event.key === "Tab" || event.key === "Enter") close();
+  });
+  const refresh = () => {
+    if (!list.hidden) open(filtering);
+    warn(false);
+  };
+  comboboxes.push({ input, refresh });
+  warn(false);
+  input.refreshSuggestions = refresh;
+  return refresh;
+}
+/**
+ * A list of names entered as removable chips. Enter, a comma or a space adds
+ * the typed name; Backspace in the empty input removes the last one.
+ */
+function chipField(parent, o) {
+  const id = "setting-" + o.name,
+    wrap = el("div", undefined, "setting"),
+    label = el("label", o.label),
+    chips = el("div", undefined, "chips"),
+    list = el("ul", undefined, "chip-list"),
+    box = el("div", undefined, "combobox"),
+    input = el("input");
+  label.htmlFor = id;
+  input.id = id;
+  input.name = o.name;
+  input.type = "text";
+  input.autocomplete = "off";
+  input.spellcheck = false;
+  list.setAttribute("aria-label", o.label);
+  box.append(input);
+  chips.append(list, box);
+  wrap.append(label, chips);
+  if (o.hint) {
+    const hint = el("p", o.hint, "hint");
+    hint.id = id + "-hint";
+    input.setAttribute("aria-describedby", hint.id);
+    wrap.append(hint);
+  }
+  let names = [...(o.value || [])];
+  const render = () => {
+    list.replaceChildren(
+      ...names.map((name) => {
+        const item = el("li", undefined, "chip"),
+          remove = button(
+            "×",
+            () => {
+              names = names.filter((n) => n !== name);
+              changed();
+              input.focus();
+            },
+            "chip-remove",
+          );
+        remove.setAttribute("aria-label", "Remove " + o.noun + " " + name);
+        item.append(el("span", name), remove);
+        return item;
+      }),
+    );
+    list.hidden = !names.length;
+    input.placeholder = names.length ? "" : o.placeholder || "";
+  };
+  const changed = () => {
+    render();
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  };
+  const add = (text) => {
+    const before = names.length;
+    for (const name of parseList(text))
+      if (!names.some((n) => n.toLowerCase() === name.toLowerCase()))
+        names.push(name);
+    if (names.length !== before) changed();
+  };
+  const commit = () => {
+    const text = input.value;
+    input.value = "";
+    add(text);
+  };
+  // Runs before the combobox filters: a comma or space ends a name, so a
+  // pasted list becomes one chip per name.
+  input.addEventListener("input", () => {
+    const match = /^([\s\S]*)[\s,]([^\s,]*)$/.exec(input.value);
+    if (!match) return;
+    input.value = match[2];
+    add(match[1]);
+  });
+  attachCombobox(wrap, box, input, {
+    options: () =>
+      o.options().filter((option) => !names.includes(option.value)),
+    pick: (value) => {
+      input.value = "";
+      add(value);
+    },
+  });
+  input.addEventListener("keydown", (event) => {
+    if (event.defaultPrevented) return;
+    if (event.key === "Enter" && input.value.trim()) {
+      event.preventDefault();
+      commit();
+    } else if (event.key === "Backspace" && !input.value && names.length) {
+      event.preventDefault();
+      names.pop();
+      changed();
+    }
+  });
+  input.addEventListener("change", () => {
+    if (input.value.trim()) commit();
+  });
+  chips.addEventListener("click", (event) => {
+    if (event.target === chips || event.target === list) input.focus();
+  });
+  render();
+  parent.append(wrap);
+  return { input, values: () => [...names, ...parseList(input.value)] };
+}
+const plural = (n, word) => n + " " + word + (n === 1 ? "" : "s");
+const repositorySuggestion = (path) =>
+  settingsSuggestions?.repositories.find((r) => r.path === path);
+/** Branches across registered repositories, most widely present first. */
+function globalBranchOptions() {
+  const repos = settingsSuggestions?.repositories || [],
+    counts = new Map();
+  for (const r of repos)
+    for (const name of r.branches) counts.set(name, (counts.get(name) || 0) + 1);
+  return [...counts]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([value, n]) => ({
+      value,
+      detail: n + " of " + plural(repos.length, "repo"),
+    }));
+}
+/** One repository's branches, plus extra names such as remote branches. */
+function branchOptions(path, details = {}, extra = () => []) {
+  const r = repositorySuggestion(path);
+  return r
+    ? [...new Set([...r.branches, ...extra(r)])]
+        .sort((a, b) => a.localeCompare(b))
+        .map((value) => ({ value, detail: details[value] }))
+    : [];
+}
+const newBranch = (text) => ({
+  value: text,
+  label: 'Use new branch "' + text + '"',
+});
+/** Warning for a branch missing from some repositories; "" when none are. */
+function missingBranchWarning(name, paths, extra = () => [], which = "") {
+  if (!name || !settingsSuggestions) return "";
+  const missing = [],
+    unknown = [];
+  for (const path of paths) {
+    const r = repositorySuggestion(path);
+    if (!r) continue;
+    if (r.error) unknown.push(r.name);
+    else if (![...r.branches, ...extra(r)].includes(name)) missing.push(r.name);
+  }
+  return (
+    (missing.length
+      ? 'No branch "' +
+        name +
+        '" in ' +
+        missing.join(", ") +
+        which +
+        ". Saving does not create it; create it there before integrating. "
+      : "") +
+    (unknown.length
+      ? "Could not list branches in " + unknown.join(", ") + "."
+      : "")
+  ).trim();
+}
+/** Detected programs as suggestions: each name, then every path found. */
+function programOptions(programs) {
+  return (programs || []).flatMap((p) => [
+    { value: p.name, detail: p.paths[0] },
+    ...p.paths.map((path) => ({ value: path })),
+  ]);
+}
+const participantOptions = (teams) =>
+  (settingsSuggestions?.participants || [])
+    .filter((name) => teams || !name.includes("/"))
+    .map((value) => ({ value }));
 function settingsFacts(parent, entries) {
   const dl = el("dl", undefined, "settings-facts");
   for (const [term, value] of entries) {
@@ -2626,6 +3220,7 @@ async function submitSettings(form, request) {
     renderSettings();
     setSettingsStatus(settingsForms[request.scope], "Saved", "saved");
     $("panel-" + request.scope).focus({ preventScroll: true });
+    void loadSettingsSuggestions();
     void refresh();
   } catch (error) {
     setSettingsStatus(form, error.message, "error");
@@ -2641,26 +3236,45 @@ function globalSettingsForm(data) {
     "Branches and pull requests",
     "Defaults for every registered repository. A repository's own setting takes precedence.",
   );
+  // Repositories without their own target branch use this default.
+  const inheriting = data.repositories
+    .filter((r) => !r.targetBranch)
+    .map((r) => r.path);
   const target = settingField(group, {
     name: "global-target",
     label: "Default target branch",
     value: g.defaultTargetBranch,
     placeholder: "Each repository's default branch",
     hint: "Validated work is promoted here, for example dev. Leave empty to promote to each repository's default branch.",
+    suggest: {
+      options: globalBranchOptions,
+      create: (text) => (settingsSuggestions ? newBranch(text) : null),
+      warning: (name) =>
+        missingBranchWarning(
+          name,
+          inheriting,
+          undefined,
+          ", which use this default",
+        ),
+    },
   });
-  const reviewers = settingField(group, {
+  const reviewers = chipField(group, {
     name: "global-reviewers",
     label: "Default reviewers",
-    value: listText(g.reviewers),
+    noun: "reviewer",
+    value: g.reviewers,
     placeholder: "None",
-    hint: "GitHub users or teams, separated by commas. Pull-request promotion uses them when a repository lists none.",
+    hint: "GitHub users or teams. Type a name and press Enter, or choose one already used. Pull-request promotion uses them when a repository lists none.",
+    options: () => participantOptions(true),
   });
-  const assignees = settingField(group, {
+  const assignees = chipField(group, {
     name: "global-assignees",
     label: "Default assignees",
-    value: listText(g.assignees),
+    noun: "assignee",
+    value: g.assignees,
     placeholder: "None",
-    hint: "GitHub users, separated by commas.",
+    hint: "GitHub users. Type a name and press Enter, or choose one already used.",
+    options: () => participantOptions(false),
   });
   group = settingsGroup(form, "Integration");
   const wait = settingField(group, {
@@ -2706,6 +3320,10 @@ function globalSettingsForm(data) {
       value: g.harnessCommands[h.id],
       placeholder: "Default: " + h.defaultCommand,
       hint: "Leave empty to use " + h.defaultCommand + ".",
+      suggest: {
+        options: () =>
+          programOptions(settingsSuggestions?.programs.harnesses[h.id]),
+      },
     }),
   ]);
   settingsActions(form, "global");
@@ -2717,8 +3335,8 @@ function globalSettingsForm(data) {
         defaultTargetBranch: target.value.trim(),
         lockWaitSeconds: Number(wait.value),
         conflictResolutionMode: conflicts.value,
-        reviewers: parseList(reviewers.value),
-        assignees: parseList(assignees.value),
+        reviewers: reviewers.values(),
+        assignees: assignees.values(),
         deliveryPolicyFile: policy.value.trim(),
         harnessCommands: Object.fromEntries(
           commands.map(([id, input]) => [id, input.value.trim()]),
@@ -2788,7 +3406,15 @@ function repositorySettingsForm(data, r) {
     value: r.gpgProgram,
     placeholder: "Git's gpg.program setting",
     hint: "Program Git uses to sign this repository's commits and merges, for example /usr/bin/gpg. Leave empty to use Git's own setting.",
+    suggest: {
+      options: () => programOptions(settingsSuggestions?.programs.signing),
+    },
   });
+  const listed = () => {
+    const s = repositorySuggestion(r.path);
+    return s && !s.error ? s : null;
+  };
+  const defaultBranch = { [r.defaultBranch]: "default branch" };
   group = settingsGroup(form, "Target and promotion");
   const target = settingField(group, {
     name: "repo-target",
@@ -2796,6 +3422,11 @@ function repositorySettingsForm(data, r) {
     value: r.targetBranch,
     placeholder: "Inherit: " + r.inheritedTargetBranch,
     hint: "Leave empty to inherit the global default target branch.",
+    suggest: {
+      options: () => branchOptions(r.path, defaultBranch),
+      create: (text) => (listed() ? newBranch(text) : null),
+      warning: (name) => missingBranchWarning(name, [r.path]),
+    },
   });
   const p = r.promotion;
   const type = settingField(group, {
@@ -2818,39 +3449,63 @@ function repositorySettingsForm(data, r) {
     ],
     value: p.mode,
   });
+  // The pull-request base can exist only on the remote.
+  let remote;
+  const remoteBranches = (s) =>
+    s.remoteBranches[remote?.value.trim() || "origin"] || [];
   const production = settingField(pullRequest, {
     name: "repo-production",
     label: "Production branch",
     value: p.productionBranch,
     placeholder: r.defaultBranch,
     hint: "Pull requests merge into this branch. Leave empty to use " + r.defaultBranch + ".",
+    suggest: {
+      options: () => branchOptions(r.path, defaultBranch, remoteBranches),
+      create: (text) => (listed() ? newBranch(text) : null),
+      warning: (name) => missingBranchWarning(name, [r.path], remoteBranches),
+    },
   });
-  const remote = settingField(pullRequest, {
+  remote = settingField(pullRequest, {
     name: "repo-remote",
     label: "Remote",
     value: p.remote,
     placeholder: "origin",
     hint: "Leave empty to use origin.",
+    suggest: {
+      options: () => (listed()?.remotes || []).map((value) => ({ value })),
+      warning: (name) => {
+        const s = listed();
+        return name && s && !s.remotes.includes(name)
+          ? 'No remote "' + name + '" in ' + s.name + ". Add it with git remote add before promoting."
+          : "";
+      },
+    },
   });
+  remote.addEventListener("change", () => production.refreshSuggestions());
+  production.refreshSuggestions();
   const inherited = (own, global) =>
     own && !own.length
       ? "None"
       : global.length
         ? "Inherit: " + listText(global)
         : "None";
-  const reviewers = settingField(pullRequest, {
+  const reviewers = chipField(pullRequest, {
     name: "repo-reviewers",
     label: "Reviewers",
-    value: listText(p.reviewers),
+    noun: "reviewer",
+    value: p.reviewers,
     placeholder: inherited(p.reviewers, data.global.reviewers),
-    hint: "Separate with commas. Leave empty to use the global default reviewers.",
+    hint: "Type a name and press Enter, or choose one already used. Leave empty to use the global default reviewers.",
+    options: () => participantOptions(true),
   });
-  const assignees = settingField(pullRequest, {
+  const assignees = chipField(pullRequest, {
     name: "repo-assignees",
     label: "Assignees",
-    value: listText(p.assignees),
+    noun: "assignee",
+    value: p.assignees,
     placeholder: inherited(p.assignees, data.global.assignees),
-    hint: "Separate with commas. Leave empty to use the global default assignees.",
+    hint: "Type a name and press Enter, or choose one already used. Leave empty to use the global default assignees.",
+    options: () => participantOptions(false),
   });
   const syncPromotion = () => {
     pullRequest.hidden = type.value !== "pull-request";
@@ -2925,8 +3580,8 @@ function repositorySettingsForm(data, r) {
     );
   }
   settingsActions(form, "repository");
-  const list = (input, original) => {
-    const names = parseList(input.value);
+  const list = (field, original) => {
+    const names = field.values();
     return names.length
       ? names
       : Array.isArray(original) && !original.length
@@ -2981,7 +3636,7 @@ function jsonSettingsForm(raw) {
   const group = settingsGroup(
     form,
     "config.json",
-    "Edit the whole configuration, including commands and validation tiers. Saving runs the checks the CLI applies when it loads the file.",
+    "Edit the whole configuration, including commands and validation tiers. Saving runs the checks the CLI applies when it loads the file. Earlier versions are in History.",
   );
   const editor = settingField(group, {
     name: "json-text",
@@ -3040,54 +3695,61 @@ function jsonSettingsForm(raw) {
     if (!(await confirmJsonSave(raw.text, text))) return editor.focus();
     void submitSettings(form, { scope: "json", text });
   };
-  // History renders into its own slot so a new entry never resets the editor.
-  form.historySlot = el("div");
-  form.append(form.historySlot);
-  form.restoreSnapshot = (snapshot) => {
-    if (
-      form.dataset.dirty === "true" &&
-      !confirm("Replace your unsaved edits with this earlier version?")
-    )
-      return;
-    editor.value = snapshot.text;
-    parse();
-    changed({ target: editor });
-    setSettingsStatus(
-      form,
-      "Loaded the version replaced " +
-        time(snapshot.replacedAt) +
-        ". Review it, then choose Save changes.",
-    );
-    editor.focus({ preventScroll: true });
-    editor.setSelectionRange(0, 0);
-    editor.scrollTop = 0;
-    editor.scrollIntoView({ block: "nearest" });
-  };
   return form;
 }
+// History renders into the History tab and the header's History dialog. Each
+// view is rebuilt only when the file or its versions change, so an open
+// comparison survives unrelated refreshes.
+const historySlots = () => [$("panel-history"), $("history-dialog-body")];
+function setHistoryStatus(text, kind) {
+  settingsHistoryStatus = [text, kind || ""];
+  for (const slot of historySlots())
+    if (slot.statusNode) {
+      slot.statusNode.textContent = text;
+      slot.statusNode.className =
+        "settings-status history-status" + (kind ? " " + kind : "");
+    }
+  if (text) $("settings-live").textContent = text;
+}
 function renderSettingsHistory() {
-  const form = settingsForms.json,
-    history = settingsHistory;
-  if (!form?.historySlot) return;
-  const key =
-    settingsJson.revision +
-    "\n" +
-    (history ? history.entries.map((e) => e.id).join(",") : "unavailable");
-  if (form.historySlot.dataset.key === key) return;
-  form.historySlot.dataset.key = key;
-  form.historySlot.replaceChildren();
-  const group = settingsGroup(
-    form.historySlot,
-    "History",
-    history
+  const history = settingsHistory,
+    current = settingsJson;
+  const key = !settingsLoaded
+    ? "loading"
+    : history && current
+      ? current.revision + "\n" + history.entries.map((e) => e.id).join(",")
+      : "unavailable";
+  for (const slot of historySlots()) {
+    if (slot.dataset.key === key) continue;
+    slot.dataset.key = key;
+    slot.replaceChildren();
+    historyView(slot, slot.id === "panel-history");
+  }
+}
+function historyView(slot, framed) {
+  const history = settingsHistory,
+    ready = settingsLoaded && history && settingsJson;
+  const text = !settingsLoaded
+    ? "Loading history…"
+    : ready
       ? "Earlier versions of config.json, kept each time the CLI or this dashboard changes it. The newest " +
-          history.limit +
-          " are kept. Restore loads a version into the editor; nothing changes until you save."
-      : "History is unavailable. Reload settings to try again.",
-  );
-  if (!history) return;
+        history.limit +
+        " are kept. Restore shows the changes and saves only after you confirm; the version it replaces is kept here too."
+      : "History is unavailable. Close and reopen Settings to try again.";
+  let parent = slot;
+  if (framed) parent = settingsGroup(slot, "Earlier versions", text);
+  else slot.append(el("p", text));
+  const [message, kind] = settingsHistoryStatus,
+    status = el(
+      "p",
+      message,
+      "settings-status history-status" + (kind ? " " + kind : ""),
+    );
+  slot.statusNode = status;
+  parent.append(status);
+  if (!ready) return;
   if (!history.entries.length) {
-    group.append(el("p", "No earlier versions yet.", "hint group-action"));
+    parent.append(el("p", "No earlier versions yet.", "hint group-action"));
     return;
   }
   const list = el("ul", undefined, "history-list");
@@ -3114,25 +3776,76 @@ function renderSettingsHistory() {
         compare.textContent = "Hide comparison";
         compare.setAttribute("aria-expanded", "true");
       } catch (error) {
-        setSettingsStatus(form, error.message, "error");
+        setHistoryStatus(error.message, "error");
       }
     });
     compare.setAttribute("aria-expanded", "false");
-    const load = button("Restore", async () => {
-      try {
-        form.restoreSnapshot(
-          await getJson("/api/settings/history/" + entry.id),
-        );
-      } catch (error) {
-        setSettingsStatus(form, error.message, "error");
-      }
-    });
-    row.append(label, compare, load);
+    const restore = button("Restore", () => void restoreHistoryEntry(entry));
+    row.append(label, compare, restore);
     li.append(row);
     list.append(li);
   }
-  group.append(list);
+  parent.append(list);
 }
+/**
+ * Save an earlier version through the Save config.json? confirmation. The
+ * JSON editor and other tabs keep any unsaved edits; they are never replaced.
+ */
+async function restoreHistoryEntry(entry) {
+  const current = settingsJson;
+  if (historyBusy || !current) return;
+  historyBusy = true;
+  try {
+    const snapshot = await getJson("/api/settings/history/" + entry.id);
+    const dirty = settingsTabs
+      .filter((tab) => settingsForms[tab]?.dataset.dirty === "true")
+      .map((tab) => settingsTabNames[tab]);
+    const context =
+      "Restores the version replaced " +
+      time(entry.replacedAt) +
+      " by " +
+      entry.source +
+      "." +
+      (dirty.length
+        ? " Your unsaved changes in the " +
+          dirty.join(" and ") +
+          (dirty.length === 1 ? " tab are" : " tabs are") +
+          " kept but will be out of date: copy anything you need, then choose Discard changes there before saving."
+        : "");
+    if (!(await confirmJsonSave(current.text, snapshot.text, context))) return;
+    setHistoryStatus("Restoring…");
+    const res = await fetch("/api/settings/json", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Sesh-Dashboard": "1" },
+      body: JSON.stringify({ text: snapshot.text, revision: current.revision }),
+    });
+    const result = await res.json();
+    if (!res.ok) throw Error(result.error);
+    settingsJson = result;
+    setHistoryStatus(
+      "Restored the version replaced " +
+        time(entry.replacedAt) +
+        ". The version it replaced is now in History.",
+      "saved",
+    );
+    renderSettings();
+    // The list was rebuilt, so move focus from the removed Restore button.
+    $(
+      $("history-dialog").open ? "history-dialog-body" : "panel-history",
+    ).focus({ preventScroll: true });
+    void refresh();
+  } catch (error) {
+    setHistoryStatus(error.message, "error");
+  } finally {
+    historyBusy = false;
+  }
+}
+$("settings-history-button").onclick = () => {
+  renderSettingsHistory();
+  $("history-dialog").showModal();
+  $("history-dialog-body").focus();
+};
+$("history-dialog-close").onclick = () => $("history-dialog").close();
 /** Line-level edit script from LCS; null when too large to compare here. */
 function diffLines(before, after) {
   const a = before.split("\n"),
@@ -3268,10 +3981,12 @@ function configChanges(before, after) {
   return { changes, programs };
 }
 let jsonConfirmDone = null;
-function confirmJsonSave(before, after) {
+function confirmJsonSave(before, after, context = "") {
   const summary = configChanges(before, after),
     list = $("json-confirm-changes"),
     warning = $("json-confirm-warning");
+  $("json-confirm-context").textContent = context;
+  $("json-confirm-context").hidden = !context;
   list.replaceChildren(
     ...(summary
       ? summary.changes.length

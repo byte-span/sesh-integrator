@@ -112,6 +112,9 @@ it("browses an absent runtime without creating state and serves offline assets",
     (await fetch(server.url + "/app.js")).headers.get("content-type"),
   ).toContain("javascript");
   expect((await fetch(server.url + "/app.css")).status).toBe(200);
+  const favicon = await fetch(server.url + "/favicon.svg");
+  expect(favicon.headers.get("content-type")).toContain("image/svg+xml");
+  expect(await favicon.text()).toContain("<path");
   expect((await fetch(server.url + "/../../config.json")).status).toBe(404);
   expect(await readdir(root)).toEqual([]);
 });
