@@ -15,11 +15,11 @@ when a single command is itself too large. This repository leaves Vitest worker 
 ## Inspect and configure
 
 ```sh
-seshx queue status
+seshx queue status                          # effective settings and entries
+seshx queue configure --concurrency auto    # resource-aware limit (default)
+seshx queue configure --concurrency 2       # fixed limit, 1–64
 seshx queue configure --concurrency unlimited
-seshx queue configure --concurrency 2
-seshx queue configure --wait-seconds 1800
-seshx queue configure --concurrency auto
+seshx queue configure --wait-seconds 1800   # time allowed without progress
 ```
 
 `seshx status` also prints the queue. Running and waiting messages identify the
@@ -27,13 +27,51 @@ session, queue position and capacity; queue status includes worktree and owner
 PID. Setup and post-checks without a session argument identify their owning CLI
 process and worktree. No command arguments or environment values are saved.
 
-The default is `unlimited`, restoring unrestricted parallel scheduling. Status,
-cancellation and orphan protection remain active. Existing explicit machine
-settings are preserved. Opt into `auto` for the smallest of four commands, half the available CPU threads,
-and one command per 4 GiB of memory after reserving 2 GiB, with a minimum of one.
-Memory uses the lower of OS total memory and Node's process constraint when
-available. This is a conservative estimate, not a guarantee against exhausting
-memory. It uses stable capacity rather than changing free-memory samples.
+### Defaults
+
+A machine without a queue `config.json` uses:
+
+- **`concurrency: auto`**: the smallest of four commands, half the available CPU
+  threads, and one command per 4 GiB of memory after reserving 2 GiB, with a
+  minimum of one. Memory uses the lower of OS total memory and Node's process
+  constraint when available. It uses stable capacity rather than changing
+  free-memory samples. This is a conservative estimate, not a guarantee against
+  exhausting memory.
+- **`waitSeconds: 900`**: the time a request may wait **without progress**.
+
+`queue status` shows the effective values, whether each is the default or a
+machine setting, and the CPU and memory figures behind `auto`.
+
+Explicit machine settings are always preserved. To restore the previous
+unrestricted scheduling, run `seshx queue configure --concurrency unlimited`.
+Status, cancellation and orphan protection stay active with `unlimited`.
+
+Earlier versions defaulted to `unlimited`. That default restored pre-queue
+speed after `auto` resolved to one slot on a 16-thread, 7.5 GiB benchmark
+machine and serialized four concurrent validations, about three times slower
+([measurements](validation-reuse-results.md)). Unrestricted scheduling also
+restores the higher peak memory use that can exhaust smaller machines, so `auto`
+is the default again for machines nobody has tuned. Admission fills every free
+slot at once, and progress-based waiting keeps a slower but moving queue from
+timing out. Where `auto` allows only one command and you have verified memory
+headroom, set a fixed limit such as `--concurrency 2`, or `unlimited`.
+
+### Waiting
+
+`waitSeconds` limits time without progress, not total wait. The deadline
+restarts whenever a running entry finishes or the request moves up the queue,
+so a busy queue that keeps moving never times out. A request fails only after
+`waitSeconds` with no running command finishing and no movement; the error
+names its position and capacity. Matching-validation reuse waits
+(`validationCache: "repository"`) are separate and remain a total wait of
+`waitSeconds`.
+
+If a running entry's owner process has exited, waiters fail at once instead of
+waiting out the deadline. The error names each orphaned entry and the exact
+`seshx queue recover <entry-id> --confirmed-stopped` command; see
+[recovery](#cancellation-and-recovery).
+
+### Settings file
 
 The machine-local `config.json` lives in the path printed by `queue status`:
 `~/.sesh-integrator/build-queue/<hostname-hash>/`. Windows resolves `~` using the
@@ -42,12 +80,19 @@ configuration, so different repositories and custom integrator runtime homes
 share the same capacity. Do not commit or sync this directory between hosts.
 
 `concurrency` accepts `unlimited`, `auto` or 1–64. `waitSeconds` accepts 1–86400 (default 900).
-Older pinned coordinators retain their original defaults and do not coalesce
-validation plans. Coordinators predating `unlimited` cannot read that explicit
-setting; finish their sessions before writing it to a shared configuration.
+`configure` writes both values, so changing only the wait records the current
+concurrency explicitly too.
 Changing capacity affects new admissions without interrupting existing work.
 Wait-time changes apply to newly queued requests. Invalid settings stop admission
 rather than disabling the queue.
+
+Older pinned coordinators keep their own defaults, waiting rules and orphan
+handling, and do not coalesce validation plans. Coordinators released while the
+default was `unlimited` keep scheduling without a limit on a machine with no
+`config.json`. To limit them too, write the setting explicitly with
+`seshx queue configure --concurrency auto`; every queue-aware coordinator reads
+it. Coordinators predating `unlimited` cannot read that explicit setting; finish
+their sessions before writing it to a shared configuration.
 
 For isolated tests or an alternative **local** location, set
 `SESH_BUILD_QUEUE_HOME` consistently for every participating process. A different
@@ -67,8 +112,8 @@ or an automatic transient retry.
 
 The admission mutex is a short-lived exclusive loopback listener. It accepts no
 requests and is closed after each queue transaction; the OS releases it on a
-crash. There is no queue daemon or installed service. Waiting is bounded by a
-deadline. A port collision or local network restriction fails closed with an
+crash. There is no queue daemon or installed service. Waiting is bounded by the
+no-progress deadline. A port collision or local network restriction fails closed with an
 error; it never admits uncounted work. Queue inspection remains available.
 
 Its port, derived from the queue path, lies in 10000–19999, below the Linux and
@@ -78,7 +123,9 @@ before this change, so they stay excluded. It skips that port only while a
 non-listening socket occupies it, which rejects their listeners too.
 
 Dead local waiting owners are safely removed on the next admission. A dead
-**running** owner may have surviving children, so its slot stays occupied and new admissions pause until recovery. Age,
+**running** owner may have surviving children, so its slot stays occupied and
+new admissions stop until recovery: each waiter fails promptly with the entry
+and its recover command rather than waiting out its deadline. Age,
 PID reuse, foreign-host records, malformed records, and permission errors never
 justify automatic release. If a PID was reused, recovery refuses until ownership
 can be established; do not kill that PID to clear the queue.

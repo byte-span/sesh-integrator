@@ -87,13 +87,13 @@ async function count() {
     .trim()
     .split("\n").length;
 }
-it("defaults to unrestricted scheduling and retains explicit limits", async () => {
+it("defaults to the resource-aware limit and retains explicit settings", async () => {
   await rm(join(queueRoot(), "config.json"));
-  expect((await queueSettings()).concurrency).toBe("unlimited");
-  await queueCommand(["configure", "--concurrency", "auto"]);
   expect((await queueSettings()).concurrency).toBe("auto");
   await queueCommand(["configure", "--concurrency", "unlimited"]);
   expect((await queueSettings()).concurrency).toBe("unlimited");
+  await queueCommand(["configure", "--concurrency", "auto"]);
+  expect((await queueSettings()).concurrency).toBe("auto");
 });
 it("coalesces concurrent matching plans only after verified cache publication", async () => {
   const results = await Promise.all(
@@ -181,11 +181,15 @@ it("blocks duplicate retry after owner crash until orphan recovery", async () =>
   await owner.done;
   const next = await launch().done;
   expect(next.code).not.toBe(0);
-  expect(next.output).toContain("orphaned owner needs recovery");
-  expect(await count()).toBe(1);
-  // The fixture workload exits after 350ms; the failed retry waited one second.
   const entries = await queueEntries();
   expect(entries).toHaveLength(1);
+  expect(next.output).toContain(
+    `seshx queue recover ${entries[0]!.id} --confirmed-stopped`,
+  );
+  expect(await count()).toBe(1);
+  // The retry fails fast; the fixture workload exits after 350ms. Confirm it
+  // stopped before recovery, as an operator would.
+  await new Promise((resolve) => setTimeout(resolve, 500));
   await queueCommand(["recover", entries[0]!.id, "--confirmed-stopped"]);
   expect((await launch().done).code).toBe(0);
   expect(await count()).toBe(2);

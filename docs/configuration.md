@@ -517,7 +517,11 @@ when an entry matched. The session's `targetBranch` is set at `begin`.
 ## Machine-local build capacity
 
 Use `seshx queue configure --concurrency <unlimited|auto|1-64>` to limit commands across
-repositories and sessions. New machines default to `unlimited`; `auto` opts into
-resource-aware throttling. Existing explicit settings are retained. Queue configuration is machine-local and independent
-of this repository configuration. See [build queue settings, recovery, and limits](build-queue.md).
+repositories and sessions. Machines without an explicit setting default to `auto`,
+a resource-aware limit; `seshx queue configure --concurrency unlimited` restores
+the earlier unrestricted default. `--wait-seconds` (default 900) limits how long a
+command waits without queue progress, not its total wait. Existing explicit
+settings are retained, and `seshx queue status` shows the effective values.
+Queue configuration is machine-local and independent of this repository
+configuration. See [build queue defaults, recovery, and limits](build-queue.md#defaults).
 Directly launched builds remain outside the queue.

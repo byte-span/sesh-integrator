@@ -60,7 +60,7 @@ the handoff between their worktrees and the branch you want to review:
 
 Integration is a one-shot CLI operation. There is no background integration daemon.
 Integrator-launched builds and checks share a [machine-local queue](docs/build-queue.md)
-with optional capacity limits (unrestricted by default). Matching validations can
+with a resource-aware capacity limit by default. Matching validations can
 share verified results when repository caching is explicitly enabled. Directly
 launched builds remain outside the queue.
 
