@@ -177,6 +177,30 @@
       "acceptance": "On 2026-10-20 five sessions ran full validation at once (before the machine had a queue setting, so concurrency was unlimited); each run took 430-817s instead of the usual 290-320s and corepack pnpm run test exited 1 on every attempt, with no preserved output to tell resource contention from a code defect. Full validation stays reliable when the build queue runs two full validations at once on a 16-core, 11 GB host: vitest worker count is bounded (for example maxWorkers derived from available CPUs divided by the effective queue concurrency, overridable by an environment variable) instead of each run using every core, and the existing 30s test and hook timeouts are reviewed against measured durations under that load. When a validation command fails, the session validationFailure and its incident keep a bounded, secret-redacted tail of that command output plus the path to a full log under the runtime logs directory, so an exit code is never the only evidence. The incident fingerprint includes the failing test names or first error line, not only the command and exit code (fingerprint f40f8da879f4 currently groups 70 unrelated pnpm test failures). The failure record notes the number of running queue entries at failure time so diagnosis can tell resource contention from a code defect. docs/build-queue.md and docs/configuration.md describe the worker bound and override, and tests cover the worker bound, output tail capture and redaction, the fingerprint change, and the queue-load note.",
       "doc": "docs/build-queue.md",
       "evidence": []
+    },
+    {
+      "id": "SI-011",
+      "title": "Batch concurrent integrations into one validated merge",
+      "status": "ready",
+      "order": 110,
+      "executor": "automated",
+      "device_requirement": [],
+      "blocked_by": [],
+      "acceptance": "Integration validation runs while the per-repository lock is held (mergeAndValidate in src/handoff.ts), so sessions that finish together are validated one at a time: a full integration validation took about 290-320s on 2026-10-20, so the Nth waiting session waits roughly N x 5 minutes and the 4th or later can exceed the default 900s lockWaitSeconds. When two or more sessions for the same repository are waiting to integrate, the next lock holder merges every waiting session's exact readyCommit into one integration candidate in a deterministic order, runs the strictest integration validation any member selected (the full fallback for any code change) once on the combined tree, and promotes it with the existing expected-previous-target check. Each member session records the shared staging and promoted commits with its own completion summary, rollout classification and follow-ups, and a waiting integrate process whose session was promoted in a batch exits with that session's completion summary instead of integrating again. A member whose merge conflicts is left out of the batch and integrated alone through the existing conflict-resume flow. When batch validation fails, the tool isolates the failing member (for example by validating halves) so passing members still promote and only the failing one becomes validation_pending; no session is promoted on a tree that was not validated. Batch size has a configurable cap, batching can be disabled per repository, older pinned coordinators keep integrating one session at a time without failing, and lock-wait output names the batch a waiting session joined. docs/configuration.md and README's How work comes together section describe batching, and disposable-repository tests cover a three-session batch, a conflicting member, a failing member isolated from passing ones, the cap, and batching disabled.",
+      "doc": "docs/configuration.md",
+      "evidence": []
+    },
+    {
+      "id": "SI-012",
+      "title": "Reuse source validation when the target moved only by lightweight-tier changes",
+      "status": "ready",
+      "order": 120,
+      "executor": "automated",
+      "device_requirement": [],
+      "blocked_by": [],
+      "acceptance": "Integration already reuses source validation results when the merged tree matches the validated source tree (session_mvh2l5y8_fa64bc2695 on 2026-10-20 reran only build, with 2.8s of integration validation), but any target movement changes the tree and reruns the whole plan: four sessions integrated on 2026-10-20 after the target moved and each reran format:check, typecheck, test and build. When every path that differs between the validated source tree and the merged integration tree matches one configured validation tier that opts in (for example task-register or docs, so the target moved only by such commits), integration runs that tier's integration commands on the merged tree, reuses the source results for the other commands, and still runs integration-only commands such as build. A differing path outside that tier, a tier without the opt-in, recovery reconciliation (recoveryPhase local_target), or validationCache off keeps the current full rerun. The opt-in is an explicit per-tier option that is validated, rejected when invalid, and ignored by older pinned coordinators without failing. Integration output and performance metrics say which commands were reused and why. docs/configuration.md explains that the opt-in asserts the tier's paths cannot change other checks' results, and disposable-repository tests cover a TASKS.json-only target movement reusing results, a code movement rerunning everything, a mixed movement rerunning everything, and a tier without the opt-in.",
+      "doc": "docs/configuration.md",
+      "evidence": []
     }
   ]
 }
