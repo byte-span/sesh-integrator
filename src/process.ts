@@ -27,6 +27,12 @@ import type {
   ValidationFailureRecord,
 } from "./types.js";
 import { validationCommandValue } from "./validation.js";
+import {
+  captureValidationOutput,
+  describeQueueLoad,
+  sampleQueueLoad,
+  type ValidationOutputEvidence,
+} from "./validation-output.js";
 
 export class ValidationFailure extends Error {
   constructor(readonly record: ValidationFailureRecord) {
@@ -242,7 +248,17 @@ async function runValidationCommand(
           if (result.code === 0) return true;
           const message = `Validation failed (${result.code}): ${command.join(" ")}`;
           if (classification !== "transient" || attempt === maxAttempts) {
-            throw failure(message, attempt);
+            throw await failure(
+              message,
+              attempt,
+              await captureValidationOutput(result, {
+                command,
+                cwd,
+                phase: options.phase ?? "source",
+                attempt,
+                ...(options.sessionId ? { sessionId: options.sessionId } : {}),
+              }),
+            );
           }
           throw new Error(message);
         },
@@ -259,7 +275,7 @@ async function runValidationCommand(
       )
         throw error;
       if (classification !== "transient" || attempt === maxAttempts) {
-        throw failure(
+        throw await failure(
           error instanceof Error ? error.message : String(error),
           attempt,
         );
@@ -275,8 +291,15 @@ async function runValidationCommand(
     await cancellableDelay(backoff, undefined, { signal: options.signal });
   }
 
-  function failure(message: string, attempts: number): ValidationFailure {
-    return new ValidationFailure({
+  async function failure(
+    message: string,
+    attempts: number,
+    evidence: ValidationOutputEvidence = {},
+  ): Promise<ValidationFailure> {
+    // Queue load separates resource contention from a code defect. Output
+    // evidence exists only when the command ran to an exit code.
+    const queueLoad = await sampleQueueLoad(evidence.exitCode !== undefined);
+    const record: ValidationFailureRecord = {
       phase: options.phase ?? "source",
       command,
       classification,
@@ -289,7 +312,19 @@ async function runValidationCommand(
       exclusiveResources,
       failedAt: new Date().toISOString(),
       message,
-    });
+      ...evidence,
+      queueLoad,
+    };
+    process.stderr.write(
+      `Validation failure evidence for ${command.join(" ")}: ${
+        record.logPath
+          ? `full output ${record.logPath}`
+          : record.logError
+            ? `full output not saved (${record.logError})`
+            : "output tail kept in the failure record"
+      }; build queue ${describeQueueLoad(queueLoad)}\n`,
+    );
+    return new ValidationFailure(record);
   }
 }
 

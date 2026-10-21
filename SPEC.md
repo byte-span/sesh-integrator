@@ -712,10 +712,14 @@ If unresolved or validation fails:
 - preserve integration worktree
 - preserve all validation failures as resumable `validation_pending`
 - let the agent assess preserved evidence before choosing retry or escalation
-- keep enough state/logs to diagnose
+- keep enough state/logs to diagnose: a failed validation command's record
+  keeps its exit code, a bounded secret-redacted output tail, the path of a
+  full redacted log under the runtime `logs/validation/` directory, its failing
+  test names or first error line, and the build queue load at failure time
 - release lock only after state is persisted
 - exit non-zero
-- create an immutable incident ticket with a stable failure fingerprint,
+- create an immutable incident ticket with a stable failure fingerprint
+  (including failing test names or the first error line for validation failures),
   concise diagnosis, proposed fix, scope, confidence, and preserved evidence
 - print the ticket in the failure summary and offer to implement its fix in a
   separate user-approved session

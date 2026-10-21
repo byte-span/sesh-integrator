@@ -333,6 +333,31 @@ export interface ValidationFailureRecord {
   exclusiveResources: string[];
   failedAt: string;
   message: string;
+  /** Exit code of the failed command; absent when it could not be run. */
+  exitCode?: number;
+  /** Bounded, best-effort secret-redacted tail of the failed command output. */
+  outputTail?: { stdout: string; stderr: string; truncated: boolean };
+  /** Full redacted output under the runtime logs directory. */
+  logPath?: string;
+  /** Why the full log could not be written; the tail is still recorded. */
+  logError?: string;
+  /** Failing test names parsed from the output, when the runner reports them. */
+  failingTests?: string[];
+  /** First error line of the output when no failing test names were found. */
+  firstErrorLine?: string;
+  /** Shared build queue load when the failure was recorded. */
+  queueLoad?: QueueLoadNote;
+}
+
+export interface QueueLoadNote {
+  sampledAt: string;
+  /** Running queue entries, counting the failed command when it ran. */
+  running?: number;
+  /** Waiting queue entries with live owners. */
+  waiting?: number;
+  capacity?: number | "unlimited";
+  /** Why the queue could not be inspected. */
+  unavailable?: string;
 }
 
 export interface GitCommandObservation extends CommandResult {

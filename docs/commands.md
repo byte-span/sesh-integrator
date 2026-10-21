@@ -647,8 +647,10 @@ the promoted target worktree.
 A validation failure leaves that session's integration worktree intact, records `validation_pending`, releases the one-shot lock, and exits nonzero so the agent can assess the evidence and resume safely. An unresolved conflict records `needs_review`. Later sessions use detached session-owned integration worktrees when the canonical worktree contains preserved review state, and atomically advance staging only after validation. A failed post-integration command also records `needs_review`, but preserves the already-promoted target commit; its command, exit code, stdout, and stderr remain in the session record for diagnosis. If post-integration commands are configured and the target is not checked out in exactly one clean accessible worktree, promotion remains pending. Post-integration commands are skipped when the ready commit was already present and the staging branch did not advance. The source worktree is never modified.
 
 Every integration validation failure records `validation_pending`, including
-its command, declared or unclassified status, attempt limit, resource keys, and
-failure time. After the agent assesses the preserved evidence, `resume` verifies
+its command, declared or unclassified status, attempt limit, resource keys,
+failure time, exit code, a bounded redacted output tail, the full log path,
+failing test names or first error line, and build queue load
+([failure evidence](build-queue.md#failure-evidence)). After the agent assesses the preserved evidence, `resume` verifies
 the clean merge, reacquires its resources, and retries validation.
 
 ### `status`
@@ -960,7 +962,8 @@ seshx incident CH-YYYYMMDD-XXXXXX
 
 Instruction or code fixes proposed by an incident are implemented only in a
 new, user-approved session. Repeated failure fingerprints provide evidence for
-future workflow improvements. Diagnosis is produced by an ephemeral, read-only,
+future workflow improvements. A validation failure's fingerprint includes its
+failing test names or first error line, not only its command and exit code. Diagnosis is produced by an ephemeral, read-only,
 schema-validated agent investigation after releasing the repository lock;
 code owns evidence and safety rather than an expanding failure-rule chain. If
 that investigation is unavailable or invalid, the ticket records a neutral
