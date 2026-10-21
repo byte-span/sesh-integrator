@@ -46,6 +46,16 @@ export function sessionStatusDocument(
       conflictPromptPath: session.conflictPromptPath ?? null,
       rolloutDisposition: session.rolloutDisposition ?? null,
       rolloutFollowUps: [...(session.rolloutFollowUps ?? [])],
+      integrationBatch: session.integrationBatch
+        ? {
+            id: session.integrationBatch.id,
+            role: session.integrationBatch.role,
+            leaderSessionId: session.integrationBatch.leaderSessionId,
+            members: [...session.integrationBatch.members],
+            outcome: session.integrationBatch.outcome ?? null,
+            stagingCommit: session.integrationBatch.stagingCommit ?? null,
+          }
+        : null,
       delivery: delivery
         ? {
             version: delivery.version,

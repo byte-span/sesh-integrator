@@ -591,6 +591,43 @@ If lock exists:
 4. after acquiring it, refresh integration branch state before merging
 5. capture the current target commit as the exact expected promotion baseline
 
+### 10.3.1 Integration batches
+
+Validation runs while the lock is held, so the next lock holder batches the
+sessions that wait for the same lock. A waiting batching-aware process records
+its PID and host on its session. The holder (leader) claims live waiting
+sessions with the same target and promotion, succeeded dependencies and no
+earlier integration attempt, oldest ready first, up to the configured cap
+(`integrationBatching.maxSessions`, default 8; `enabled: false` disables
+batching per repository or globally). Claims are atomic under the session
+record lock; a waiter that reaches its deadline withdraws atomically unless
+already claimed, and never times out while claimed.
+
+The leader merges each member's exact ready commit in ready-time order with
+`git merge-tree --write-tree` and one `Integrate <session>` merge commit each.
+A conflicting member is left out and integrates alone through the normal
+conflict-resume flow. The combined commit is validated once in a detached,
+tool-owned batch worktree with the strictest selection any member needs (a
+shared tier, otherwise full), without cache or source-result reuse. Staging
+advances with an expected-old check (fast-forwarding a clean canonical
+integration worktree in place), and the target is promoted with the
+expected-previous-target check, post-integration commands and configured PR
+promotion. Every member gets its own recovery bundle and records the shared
+staging and promoted commits with its own summary, rollout and follow-ups.
+
+A failing combined validation promotes nothing: the members are split in
+halves and each half is processed the same way; a single session goes through
+the normal single-session path, so only sessions that fail alone become
+`validation_pending`. A combined tree that already failed in the batch is not
+rerun. Blocked promotion leaves every member of that candidate
+`promotion_pending` for its own `resume`. Incident investigations run only
+after the lock is released: a live waiter records its own incident.
+
+The waiting process exits with its session's completion summary once the
+leader resolves it. Older coordinators never advertise themselves or lead
+batches; member records keep single-session fields, so the state contract is
+unchanged.
+
 ### 10.4 Integration Worktree
 
 Use one dedicated worktree:
@@ -893,6 +930,10 @@ The MVP is ready when disposable repo tests prove:
     across concurrent sessions.
 28. Transient validation failures use bounded retry, preserve exhausted state,
     and resume against the unchanged integration snapshot.
+29. Sessions waiting together are validated once as a batch; conflicting
+    members integrate alone, failing members are isolated so passing members
+    still promote, the cap and per-repository disable are honored, and
+    coordinators without batching keep integrating one session at a time.
 
 ## Session task tracking
 

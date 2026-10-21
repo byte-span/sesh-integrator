@@ -119,6 +119,12 @@ export async function statusCommand(sessionId?: string): Promise<void> {
     process.stdout.write(
       `  validation: ${session.validationTier ?? "-"} (${session.changedPaths?.length ?? 0} changed path(s))\n`,
     );
+    if (session.integrationBatch) {
+      const batch = session.integrationBatch;
+      process.stdout.write(
+        `  integration batch: ${batch.id} (${batch.role === "leader" ? "leader" : `led by ${batch.leaderSessionId}`}; ${batch.outcome ?? "in progress"}${batch.members.length ? `; members ${batch.members.join(", ")}` : ""}${batch.reason ? `; ${terminalSafe(batch.reason)}` : ""})\n`,
+      );
+    }
     process.stdout.write(
       `  staged/validated: ${session.integratedAt ?? "-"} ${
         session.integratedCommit ?? ""

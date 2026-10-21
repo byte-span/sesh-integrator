@@ -5,6 +5,7 @@
 Commands below run from the repository root unless stated otherwise.
 
 - [`register`](#register)
+- [Integration batching](#integration-batching)
 - [Optional pull-request promotion](#optional-pull-request-promotion)
 - [Stable default branch with a development target](#stable-default-branch-with-a-development-target)
 - [Central delivery policy](#central-delivery-policy)
@@ -124,6 +125,98 @@ their staging meaning. An explicit `targetBranch` equal to `integrationBranch`
 is supported as a legacy-style opt-in, but then there is no separate final ref
 and that branch cannot already be checked out in another worktree. No branch is
 pushed unless pull-request promotion is explicitly configured.
+
+### Integration batching
+
+Integration validation runs while the repository lock is held, so sessions
+that finish together used to be validated one after another. With batching,
+the next lock holder (the batch leader) merges every waiting session into one
+candidate, validates it once and promotes it. Batching is on by default:
+
+```json
+{
+  "integrationBatching": { "enabled": true, "maxSessions": 8 },
+  "repositories": [
+    {
+      "path": "/Users/you/Developer/my-project",
+      "integrationBatching": { "enabled": false }
+    }
+  ]
+}
+```
+
+| Key           | Meaning                                                                      |
+| ------------- | ---------------------------------------------------------------------------- |
+| `enabled`     | `false` integrates one session at a time. Default `true`.                    |
+| `maxSessions` | Sessions in one candidate, including the leader: an integer 1-64. Default 8. |
+
+The global `integrationBatching` sets defaults; a repository's
+`integrationBatching` overrides them key by key. Invalid values or unknown
+keys stop every command with a configuration error. `maxSessions: 1` also
+turns batching off.
+
+**Who joins.** A session joins only while its own `integrate` process waits
+for the lock on this machine and its dependencies have succeeded. It must
+target the same branch with the same promotion settings as the leader, and
+have no earlier integration attempt (recovery bundle, preserved merge or
+staged commit). The oldest ready sessions join first, up to the cap; the rest
+wait for the next lock holder.
+
+**What happens.** Under the lock, the leader:
+
+1. Merges each member's exact `readyCommit` in ready-time order (then session
+   ID) with Git plumbing. Each merge is an ordinary
+   `Integrate <session>: <task>` merge commit on top of the target.
+2. Leaves out a member whose merge conflicts. That session integrates alone
+   after the batch and gets the normal conflict prompt and `resume` flow.
+3. Validates the combined commit once in a detached batch worktree
+   (`worktrees/<repo-id>-batch`). It runs setup, then the strictest selection
+   any member needs: a shared validation tier when every member selected the
+   same tier and the combined paths still match it, otherwise the full
+   integration commands.
+4. Advances staging with an expected-old check, then promotes the target with
+   the usual expected-previous-target check, post-integration commands and
+   pull-request promotion.
+
+Every member records the shared staging and promoted commit, keeps its own
+completion summary, rollout classification and follow-ups, and gets its own
+recovery bundle. A waiting `integrate` names the batch it joined and does not
+time out while the leader works on it. When the batch resolves the session,
+the process exits with that session's completion summary instead of
+integrating again.
+
+**When combined validation fails**, no member is promoted on that tree. The
+leader splits the members into halves and validates each half on its own,
+recursively. A single remaining session is integrated alone through the
+normal path, so passing sessions still promote and only a session that fails
+alone becomes `validation_pending`, with the usual preserved state for
+`resume`. A half whose combined tree already failed in this batch is split
+again without rerunning it.
+
+**When promotion is blocked** (for example a dirty checked-out target), every
+member of the validated candidate becomes `promotion_pending` with the same
+staged commit, and the leader stops batching. Run `seshx resume` for each
+member as usual; the first promotes the commit and the rest find it promoted.
+
+**Older coordinators** neither lead nor join batches, ignore the
+`integrationBatching` keys, and keep integrating one session at a time.
+Sessions that older coordinators run never advertise themselves to a batch
+leader. Member records use the same fields and recovery bundles as a single
+integration, so the session state contract does not change.
+
+If a batch leader stops while holding the lock, the lock stays in place for
+manual inspection as before. After it is cleared, members rerun
+`seshx integrate`; a claim left without a result is released under the lock.
+
+#### Batches and validation reuse
+
+A combined batch tree never equals any member's source-validated tree. Batch
+validation therefore runs every selected command, without session,
+repository-cache or source-result reuse. Sessions integrated alone during
+failure isolation follow the normal exact-tree reuse rules. Future reuse of
+source results across target movement (such as lightweight-tier opt-ins) must
+treat a batch candidate as every member's paths moving at once and, by
+default, keep the strictest full rerun for batches.
 
 ### Optional pull-request promotion
 

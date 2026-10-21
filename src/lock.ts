@@ -12,6 +12,21 @@ export interface LockHandle {
   file: FileLock;
 }
 
+/**
+ * Polled while another process holds the lock. `hold` keeps waiting past the
+ * deadline (for example while a batch leader integrates this session), and
+ * `stop` ends the wait with LockWaitStopped. `expired` is true once the
+ * deadline has passed; the deadline restarts after every `hold`.
+ */
+export type LockWaitDecision = "wait" | "hold" | "stop";
+
+export interface LockWaitOptions {
+  onWait?: (expired: boolean) => Promise<LockWaitDecision>;
+}
+
+/** The onWait callback ended the wait; the lock was not acquired. */
+export class LockWaitStopped extends Error {}
+
 export async function acquireRepoLock(
   repositoryId: string,
   sessionId: string,
@@ -19,9 +34,11 @@ export async function acquireRepoLock(
   integrationWorktree: string,
   rejectExisting = false,
   operation = "change repository enablement",
+  options: LockWaitOptions = {},
 ): Promise<LockHandle> {
   const lockPath = join(runtimePaths().locks, `${repositoryId}.lock`);
-  const deadline = Date.now() + Math.max(0, waitSeconds) * 1000;
+  const waitMs = Math.max(0, waitSeconds) * 1000;
+  let deadline = Date.now() + waitMs;
   let announcedOwner = "";
 
   for (;;) {
@@ -51,6 +68,12 @@ export async function acquireRepoLock(
       );
       announcedOwner = ownerDescription;
     }
+    if (options.onWait) {
+      const decision = await options.onWait(false);
+      if (decision === "stop")
+        throw new LockWaitStopped("Lock wait ended by its caller");
+      if (decision === "hold") deadline = Date.now() + waitMs;
+    }
 
     if (owner && owner.hostname === hostname() && !isProcessAlive(owner.pid)) {
       const recovery = await inspectStaleLock(integrationWorktree);
@@ -65,6 +88,12 @@ export async function acquireRepoLock(
       );
     }
 
+    if (Date.now() >= deadline && options.onWait) {
+      const decision = await options.onWait(true);
+      if (decision === "stop")
+        throw new LockWaitStopped("Lock wait ended by its caller");
+      if (decision === "hold") deadline = Date.now() + waitMs;
+    }
     if (Date.now() >= deadline) {
       throw new Error(
         `Timed out waiting for repository lock ${lockPath}; owner: ${ownerDescription}`,

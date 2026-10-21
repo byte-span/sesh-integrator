@@ -45,7 +45,24 @@ import {
   refCommit,
   unmergedFiles,
 } from "./git.js";
-import { acquireRepoLock, releaseRepoLock, type LockHandle } from "./lock.js";
+import {
+  acquireRepoLock,
+  LockWaitStopped,
+  releaseRepoLock,
+  type LockHandle,
+} from "./lock.js";
+import {
+  batchLockWatcher,
+  integrateWaitingBatch,
+  integrationWaiter,
+  releaseStaleBatchClaim,
+  reportBatchResolution,
+  resolvedByBatch,
+  recordDeferredIncidents,
+  type BatchOperations,
+  type BatchResult,
+  type DeferredIncident,
+} from "./integration-batch.js";
 import {
   run,
   runCommandList,
@@ -783,10 +800,9 @@ export async function integrateCommand(
     throw new Error("--follow-up is valid only with --rollout manual");
   }
   const config = await readConfig(true);
-  const { source, repository, session } = await resolveSourceSession(
-    ["active", "ready"],
-    sessionId,
-  );
+  const resolved = await resolveSourceSession(["active", "ready"], sessionId);
+  const { source, repository } = resolved;
+  let session = resolved.session;
   await requireCapabilities(source.worktreePath);
   bindPerformanceSession(session.id);
   if (!source.branch || source.branch !== session.branch) {
@@ -868,74 +884,148 @@ export async function integrateCommand(
     `Validation tier: ${validation.name} (${validation.changedPaths.length} changed path(s))\n`,
   );
 
-  let integrationWorktree = join(
+  const canonicalWorktree = join(
     (await worktreePaths(repository.path)).worktrees,
     session.repositoryId,
   );
+  let integrationWorktree = canonicalWorktree;
+  // Tests use this to act as a coordinator that predates batching: it never
+  // advertises itself to batch leaders and never leads a batch.
+  const legacyIntegration =
+    process.env.PARALLEL_INTEGRATOR_TEST_LEGACY_INTEGRATE === "1";
+  const waiter = integrationWaiter();
   session.waitingForLock = true;
   await writeSession(session);
   let lock: LockHandle | undefined;
   let integrationStarted = false;
+  let batchResolved = false;
+  const deferredIncidents: DeferredIncident[] = [];
   try {
     await assertDependencies(session);
-    lock = await measurePhase("lock_wait", async () =>
-      acquireRepoLock(
-        session.repositoryId,
-        session.id,
-        config.lockWaitSeconds,
-        integrationWorktree,
-      ),
-    );
-    assertRepositoryEnabled(await readConfig(), repository.gitCommonDir);
-    session.waitingForLock = false;
-    await writeSession(session);
-    await assertDependencies(session);
-    session.targetBranch ??= targetBranch(repository);
-    if (!session.targetCommitBeforeIntegration) {
-      const initialTarget = await refCommit(
-        repository.path,
-        `refs/heads/${session.targetBranch}`,
-      );
-      if (initialTarget) session.targetCommitBeforeIntegration = initialTarget;
+    // Advertise only after dependencies pass: a batch leader may now claim
+    // this session and integrate it together with its own.
+    if (!legacyIntegration) {
+      session.integrationWait = waiter;
+      await writeSession(session);
     }
-    await ensureRecoveryBundle(repository, session);
-    await writeSession(session);
-    await measurePhase("target_baseline", async () =>
-      captureTargetExpectation(repository, session, true),
-    );
-    integrationWorktree = await selectIntegrationWorktree(
-      repository,
-      session,
-      integrationWorktree,
-    );
-    if (
-      await measurePhase("direct_integration", async () =>
-        tryDirectIntegration(
+    try {
+      lock = await measurePhase("lock_wait", async () =>
+        acquireRepoLock(
+          session.repositoryId,
+          session.id,
+          config.lockWaitSeconds,
+          integrationWorktree,
+          false,
+          undefined,
+          legacyIntegration
+            ? {}
+            : { onWait: batchLockWatcher(session.id, waiter.since) },
+        ),
+      );
+    } catch (error) {
+      if (!(error instanceof LockWaitStopped)) throw error;
+    } finally {
+      // A batch leader may have claimed and integrated this session while it
+      // waited; its saved record is authoritative from here on.
+      session = (await readSession(session.id)) ?? session;
+    }
+    if (resolvedByBatch(session, waiter.since)) {
+      batchResolved = true;
+    } else {
+      if (!lock) throw new Error("Repository lock was not acquired");
+      releaseStaleBatchClaim(session);
+      const current = await readConfig();
+      assertRepositoryEnabled(current, repository.gitCommonDir);
+      session.waitingForLock = false;
+      delete session.integrationWait;
+      await writeSession(session);
+      await assertDependencies(session);
+      session.targetBranch ??= targetBranch(repository);
+      if (!session.targetCommitBeforeIntegration) {
+        const initialTarget = await refCommit(
+          repository.path,
+          `refs/heads/${session.targetBranch}`,
+        );
+        if (initialTarget)
+          session.targetCommitBeforeIntegration = initialTarget;
+      }
+      await ensureRecoveryBundle(repository, session);
+      await writeSession(session);
+      await measurePhase("target_baseline", async () =>
+        captureTargetExpectation(repository, session, true),
+      );
+      integrationWorktree = await selectIntegrationWorktree(
+        repository,
+        session,
+        integrationWorktree,
+      );
+      if (
+        await measurePhase("direct_integration", async () =>
+          tryDirectIntegration(
+            repository,
+            session,
+            validation,
+            integrationWorktree,
+          ),
+        )
+      ) {
+        process.stdout.write(
+          `Promoted ${session.id} directly to ${session.targetBranch} at ${session.promotedCommit}\n`,
+        );
+        writeCompletionSummary(session);
+        return session;
+      }
+      const leader = session;
+      const batch: BatchResult = legacyIntegration
+        ? { kind: "none" }
+        : await integrateWaitingBatch({
+            config: current,
+            registered:
+              current.repositories.find(
+                (item) => item.gitCommonDir === repository.gitCommonDir,
+              ) ?? repository,
+            repository,
+            leader,
+            canonicalWorktree,
+            ops: batchOperations(current, canonicalWorktree),
+            deferredIncidents,
+          });
+      if (batch.kind === "done") {
+        process.stdout.write(
+          `Promoted ${session.id} to ${session.targetBranch} at ${session.promotedCommit} in integration batch ${session.integrationBatch?.id}\n`,
+        );
+        writeCompletionSummary(session);
+        return session;
+      }
+      if (batch.kind === "failed") {
+        integrationStarted = batch.started;
+        throw batch.error;
+      }
+      if (batch.kind === "alone") {
+        // Batch promotions moved the target; integrate on top of them.
+        await captureTargetExpectation(repository, session, false);
+        delete session.integrationWorktreePath;
+        delete session.integrationWorktreeDetached;
+        integrationWorktree = await selectIntegrationWorktree(
           repository,
           session,
-          validation,
-          integrationWorktree,
-        ),
-      )
-    ) {
+          canonicalWorktree,
+        );
+      }
+      await measurePhase("worktree_preparation", async () =>
+        prepareIntegrationWorktree(repository, session, integrationWorktree),
+      );
+      integrationStarted = true;
+      await mergeAndValidate(config, repository, session, integrationWorktree);
       process.stdout.write(
-        `Promoted ${session.id} directly to ${session.targetBranch} at ${session.promotedCommit}\n`,
+        `Promoted ${session.id} to ${session.targetBranch} at ${session.promotedCommit}\n`,
       );
       writeCompletionSummary(session);
       return session;
     }
-    await measurePhase("worktree_preparation", async () =>
-      prepareIntegrationWorktree(repository, session, integrationWorktree),
-    );
-    integrationStarted = true;
-    await mergeAndValidate(config, repository, session, integrationWorktree);
-    process.stdout.write(
-      `Promoted ${session.id} to ${session.targetBranch} at ${session.promotedCommit}\n`,
-    );
-    writeCompletionSummary(session);
-    return session;
   } catch (error) {
     session.waitingForLock = false;
+    delete session.integrationWait;
     session.latestError = errorMessage(error);
     if (error instanceof ValidationFailure) {
       session.validationFailure = error.record;
@@ -971,7 +1061,49 @@ export async function integrateCommand(
     throw failure;
   } finally {
     if (lock) await releaseRepoLock(lock);
+    await recordDeferredIncidents(deferredIncidents, safelyRecordIncident);
   }
+  if (!batchResolved) return session;
+  // A batch leader already integrated this session; report its saved result
+  // without integrating again. Like any failed integration, a failure records
+  // an incident from this process, outside the repository lock.
+  const promoted = reportBatchResolution(session);
+  const failure = promoted
+    ? undefined
+    : new Error(
+        session.latestError ??
+          `Session ${session.id} is ${session.status} after its integration batch`,
+      );
+  if (failure) await safelyRecordIncident(session, failure);
+  writeCompletionSummary(session);
+  if (failure) throw failure;
+  return session;
+}
+
+/** Lifecycle steps an integration batch leader reuses for its members. */
+function batchOperations(
+  config: Config,
+  canonicalWorktree: string,
+): BatchOperations {
+  return {
+    integrateAlone: async (repository, session) => {
+      await captureTargetExpectation(repository, session, false);
+      await ensureRecoveryBundle(repository, session);
+      delete session.integrationWorktreePath;
+      delete session.integrationWorktreeDetached;
+      await writeSession(session);
+      const worktree = await selectIntegrationWorktree(
+        repository,
+        session,
+        canonicalWorktree,
+      );
+      await prepareIntegrationWorktree(repository, session, worktree);
+      await mergeAndValidate(config, repository, session, worktree);
+    },
+    completePullRequest: completePullRequestPromotion,
+    assertDependencies,
+    assertNoUnstagedChanges,
+  };
 }
 
 export async function finishCommand(
