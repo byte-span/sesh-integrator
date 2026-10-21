@@ -213,6 +213,18 @@
       "acceptance": "Integration already reuses source validation results when the merged tree matches the validated source tree (session_mvh2l5y8_fa64bc2695 on 2026-10-20 reran only build, with 2.8s of integration validation), but any target movement changes the tree and reruns the whole plan: four sessions integrated on 2026-10-20 after the target moved and each reran format:check, typecheck, test and build. When every path that differs between the validated source tree and the merged integration tree matches one configured validation tier that opts in (for example task-register or docs, so the target moved only by such commits), integration runs that tier's integration commands on the merged tree, reuses the source results for the other commands, and still runs integration-only commands such as build. A differing path outside that tier, a tier without the opt-in, recovery reconciliation (recoveryPhase local_target), or validationCache off keeps the current full rerun. The opt-in is an explicit per-tier option that is validated, rejected when invalid, and ignored by older pinned coordinators without failing. Integration output and performance metrics say which commands were reused and why. docs/configuration.md explains that the opt-in asserts the tier's paths cannot change other checks' results, and disposable-repository tests cover a TASKS.json-only target movement reusing results, a code movement rerunning everything, a mixed movement rerunning everything, and a tier without the opt-in.",
       "doc": "docs/configuration.md",
       "evidence": []
+    },
+    {
+      "id": "SI-013",
+      "title": "Detect the harness automatically when begin omits --harness",
+      "status": "ready",
+      "order": 130,
+      "executor": "automated",
+      "device_requirement": [],
+      "blocked_by": [],
+      "acceptance": "seshx begin without --harness currently records codex for compatibility, so Claude Code sessions begun with a plain begin --create-worktree before 2026-10-08 (for example session_mu7grty6_d5d7b75f64) are labeled codex, and nested conflict resolution and incident diagnosis use the wrong harness. When --harness is omitted, begin detects the harness for every supported harness (codex, claude, antigravity, grok): first from a documented environment marker (Claude Code sets CLAUDECODE=1; Codex, Antigravity and Grok markers are verified by running env inside each harness before use, and CODEX_SANDBOX alone is not treated as reliable), then from the parent process chain (claude, codex, antigravity/agy, grok). If nothing is detected, begin fails with a message asking for --harness instead of silently recording codex. An explicit --harness that contradicts a detected harness prints a warning and keeps the explicit value. begin output and status show the recorded harness and whether it was explicit or detected. Existing session records are not rewritten. docs/harnesses.md and docs/commands.md describe the detection order and markers, and tests cover detection for each harness by environment and by process ancestry, the undetected failure, and the mismatch warning.",
+      "doc": "docs/harnesses.md",
+      "evidence": []
     }
   ]
 }
