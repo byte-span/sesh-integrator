@@ -6,6 +6,9 @@ import { webHtml, webScript } from "../src/dashboard-web-assets.js";
 // without a browser. Unknown members resolve to no-op functions.
 type Listener = (event: Record<string, unknown>) => void;
 class FakeElement {
+  static focused: FakeElement | undefined;
+  id = "";
+  open = false;
   children: FakeElement[] = [];
   dataset: Record<string, string> = {};
   attributes = new Map<string, string>();
@@ -40,6 +43,17 @@ class FakeElement {
     if (typeof handler === "function") handler(full);
     for (const listener of this.listeners.get(type) ?? []) listener(full);
   }
+  focus() {
+    FakeElement.focused = this;
+  }
+  showModal() {
+    this.open = true;
+  }
+  close() {
+    if (!this.open) return;
+    this.open = false;
+    this.dispatch("close");
+  }
   querySelector() {
     return null;
   }
@@ -48,6 +62,13 @@ class FakeElement {
   }
   get text(): string {
     return this.textContent + this.children.map((c) => c.text).join("");
+  }
+  /** Depth-first search of this element's descendants. */
+  find(test: (node: FakeElement) => boolean): FakeElement[] {
+    return this.children.flatMap((c) => [
+      ...(test(c) ? [c] : []),
+      ...c.find(test),
+    ]);
   }
 }
 const lenient = <T extends object>(target: T): T =>
@@ -58,10 +79,19 @@ const lenient = <T extends object>(target: T): T =>
         : () => undefined,
   });
 
-async function boot(rows: Record<string, unknown>[]) {
+type Api = (
+  url: string,
+  init?: { method?: string; body?: string },
+) => [number, unknown] | undefined;
+
+async function boot(
+  rows: Record<string, unknown>[],
+  options: { api?: Api; storage?: Map<string, string> } = {},
+) {
   const ids = new Map<string, FakeElement>();
   const byId = (id: string) => {
-    if (!ids.has(id)) ids.set(id, lenient(new FakeElement()));
+    if (!ids.has(id))
+      ids.set(id, lenient(Object.assign(new FakeElement(), { id })));
     return ids.get(id)!;
   };
   byId("filter").value = "active";
@@ -73,7 +103,7 @@ async function boot(rows: Record<string, unknown>[]) {
       activeElement: undefined as FakeElement | undefined,
       hidden: false,
       getElementById: byId,
-      querySelector: () => lenient(new FakeElement()),
+      querySelector: (selector: string) => byId("query " + selector),
       createElement: (tag: string) =>
         lenient(new FakeElement(tag.toUpperCase())),
     }),
@@ -82,7 +112,11 @@ async function boot(rows: Record<string, unknown>[]) {
   const context: Record<string, unknown> = {
     document,
     window: { innerWidth: 1400, addEventListener() {} },
-    localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
+    localStorage: {
+      getItem: (key: string) => options.storage?.get(key) ?? null,
+      setItem: (key: string, value: string) => options.storage?.set(key, value),
+      removeItem() {},
+    },
     matchMedia: () => ({ matches: false, addEventListener() {} }),
     ResizeObserver: class {
       observe() {}
@@ -90,7 +124,10 @@ async function boot(rows: Record<string, unknown>[]) {
     EventSource: class {
       addEventListener() {}
     },
-    fetch: async () => ({ ok: true, json: async () => state }),
+    fetch: async (url: string, init?: { method?: string; body?: string }) => {
+      const [status, body] = options.api?.(url, init) ?? [200, state];
+      return { ok: status < 400, json: async () => body };
+    },
     setTimeout,
     clearTimeout,
     setInterval: () => 0,
@@ -234,4 +271,203 @@ it("diffs config text by line and names changed settings for the save confirmati
     configChanges('{"a":1,"b":{"c":2,"d":3}}', '{"b":{"d":3,"c":2},"a":1}'),
   ).toEqual({ changes: [], programs: [] });
   expect(configChanges("{ broken", "{}")).toBeNull();
+});
+
+// A settings API with one earlier config.json version; POST saves record here.
+function settingsApi(options: { history?: "fail" | "empty" } = {}) {
+  const config = (lockWaitSeconds: number) =>
+    JSON.stringify({ lockWaitSeconds, repositories: [] }, null, 2) + "\n";
+  const posts: Record<string, unknown>[] = [];
+  let raw = {
+    configPath: "/runtime/config.json",
+    exists: true,
+    revision: "rev-1",
+    text: config(900),
+  };
+  const entries = [
+    {
+      id: "2026-10-19T08-00-00-000Z-a1",
+      replacedAt: "2026-10-19T08:00:00.000Z",
+      source: "seshx register",
+    },
+  ];
+  const snapshot = config(30);
+  const api: Api = (url, init) => {
+    if (init?.method === "POST" && url === "/api/settings/json") {
+      const body = JSON.parse(init.body ?? "{}") as Record<string, unknown>;
+      posts.push(body);
+      entries.unshift({
+        id: "2026-10-20T08-00-00-000Z-b2",
+        replacedAt: "2026-10-20T08:00:00.000Z",
+        source: "dashboard",
+      });
+      raw = { ...raw, revision: "rev-2", text: String(body.text) };
+      return [200, raw];
+    }
+    if (url === "/api/settings")
+      return [
+        200,
+        {
+          configPath: raw.configPath,
+          exists: true,
+          revision: raw.revision,
+          global: {
+            defaultTargetBranch: "dev",
+            reviewers: [],
+            assignees: [],
+            lockWaitSeconds: 900,
+            conflictResolutionMode: "current-session",
+            deliveryPolicyFile: "",
+            harnessCommands: {},
+          },
+          harnesses: [],
+          repositories: [],
+        },
+      ];
+    if (url === "/api/settings/json") return [200, raw];
+    if (url === "/api/settings/history")
+      return options.history === "fail"
+        ? [500, { error: "History folder is unreadable" }]
+        : [
+            200,
+            {
+              limit: 20,
+              entries: options.history === "empty" ? [] : entries,
+            },
+          ];
+    if (url.startsWith("/api/settings/history/"))
+      return [200, { ...entries.at(-1), text: snapshot }];
+    return undefined;
+  };
+  return { api, posts, snapshot, raw: () => raw };
+}
+const settle = async () => {
+  for (let i = 0; i < 20; i++)
+    await new Promise((resolve) => setImmediate(resolve));
+};
+const buttons = (root: FakeElement, label: string) =>
+  root.find((n) => n.tagName === "BUTTON" && n.textContent === label);
+
+it("shows config history in its own Settings tab with saved choice and keyboard navigation", async () => {
+  for (const id of ["tab-history", "panel-history", "settings-history-button"])
+    expect(webHtml).toContain(`id="${id}"`);
+  const storage = new Map([["sesh-settings-tab", "history"]]);
+  const { api } = settingsApi();
+  const { byId } = await boot([], { api, storage });
+  byId("settings-button").dispatch("click");
+  await settle();
+
+  // The saved tab choice opens History; the JSON tab no longer lists versions.
+  expect(byId("tab-history").getAttribute("aria-selected")).toBe("true");
+  expect(byId("panel-history").hidden).toBe(false);
+  expect(byId("panel-json").hidden).toBe(true);
+  const panel = byId("panel-history");
+  expect(panel.text).toContain("Earlier versions");
+  expect(buttons(panel, "Compare with current")).toHaveLength(1);
+  expect(buttons(panel, "Restore")).toHaveLength(1);
+  expect(buttons(byId("panel-json"), "Compare with current")).toHaveLength(0);
+  expect(buttons(byId("panel-json"), "Restore")).toHaveLength(0);
+
+  // Arrow keys wrap through all four tabs, and the choice is saved.
+  const tablist = byId('query #settings [role="tablist"]');
+  tablist.dispatch("keydown", { key: "ArrowRight" });
+  expect(byId("tab-global").getAttribute("aria-selected")).toBe("true");
+  expect(byId("panel-history").hidden).toBe(true);
+  tablist.dispatch("keydown", { key: "ArrowLeft" });
+  expect(byId("tab-history").getAttribute("aria-selected")).toBe("true");
+  tablist.dispatch("keydown", { key: "Home" });
+  tablist.dispatch("keydown", { key: "End" });
+  expect(FakeElement.focused).toBe(byId("tab-history"));
+  expect(storage.get("sesh-settings-tab")).toBe("history");
+});
+
+it("keeps the empty and unavailable history states in the tab and the header dialog", async () => {
+  const empty = await boot([], { api: settingsApi({ history: "empty" }).api });
+  empty.byId("settings-button").dispatch("click");
+  await settle();
+  expect(empty.byId("panel-history").text).toContain(
+    "No earlier versions yet.",
+  );
+  empty.byId("settings-history-button").dispatch("click");
+  expect(empty.byId("history-dialog").open).toBe(true);
+  expect(empty.byId("history-dialog-body").text).toContain(
+    "No earlier versions yet.",
+  );
+
+  const failed = await boot([], { api: settingsApi({ history: "fail" }).api });
+  failed.byId("settings-button").dispatch("click");
+  await settle();
+  for (const id of ["panel-history", "history-dialog-body"])
+    expect(failed.byId(id).text).toContain("History is unavailable.");
+  // The editor still works without history.
+  expect(failed.byId("settings-error").hidden).toBe(true);
+  expect(failed.byId("panel-json").children).toHaveLength(1);
+});
+
+it("restores from the header History dialog only through the save confirmation", async () => {
+  const { api, posts, snapshot, raw } = settingsApi();
+  const { byId } = await boot([], { api });
+  byId("settings-button").dispatch("click");
+  await settle();
+  const original = raw().text;
+
+  // An unsaved JSON edit, made on the JSON tab before opening History.
+  const form = byId("panel-json").children[0]!;
+  const editor = form.find((n) => n.tagName === "TEXTAREA")[0]!;
+  expect(editor.value).toBe(original);
+  editor.value = original.replace("900", "45");
+  form.dispatch("input", { target: editor });
+  expect(form.dataset.dirty).toBe("true");
+
+  // The header button opens the same list from the Global tab.
+  expect(byId("tab-global").getAttribute("aria-selected")).toBe("true");
+  byId("settings-history-button").dispatch("click");
+  expect(byId("history-dialog").open).toBe(true);
+  const dialog = byId("history-dialog-body");
+  expect(buttons(dialog, "Compare with current")).toHaveLength(1);
+
+  // Cancel leaves the file and the editor alone.
+  buttons(dialog, "Restore")[0]!.dispatch("click");
+  await settle();
+  expect(byId("json-confirm").open).toBe(true);
+  expect(byId("json-confirm-context").hidden).toBe(false);
+  expect(byId("json-confirm-context").textContent).toContain(
+    "Restores the version replaced",
+  );
+  expect(byId("json-confirm-context").textContent).toContain("JSON tab");
+  expect(byId("json-confirm-changes").text).toContain("lockWaitSeconds");
+  byId("json-confirm-cancel").dispatch("click");
+  await settle();
+  expect(byId("json-confirm").open).toBe(false);
+  expect(posts).toHaveLength(0);
+  expect(editor.value).toBe(original.replace("900", "45"));
+
+  // Confirming saves the earlier version against the current revision.
+  buttons(dialog, "Restore")[0]!.dispatch("click");
+  await settle();
+  byId("json-confirm-form").dispatch("submit");
+  await settle();
+  expect(posts).toEqual([{ text: snapshot, revision: "rev-1" }]);
+  expect(byId("history-dialog").open).toBe(true);
+  expect(dialog.text).toContain("Restored the version replaced");
+  expect(byId("panel-history").text).toContain("Restored the version replaced");
+  expect(buttons(dialog, "Restore")).toHaveLength(2);
+  expect(FakeElement.focused).toBe(dialog);
+
+  // The editor keeps the unsaved edit instead of loading either version.
+  expect(byId("panel-json").children[0]).toBe(form);
+  expect(editor.value).toBe(original.replace("900", "45"));
+  expect(form.dataset.dirty).toBe("true");
+
+  byId("history-dialog-close").dispatch("click");
+  expect(byId("history-dialog").open).toBe(false);
+
+  // A normal JSON save uses the same confirmation without restore context.
+  form.dispatch("submit");
+  await settle();
+  expect(byId("json-confirm").open).toBe(true);
+  expect(byId("json-confirm-context").hidden).toBe(true);
+  byId("json-confirm-cancel").dispatch("click");
+  await settle();
+  expect(posts).toHaveLength(1);
 });
