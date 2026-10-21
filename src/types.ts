@@ -28,6 +28,14 @@ export interface ValidationTier {
   sourceValidationCommands: ValidationStep[];
   integrationValidationCommands: ValidationStep[];
   bypassIntegrationWorktree?: boolean;
+  /**
+   * Asserts that changes confined to this tier's paths cannot change other
+   * validation commands' results. When the merged integration tree differs
+   * from a session's validated source tree only in this tier's paths, the
+   * tier's integration commands run on the merged tree and the session's
+   * source results are reused for its other integration commands.
+   */
+  reuseSourceValidationOnTargetMove?: boolean;
 }
 
 export interface RepositoryConfig {

@@ -105,6 +105,11 @@ import type {
 } from "./types.js";
 import { selectValidation, type SelectedValidation } from "./validation.js";
 import {
+  planSourceReuse,
+  recordSourceReuseResult,
+  reportSourceReuse,
+} from "./target-move-reuse.js";
+import {
   assessBeginBaseline,
   assessCompletionState,
   type HandoffStateDecision,
@@ -1949,10 +1954,21 @@ async function validateCommitAndFinish(
     session.recoveryPhase === "local_target"
       ? { ...repository, validationCache: "off" as const }
       : repository;
+  // Target movement limited to an opt-in tier's paths keeps source results
+  // for the session's other commands; anything else reruns the full plan.
+  const sourceReuse = await planSourceReuse({
+    repository,
+    session,
+    worktree,
+    mergedTree: tree,
+    steps: validation.integrationCommands,
+  });
+  reportSourceReuse(sourceReuse);
+  const integrationSteps = sourceReuse.steps;
   await withValidationReuse(
     reuseRepository,
     tree,
-    validation.integrationCommands,
+    integrationSteps,
     async () => {
       if ((await git(["write-tree"], worktree)) !== tree)
         throw new Error(
@@ -1966,14 +1982,18 @@ async function validateCommitAndFinish(
               repository,
               session,
               tree,
-              validation.integrationCommands,
+              integrationSteps,
             );
       const successfulCommands: Command[] = [];
       let result;
       try {
         result = await measurePhase("integration_validation", async () =>
-          runValidation(validation.integrationCommands, worktree, {
+          runValidation(integrationSteps, worktree, {
             cachedFingerprints,
+            sourceReuse: {
+              fingerprints: sourceReuse.reused,
+              reason: `target moved only by ${sourceReuse.tier} paths`,
+            },
             sessionId: session.id,
             resourceWaitSeconds: (await readConfig()).lockWaitSeconds,
             phase: "integration",
@@ -2008,6 +2028,7 @@ async function validateCommitAndFinish(
         "integrationValidationCommandsRun",
         result.executed,
       );
+      recordSourceReuseResult(sourceReuse, result.sourceReused ?? []);
       delete session.validationFailure;
     },
   );

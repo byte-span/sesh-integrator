@@ -32,20 +32,29 @@ export function isValidationStepList(value: unknown): boolean {
   );
 }
 
+/**
+ * The first tier, in configuration order, whose patterns match every path.
+ * This is the single precedence rule for selecting a tier from paths.
+ */
+export function findValidationTier(
+  repository: RepositoryConfig,
+  paths: string[],
+): ValidationTier | undefined {
+  return (repository.validationTiers ?? []).find(
+    (candidate) =>
+      paths.length > 0 &&
+      paths.every((path) =>
+        candidate.paths.some((pattern) => matchesPath(pattern, path)),
+      ),
+  );
+}
+
 export function selectValidation(
   repository: RepositoryConfig,
   paths: string[],
   allowTiers = true,
 ): SelectedValidation {
-  const tier = allowTiers
-    ? (repository.validationTiers ?? []).find(
-        (candidate) =>
-          paths.length > 0 &&
-          paths.every((path) =>
-            candidate.paths.some((pattern) => matchesPath(pattern, path)),
-          ),
-      )
-    : undefined;
+  const tier = allowTiers ? findValidationTier(repository, paths) : undefined;
   return tier
     ? selectedTier(tier, paths)
     : {

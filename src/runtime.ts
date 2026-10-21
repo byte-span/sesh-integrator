@@ -209,6 +209,14 @@ export function validateConfig(value: Config, source: string): Config {
           `Invalid validation tier ${tier.name} for ${repository.path}`,
         );
       }
+      if (
+        tier.reuseSourceValidationOnTargetMove !== undefined &&
+        typeof tier.reuseSourceValidationOnTargetMove !== "boolean"
+      ) {
+        throw new Error(
+          `Invalid reuseSourceValidationOnTargetMove for validation tier ${tier.name} in ${repository.path}: use true or false`,
+        );
+      }
     }
     // targetBranch intentionally remains optional for backward compatibility.
     // Its effective value inherits the optional global policy, then falls back
