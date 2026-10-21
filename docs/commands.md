@@ -594,6 +594,10 @@ preserved for `resume`.
 When the staged integration tree equals the source-validated tree, matching
 integration commands reuse their exact-tree results; integration-only commands
 still run. Retries reuse successes only while every fingerprint remains exact.
+When the target moved only by paths of a tier that sets
+[`reuseSourceValidationOnTargetMove`](configuration.md#reusing-source-validation-when-the-target-moves),
+that tier's integration commands run on the merged tree and the other source
+results are reused; `integrate` prints which commands were reused and why.
 
 On conflict, `integrate` preserves the merge and saves a contextual prompt under
 `~/.sesh-integrator/logs/`. The workflow skill directs the current agent session to

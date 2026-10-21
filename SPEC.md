@@ -524,6 +524,14 @@ mixed changes, inferred preparation, recovery revalidation and post-integration
 commands still queue. Non-boolean values are configuration errors; older
 coordinators ignore the key and queue.
 
+A tier may explicitly set `reuseSourceValidationOnTargetMove` (boolean; other
+values are configuration errors, and older coordinators ignore it). It asserts
+that changes confined to the tier's paths cannot change other validation
+commands' results beyond what the tier's own integration commands check. See
+10.6 for when integration applies it. When reuse adds the tier's commands to a
+plan that bypasses the build queue, the plan keeps the bypass only if that tier
+also sets `bypassBuildQueue` or adds no commands.
+
 Auto-configuration may add conservative documentation-only and test-only tiers
 and may group independent inferred checks in explicit parallel groups.
 Before a non-empty validation plan, the tool also inspects package manifests
@@ -615,7 +623,8 @@ The leader merges each member's exact ready commit in ready-time order with
 A conflicting member is left out and integrates alone through the normal
 conflict-resume flow. The combined commit is validated once in a detached,
 tool-owned batch worktree with the strictest selection any member needs (a
-shared tier, otherwise full), without cache or source-result reuse. Staging
+shared tier, otherwise full), without cache or source-result reuse (including
+`reuseSourceValidationOnTargetMove`). Staging
 advances with an expected-old check (fast-forwarding a clean canonical
 integration worktree in place), and the target is promoted with the
 expected-previous-target check, post-integration commands and configured PR
@@ -681,6 +690,19 @@ If the staged merge tree is identical to the source-validated tree, reuse only
 matching successful command fingerprints and run every integration-only or
 otherwise unmatched command. A retry may reuse a successful command only while
 the exact tree and fingerprint remain unchanged.
+
+If the trees differ, list every differing path with `git diff-tree -r -z
+--no-renames` between the source-validated tree and the staged merge tree.
+When the exact ready commit passed `seshx validate`, `validationCache` is not
+`off`, the session is not in `local_target` recovery, and the first tier (in
+configuration order) matching every differing path sets
+`reuseSourceValidationOnTargetMove: true`, run that tier's integration
+commands on the merged tree, reuse source-tree results for the session's other
+selected integration commands, and run commands without a source result (for
+example `build`). Otherwise run the full selection. Reused results are never
+recorded for the merged tree. Output and the performance record name the
+outcome (`exact-tree`, `applied`, `skipped`), reason, tier, differing path count
+and reused commands. Batch candidates never use this reuse.
 
 ### 10.6.1 Performance records
 

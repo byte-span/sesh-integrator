@@ -8,6 +8,7 @@ Commands below run from the repository root unless stated otherwise.
 - [Integration batching](#integration-batching)
 - [Optional pull-request promotion](#optional-pull-request-promotion)
 - [Stable default branch with a development target](#stable-default-branch-with-a-development-target)
+- [Reusing source validation when the target moves](#reusing-source-validation-when-the-target-moves)
 - [Central delivery policy](#central-delivery-policy)
 
 ### `register`
@@ -213,11 +214,13 @@ manual inspection as before. After it is cleared, members rerun
 
 A combined batch tree never equals any member's source-validated tree. Batch
 validation therefore runs every selected command, without session,
-repository-cache or source-result reuse. Sessions integrated alone during
-failure isolation follow the normal exact-tree reuse rules. Future reuse of
-source results across target movement (such as lightweight-tier opt-ins) must
-treat a batch candidate as every member's paths moving at once and, by
-default, keep the strictest full rerun for batches.
+repository-cache or source-result reuse. The
+[`reuseSourceValidationOnTargetMove`](#reusing-source-validation-when-the-target-moves)
+opt-in does not apply to a batch candidate either: every other member's
+changes count as target movement, so the strictest selection runs in full.
+Sessions integrated alone (a conflicting member, a member isolated after a
+failed combined validation, or a leader with no waiting sessions) follow the
+normal single-session rules, including that opt-in.
 
 ### Optional pull-request promotion
 
@@ -506,6 +509,73 @@ repository's `setupBypassBuildQueue` to `true`; it covers every
 - `setupBypassBuildQueue` is a repository key beside `setupCommands` rather
   than an object form of a setup entry, because older coordinators expect each
   entry to be an argument array and would fail on an object.
+
+### Reusing source validation when the target moves
+
+Integration reuses `seshx validate` results only for the exact tree they
+checked. If other work moved the target first, the merged tree differs and
+every selected integration command runs again, even when the target moved only
+by a `TASKS.json` update. A tier can opt in to keep the source results in that
+case:
+
+```json
+{
+  "name": "task-register",
+  "paths": ["TASKS.json"],
+  "sourceValidationCommands": [["qtask", "validate", "."]],
+  "integrationValidationCommands": [
+    ["qtask", "validate", "."],
+    ["pnpm", "exec", "prettier", "--check", "TASKS.json"]
+  ],
+  "reuseSourceValidationOnTargetMove": true
+}
+```
+
+**What the opt-in asserts.** `reuseSourceValidationOnTargetMove: true` states
+that changes confined to this tier's paths cannot change the result of any
+other validation command, beyond what this tier's own integration commands
+check on the merged tree. Opt in only when that holds, for example a task
+register that no test, build or lint step reads, with its format checked by
+the tier itself. Do not opt in a tier whose paths tests, builds, generators,
+packaging or formatters read without the tier checking them, such as
+documentation that tests or a repository-wide format check cover, packaged
+guidance, or configuration. A tier without integration commands asserts that
+its paths need no check at all.
+
+**When it applies.** Integration lists every path that differs between the
+session's validated source tree and the merged tree, listing both sides of a
+rename. Source results are reused only when all of these hold:
+
+1. The exact ready commit passed `seshx validate`.
+2. `validationCache` is not `off`.
+3. The session is not in local target recovery (`recoveryPhase` `local_target`).
+4. The first tier in configuration order whose patterns match every differing
+   path (the rule that selects a session's tier) sets the option to `true`.
+
+Integration then runs that tier's integration commands on the merged tree,
+reuses the session's source results for its other selected integration
+commands, and runs every command without a source result, such as an
+integration-only `build`, on the merged tree. A differing path outside that
+tier, a mixed movement, or a matching tier without the opt-in keeps the full
+rerun. Reused results are never recorded as results for the merged tree.
+
+**What you see.** `integrate` prints `Source validation reuse:` with the tier
+and differing paths, then `Reusing source validation: <command> (target moved
+only by <tier> paths)` for each reused command. Otherwise it prints `Source
+validation reuse skipped:` and the reason. The session's performance record
+under `<runtime>/performance/` stores `integrationSourceReuse` (`exact-tree`,
+`applied` or `skipped`), `integrationSourceReuseReason`,
+`integrationSourceReuseTier`, `integrationSourceReuseDifferingPaths`,
+`integrationSourceReusedCommands` and `integrationSourceReusedCommandList`.
+
+When the session's own tier sets
+[`bypassBuildQueue`](#lightweight-tiers-and-setup), the reused plan keeps
+skipping the build queue only if the tier whose commands were added sets it
+too, or adds no commands; otherwise the plan queues.
+
+Any value other than `true` or `false` stops every command with a
+configuration error. Older coordinators ignore the key and rerun the full
+plan. [Integration batches](#batches-and-validation-reuse) never use it.
 
 ## Central delivery policy
 

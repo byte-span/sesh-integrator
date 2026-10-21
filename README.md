@@ -167,7 +167,10 @@ validation fails, the batch is split and validated in halves, so passing session
 still promote and only a session that fails alone waits for `resume`. Nothing is
 promoted on a tree that was not validated. Set
 [`integrationBatching`](docs/configuration.md#integration-batching) to change the
-batch size cap or turn batching off for a repository.
+batch size cap or turn batching off for a repository. A tier such as
+`TASKS.json` can opt in to
+[keep a session's source validation results](docs/configuration.md#reusing-source-validation-when-the-target-moves)
+when the target moved only by that tier's paths.
 
 The internal staging branch is separate from your target. Promotion verifies the
 expected target commit and preserves dirty checkout state. A blocked promotion

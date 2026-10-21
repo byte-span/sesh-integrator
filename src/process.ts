@@ -137,6 +137,11 @@ export async function runValidation(
   cwd: string,
   options: {
     cachedFingerprints?: Set<string>;
+    /**
+     * Commands whose successful result on a different, validated source tree
+     * is reused instead of running them on this tree, and why.
+     */
+    sourceReuse?: { fingerprints: Set<string>; reason: string };
     onCommandSuccess?: (command: Command, fingerprint: string) => Promise<void>;
     sessionId?: string;
     resourceWaitSeconds?: number;
@@ -147,17 +152,23 @@ export async function runValidation(
      */
     queueBypass?: string;
   } = {},
-): Promise<{ cacheHits: number; executed: number }> {
+): Promise<{
+  cacheHits: number;
+  executed: number;
+  /** Present only when a source result was reused. */
+  sourceReused?: Command[];
+}> {
   return withQueueCancellation(async (signal) => {
+    const skipped = (fingerprint: string) =>
+      options.cachedFingerprints?.has(fingerprint) === true ||
+      options.sourceReuse?.fingerprints.has(fingerprint) === true;
     if (
       commands.some((step) => {
         const group =
           Array.isArray(step) || "command" in step ? [step] : step.parallel;
         return group.some(
           (entry) =>
-            !options.cachedFingerprints?.has(
-              commandFingerprint(validationCommandValue(entry)),
-            ),
+            !skipped(commandFingerprint(validationCommandValue(entry))),
         );
       })
     ) {
@@ -165,6 +176,7 @@ export async function runValidation(
     }
     let cacheHits = 0;
     let executed = 0;
+    const sourceReused: Command[] = [];
     for (const step of commands) {
       const group =
         Array.isArray(step) || "command" in step ? [step] : step.parallel;
@@ -176,6 +188,13 @@ export async function runValidation(
             `Using cached validation: ${command.join(" ")}\n`,
           );
           cacheHits += 1;
+          return false;
+        }
+        if (options.sourceReuse?.fingerprints.has(fingerprint)) {
+          process.stdout.write(
+            `Reusing source validation: ${command.join(" ")} (${options.sourceReuse.reason})\n`,
+          );
+          sourceReused.push(command);
           return false;
         }
         return true;
@@ -198,7 +217,11 @@ export async function runValidation(
         await options.onCommandSuccess?.(command, commandFingerprint(command));
       }
     }
-    return { cacheHits, executed };
+    return {
+      cacheHits,
+      executed,
+      ...(sourceReused.length > 0 ? { sourceReused } : {}),
+    };
   });
 }
 

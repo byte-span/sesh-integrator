@@ -3575,6 +3575,9 @@ function repositorySettingsForm(data, r) {
           ...(tier.bypassIntegrationWorktree
             ? ["Skips the integration worktree"]
             : []),
+          ...(tier.reuseSourceValidationOnTargetMove
+            ? ["Keeps source results when the target moves only by these paths"]
+            : []),
         ].join("\n"),
       ),
     );
