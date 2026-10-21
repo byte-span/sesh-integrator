@@ -103,7 +103,11 @@ import type {
   SessionDelivery,
   SessionIndexEntry,
 } from "./types.js";
-import { selectValidation, type SelectedValidation } from "./validation.js";
+import {
+  selectValidation,
+  validationQueueBypass,
+  type SelectedValidation,
+} from "./validation.js";
 import {
   assessBeginBaseline,
   assessCompletionState,
@@ -881,7 +885,7 @@ export async function integrateCommand(
   session.changedPaths = validation.changedPaths;
   await writeSession(session);
   process.stdout.write(
-    `Validation tier: ${validation.name} (${validation.changedPaths.length} changed path(s))\n`,
+    `Validation tier: ${validation.name} (${validation.changedPaths.length} changed path(s))${validationQueueBypass(validation) ? "; lightweight, bypasses the build queue" : ""}\n`,
   );
 
   const canonicalWorktree = join(
@@ -1230,8 +1234,9 @@ export async function validateCommand(sessionId?: string): Promise<Session> {
   );
   if (paths.length === 0) throw new Error("Session has no committed changes");
   const validation = selectValidation(repository, paths);
+  const queueBypass = validationQueueBypass(validation);
   process.stdout.write(
-    `Validation tier: ${validation.name} (${paths.length} changed path(s))\n`,
+    `Validation tier: ${validation.name} (${paths.length} changed path(s))${queueBypass ? "; lightweight, bypasses the build queue" : ""}\n`,
   );
   recordPerformanceMetric("validationTier", validation.name);
   recordPerformanceMetric("changedPathCount", paths.length);
@@ -1269,6 +1274,7 @@ export async function validateCommand(sessionId?: string): Promise<Session> {
             sessionId: session.id,
             resourceWaitSeconds: (await readConfig()).lockWaitSeconds,
             phase: "source",
+            ...(queueBypass ? { queueBypass } : {}),
             onCommandSuccess: async (command) => {
               successfulCommands.push(command);
             },
@@ -1926,9 +1932,14 @@ async function validateCommitAndFinish(
   session: Session,
   worktree: string,
 ): Promise<void> {
+  // Local-target recovery always reruns the full commands in the queue.
   const validation =
     session.recoveryPhase === "local_target"
-      ? { integrationCommands: repository.integrationValidationCommands }
+      ? {
+          name: "full",
+          integrationCommands: repository.integrationValidationCommands,
+          bypassBuildQueue: false,
+        }
       : selectValidation(
           repository,
           session.changedPaths ??
@@ -1940,6 +1951,7 @@ async function validateCommitAndFinish(
           session.validationTier !== "full" &&
             session.sourceValidatedCommit === session.readyCommit,
         );
+  const queueBypass = validationQueueBypass(validation);
   const setup = await measurePhase("integration_setup", async () =>
     runSetupWithCache(repository, worktree),
   );
@@ -1977,6 +1989,7 @@ async function validateCommitAndFinish(
             sessionId: session.id,
             resourceWaitSeconds: (await readConfig()).lockWaitSeconds,
             phase: "integration",
+            ...(queueBypass ? { queueBypass } : {}),
             onCommandSuccess: async (command) => {
               successfulCommands.push(command);
             },

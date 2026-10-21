@@ -50,6 +50,13 @@ that release), then keep them here under its version heading.
   workload stopped before recovering.
 - Coordinators pinned by unfinished sessions keep their old defaults until those
   sessions finish. Write `--concurrency auto` explicitly to limit them too.
+- **Lightweight commands can skip the queue (opt-in).** Set
+  `bypassBuildQueue: true` on a validation tier of quick checks, such as a
+  `TASKS.json` validator and formatter check, and `setupBypassBuildQueue: true`
+  on a repository whose setup is a quick warm-cache install. They then run at
+  once instead of waiting behind test suites. Nothing changes until you set
+  them; never set them for builds or tests.
+  [Lightweight commands →](build-queue.md#lightweight-commands)
 
 See [build queue defaults](build-queue.md#defaults).
 

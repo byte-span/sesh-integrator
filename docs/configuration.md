@@ -173,7 +173,8 @@ wait for the next lock holder.
    (`worktrees/<repo-id>-batch`). It runs setup, then the strictest selection
    any member needs: a shared validation tier when every member selected the
    same tier and the combined paths still match it, otherwise the full
-   integration commands.
+   integration commands. A shared tier marked `bypassBuildQueue` runs without
+   a build queue slot; the full commands always queue.
 4. Advances staging with an expected-old check, then promotes the target with
    the usual expected-previous-target check, post-integration commands and
    pull-request promotion.
@@ -414,6 +415,9 @@ unsupported Git fall back to the normal integration worktree. A clean,
 tool-owned integration worktree may be removed before this update; user
 worktrees are never removed.
 
+A tier can also mark quick checks with `bypassBuildQueue` so they skip the
+build queue; see [lightweight tiers and setup](#lightweight-tiers-and-setup).
+
 Validation command lists also accept explicit `{ "parallel": [...] }` groups.
 Commands within a group run concurrently; groups and ordinary commands still
 run in order and any failed member stops validation. Auto-configuration groups
@@ -461,6 +465,47 @@ required local artifacts or external mutable inputs; see [reuse boundaries](buil
 setup is skipped only when its manifest/lockfile fingerprint matches and the
 worktree still has its dependency marker. Explicit required setup is never
 skipped.
+
+#### Lightweight tiers and setup
+
+A validation tier may set `bypassBuildQueue` to `true` when every command in it
+is a quick check, such as a task-register validator or a formatter's `--check`. Its
+source and integration commands then start at once instead of waiting behind
+builds and test suites in the [build queue](build-queue.md#lightweight-commands).
+For quick setup such as a warm-cache `pnpm install --frozen-lockfile`, set the
+repository's `setupBypassBuildQueue` to `true`; it covers every
+`setupCommands` entry:
+
+```json
+{
+  "setupCommands": [["corepack", "pnpm", "install", "--frozen-lockfile"]],
+  "setupBypassBuildQueue": true,
+  "validationTiers": [
+    {
+      "name": "task-register",
+      "paths": ["TASKS.json"],
+      "sourceValidationCommands": [["qtask", "validate", "."]],
+      "integrationValidationCommands": [["qtask", "validate", "."]],
+      "bypassBuildQueue": true
+    }
+  ]
+}
+```
+
+- **Not for builds, type checks or test suites.** The queue exists to keep
+  those from overloading the machine. Leave the option off for any tier or
+  setup that compiles or runs tests, and for setup that usually downloads or
+  builds dependencies.
+- Only an exact tier match bypasses. Mixed changes that select a code tier or
+  the full fallback, tiers and setup without the option, inferred framework
+  preparation, recovery revalidation and post-integration commands still queue.
+- An integration batch bypasses only when it runs a shared lightweight tier
+  ([batching](#integration-batching)).
+- Values must be `true` or `false`; anything else is a configuration error.
+  Older pinned coordinators ignore both keys and keep queueing.
+- `setupBypassBuildQueue` is a repository key beside `setupCommands` rather
+  than an object form of a setup entry, because older coordinators expect each
+  entry to be an argument array and would fail on an object.
 
 ## Central delivery policy
 
@@ -622,7 +667,8 @@ command waits without queue progress, not its total wait. Existing explicit
 settings are retained, and `seshx queue status` shows the effective values.
 Queue configuration is machine-local and independent of this repository
 configuration. See [build queue defaults, recovery, and limits](build-queue.md#defaults).
-Directly launched builds remain outside the queue.
+Directly launched builds remain outside the queue. Repository tiers and setup
+marked [lightweight](#lightweight-tiers-and-setup) skip it by explicit opt-in.
 
 The queue limits how many commands run, not how many workers each command
 starts. This repository's Vitest config divides the available CPUs by the

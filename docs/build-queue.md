@@ -5,6 +5,8 @@ validation, and post-integration commands share one local queue per user account
 and host. Parallel validation groups still run all their checks, subject to the
 shared capacity. Commands with named resources acquire those resources before
 joining the queue. Git operations and agent work do not consume a slot.
+Validation tiers and setup commands explicitly marked
+[lightweight](#lightweight-commands) run without a slot.
 
 **Builds and tests launched directly**, such as `pnpm build`, `npm test`, an IDE
 task, or an older pinned coordinator, **remain outside the queue**. The queue
@@ -88,7 +90,8 @@ Wait-time changes apply to newly queued requests. Invalid settings stop admissio
 rather than disabling the queue.
 
 Older pinned coordinators keep their own defaults, waiting rules and orphan
-handling, and do not coalesce validation plans. Coordinators released while the
+handling, do not coalesce validation plans, and queue
+[lightweight commands](#lightweight-commands) normally. Coordinators released while the
 default was `unlimited` keep scheduling without a limit on a machine with no
 `config.json`. To limit them too, write the setting explicitly with
 `seshx queue configure --concurrency auto`; every queue-aware coordinator reads
@@ -100,6 +103,74 @@ For isolated tests or an alternative **local** location, set
 path is a separate queue. Do not use a network share. POSIX shells use
 `export SESH_BUILD_QUEUE_HOME=/local/path`; PowerShell uses
 `$env:SESH_BUILD_QUEUE_HOME = 'C:\local\path'`.
+
+## Lightweight commands
+
+A `TASKS.json`-only change should not wait minutes behind full test suites for
+a two-second schema and format check. Mark a validation tier with
+`bypassBuildQueue: true` and its commands start at once, without waiting for or
+holding a slot:
+
+```json
+{
+  "name": "task-register",
+  "paths": ["TASKS.json"],
+  "sourceValidationCommands": [
+    ["qtask", "validate", "."],
+    ["corepack", "pnpm", "exec", "prettier", "--check", "TASKS.json"]
+  ],
+  "integrationValidationCommands": [
+    ["qtask", "validate", "."],
+    ["corepack", "pnpm", "exec", "prettier", "--check", "TASKS.json"]
+  ],
+  "bypassBuildQueue": true
+}
+```
+
+For a quick setup step, such as a warm-cache
+`pnpm install --frozen-lockfile`, set the repository's
+`setupBypassBuildQueue: true`. It covers every `setupCommands` entry wherever
+setup runs: `begin`, integration, batches and remote recovery.
+
+**Use it only for** checks that take seconds and little CPU or memory:
+formatter `--check` runs, schema or task-register validators, link checks.
+**Never for builds, type checks or test suites.** Those are what the queue
+protects the machine from; bypassing them runs them all at once again.
+
+**Still queued:**
+
+- tiers and setup commands without the option;
+- a change whose paths do not all match the lightweight tier, such as
+  `TASKS.json` plus source files: it selects a code tier or the full fallback,
+  which queue as before;
+- post-integration commands, local-target recovery and remote-recovery
+  revalidation, which always run the full commands;
+- inferred framework preparation (for example `next typegen`). It is not one of
+  the tier's configured commands, so in such repositories a lightweight tier
+  still waits for that one step unless every command is cached.
+
+**Batches.** A [batch](configuration.md#integration-batching) uses a shared
+tier only when every member selected it and the combined paths still match it.
+That run bypasses the queue too, because it runs the same lightweight commands
+on lightweight paths. Any other combination selects the queued full fallback.
+
+**What you see.** Each bypassing command prints, for example,
+`Build queue bypassed (lightweight validation tier task-register; no slot used): source validation [<session>]`,
+and `validate` and `integrate` add `lightweight, bypasses the build queue` to
+the `Validation tier:` line. While it runs, `seshx queue status` lists it as
+`bypassed queue (...; no slot used)` with its session, PID and worktree. These
+records live in `bypassed/` under the queue directory. They hold no capacity
+and need no recovery: a record left by a crashed owner shows `owner exited` and
+the next bypassing command removes it. [Failure evidence](#failure-evidence)
+counts bypassing commands separately as `bypassed`, never as running slots.
+
+**Values** must be `true` or `false`; anything else stops every command with a
+configuration error. Named `resources` and transient retries still apply.
+
+**Older pinned coordinators** ignore both keys and keep queueing these commands
+without failing. That is why setup uses a sibling key instead of an object
+entry inside `setupCommands`: older coordinators run each entry as an argument
+array, so an object entry would make their setup fail.
 
 ## Cancellation and recovery
 
@@ -226,10 +297,12 @@ code. The session's `validationFailure` and its incident hold:
   by the current user (`logError` explains a log that could not be written);
 - `failingTests`, or else `firstErrorLine`, parsed from the output;
 - `queueLoad`: running and waiting queue entries and the effective capacity
-  when the failure was recorded.
+  when the failure was recorded, plus `bypassed`: commands running without a
+  slot under [`bypassBuildQueue`](#lightweight-commands).
 
 `running` includes the failed command when it ran to an exit code; its slot is
-released just before sampling. A command that never started, such as one whose
+released just before sampling. A failed lightweight command is counted in
+`bypassed` instead. A command that never started, such as one whose
 queue wait timed out, is not counted. A failure with several running entries or
 waiters suggests resource contention; a repeatable failure on an idle queue
 points to a code defect.

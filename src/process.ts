@@ -141,6 +141,11 @@ export async function runValidation(
     sessionId?: string;
     resourceWaitSeconds?: number;
     phase?: "source" | "integration";
+    /**
+     * Reason the plan's commands skip the build queue (an explicit
+     * bypassBuildQueue tier). Inferred preparation still takes a slot.
+     */
+    queueBypass?: string;
   } = {},
 ): Promise<{ cacheHits: number; executed: number }> {
   return withQueueCancellation(async (signal) => {
@@ -205,6 +210,7 @@ async function runValidationCommand(
     sessionId?: string;
     resourceWaitSeconds?: number;
     phase?: "source" | "integration";
+    queueBypass?: string;
   },
 ): Promise<void> {
   const command = validationCommandValue(entry);
@@ -244,6 +250,7 @@ async function runValidationCommand(
             cwd,
             `${options.phase ?? "source"} validation`,
             options.sessionId,
+            options.queueBypass,
           );
           if (result.code === 0) return true;
           const message = `Validation failed (${result.code}): ${command.join(" ")}`;
@@ -298,7 +305,10 @@ async function runValidationCommand(
   ): Promise<ValidationFailure> {
     // Queue load separates resource contention from a code defect. Output
     // evidence exists only when the command ran to an exit code.
-    const queueLoad = await sampleQueueLoad(evidence.exitCode !== undefined);
+    const queueLoad = await sampleQueueLoad(
+      evidence.exitCode !== undefined,
+      options.queueBypass !== undefined,
+    );
     const record: ValidationFailureRecord = {
       phase: options.phase ?? "source",
       command,
@@ -359,13 +369,21 @@ export async function runRequiredCommands(
   commands: Command[],
   cwd: string,
   label: string,
+  queueBypass?: string,
 ): Promise<void> {
   return withQueueCancellation(async () => {
     for (const [command, ...args] of commands) {
       process.stdout.write(
         `Running ${label}: ${[command, ...args].join(" ")}\n`,
       );
-      const result = await runQueued(command, args, cwd, label);
+      const result = await runQueued(
+        command,
+        args,
+        cwd,
+        label,
+        undefined,
+        queueBypass,
+      );
       if (result.code !== 0) {
         throw new Error(
           `${capitalize(label)} failed (${result.code}): ${[command, ...args].join(" ")}`,

@@ -5,6 +5,7 @@ import { stripVTControlCharacters } from "node:util";
 import {
   queueCapacity,
   ownerAlive,
+  queueBypasses,
   queueEntries,
   queueRoot,
   queueSettings,
@@ -223,24 +224,33 @@ export async function captureValidationOutput(
  */
 export async function sampleQueueLoad(
   countFailedCommand: boolean,
+  failedCommandBypassed = false,
 ): Promise<QueueLoadNote> {
   const sampledAt = new Date().toISOString();
   try {
     const root = queueRoot();
-    const [settings, entries] = await Promise.all([
+    const [settings, entries, bypasses] = await Promise.all([
       queueSettings(root),
       queueEntries(root),
+      queueBypasses(root),
     ]);
     const limit = queueCapacity(settings);
+    // A command that bypassed the queue never held a slot, so it is counted
+    // with the other bypassing commands rather than as a running entry.
+    const self = countFailedCommand ? 1 : 0;
+    const bypassed =
+      bypasses.filter((bypass) => ownerAlive(bypass)).length +
+      (failedCommandBypassed ? self : 0);
     return {
       sampledAt,
       running:
         entries.filter((entry) => entry.state === "running").length +
-        (countFailedCommand ? 1 : 0),
+        (failedCommandBypassed ? 0 : self),
       waiting: entries.filter(
         (entry) => entry.state === "waiting" && ownerAlive(entry),
       ).length,
       capacity: Number.isFinite(limit) ? limit : "unlimited",
+      ...(bypassed ? { bypassed } : {}),
     };
   } catch (error) {
     return {
@@ -253,7 +263,7 @@ export async function sampleQueueLoad(
 export function describeQueueLoad(load: QueueLoadNote): string {
   if (load.unavailable !== undefined)
     return `unavailable (${load.unavailable})`;
-  return `${load.running ?? 0} running, ${load.waiting ?? 0} waiting (capacity ${load.capacity ?? "unknown"})`;
+  return `${load.running ?? 0} running, ${load.waiting ?? 0} waiting (capacity ${load.capacity ?? "unknown"})${load.bypassed ? `, ${load.bypassed} bypassing the queue` : ""}`;
 }
 
 /** Preserved evidence of a validation failure as label/value pairs. */

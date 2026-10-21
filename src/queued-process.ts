@@ -1,5 +1,10 @@
 import { spawn } from "node:child_process";
-import { acquireBuildSlot, releaseBuildSlot } from "./build-queue.js";
+import {
+  acquireBuildSlot,
+  registerQueueBypass,
+  releaseBuildSlot,
+  releaseQueueBypass,
+} from "./build-queue.js";
 import { withCleanup } from "./file-lock.js";
 import { spawnFailure } from "./execution-error.js";
 import { recordSubprocess } from "./performance.js";
@@ -54,15 +59,34 @@ export async function withQueueCancellation<T>(
 export class QueueCancellation extends Error {}
 export class QueueOwnershipUncertain extends Error {}
 
+/**
+ * Run a command in a build queue slot. With `bypass` (the reason, from an
+ * explicit bypassBuildQueue opt-in) it starts at once without waiting for or
+ * holding a slot; it is recorded only so queue status can show it.
+ */
 export async function runQueued(
   command: string,
   args: string[],
   cwd: string,
   label: string,
   sessionId = `process-${process.pid}`,
+  bypass?: string,
 ): Promise<CommandResult> {
   const scope = cancellationScope();
   try {
+    if (bypass !== undefined) {
+      const record = await registerQueueBypass(cwd, label, sessionId, bypass);
+      process.stdout.write(
+        `Build queue bypassed (${bypass}; no slot used): ${label} [${sessionId}]\n`,
+      );
+      const result = await withCleanup(
+        () => execute(command, args, cwd, scope.signal, false),
+        () => releaseQueueBypass(record),
+        "Build queue bypass cleanup",
+      );
+      scope.signal.throwIfAborted();
+      return result;
+    }
     const lease = await acquireBuildSlot(cwd, label, sessionId, scope.signal);
     let uncertain = false;
     const result = await withCleanup(
@@ -101,6 +125,7 @@ function execute(
   args: string[],
   cwd: string,
   signal: AbortSignal,
+  slotHeld = true,
 ): Promise<CommandResult> {
   signal.throwIfAborted();
   const started = process.hrtime.bigint();
@@ -146,7 +171,7 @@ function execute(
         // capacity if a POSIX command backgrounded work or cancellation failed.
         if (child.pid && process.platform !== "win32" && groupAlive(child.pid))
           throw new QueueOwnershipUncertain(
-            `Command process group ${child.pid} still exists after exit; queue slot retained.`,
+            `Command process group ${child.pid} still exists after exit; ${slotHeld ? "queue slot retained" : "it ran without a queue slot, so inspect and stop it directly"}.`,
           );
         if (signal.aborted)
           throw new QueueCancellation("Build queue cancelled");
