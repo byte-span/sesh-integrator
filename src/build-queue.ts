@@ -35,6 +35,26 @@ export interface QueueLease {
   root: string;
   entry: QueueEntry;
 }
+/**
+ * A lightweight command running without a slot (bypassBuildQueue). Kept in
+ * `bypassed/`, never `entries/`: it holds no capacity, admission ignores it,
+ * and older coordinators, which reject unknown entry states, never read it.
+ */
+export interface QueueBypass {
+  version: 1;
+  id: string;
+  pid: number;
+  hostname: string;
+  sessionId: string;
+  cwd: string;
+  label: string;
+  reason: string;
+  startedAt: string;
+}
+export interface QueueBypassLease {
+  root: string;
+  bypass: QueueBypass;
+}
 // Machines without config.json get a resource-aware limit. 7f64fc1 defaulted to
 // "unlimited" because "auto" gave one slot on a 7.5 GiB benchmark machine,
 // serializing concurrent validations (about 3x slower than pre-queue). That
@@ -432,6 +452,89 @@ export async function releaseBuildSlot(lease: QueueLease): Promise<void> {
     await unlink(entryPath(lease.root, lease.entry.id));
   });
 }
+function bypassPath(root: string, id: string): string {
+  return join(root, "bypassed", `${id}.json`);
+}
+/**
+ * Record a command that runs without a slot so queue status can show it. No
+ * admission mutex: the record changes no capacity. Records of dead local
+ * owners are pruned here because they never held a slot to recover.
+ */
+export async function registerQueueBypass(
+  cwd: string,
+  label: string,
+  sessionId: string,
+  reason: string,
+): Promise<QueueBypassLease> {
+  const root = queueRoot();
+  await mkdir(join(root, "bypassed"), { recursive: true, mode: 0o700 });
+  for (const stale of await queueBypasses(root))
+    if (!ownerAlive(stale))
+      await unlink(bypassPath(root, stale.id)).catch(() => undefined);
+  const bypass: QueueBypass = {
+    version: 1,
+    id: randomUUID(),
+    pid: process.pid,
+    hostname: hostname(),
+    sessionId,
+    cwd,
+    label,
+    reason,
+    startedAt: new Date().toISOString(),
+  };
+  await atomicJson(bypassPath(root, bypass.id), bypass);
+  return { root, bypass };
+}
+export async function releaseQueueBypass(
+  lease: QueueBypassLease,
+): Promise<void> {
+  try {
+    await unlink(bypassPath(lease.root, lease.bypass.id));
+  } catch (error) {
+    if (code(error) !== "ENOENT") throw error;
+  }
+}
+/** Commands currently running without a slot. Unreadable records are skipped. */
+export async function queueBypasses(
+  root = queueRoot(),
+): Promise<QueueBypass[]> {
+  let names: string[];
+  try {
+    names = await readdir(join(root, "bypassed"));
+  } catch (error) {
+    if (code(error) === "ENOENT") return [];
+    throw error;
+  }
+  const records: QueueBypass[] = [];
+  for (const name of names.filter((name) => name.endsWith(".json"))) {
+    let value: Partial<QueueBypass> | null;
+    try {
+      value = JSON.parse(
+        await readFile(join(root, "bypassed", name), "utf8"),
+      ) as Partial<QueueBypass> | null;
+    } catch {
+      continue; // Removed or mid-write; it holds no capacity either way.
+    }
+    if (
+      value &&
+      value.version === 1 &&
+      typeof value.id === "string" &&
+      name === `${value.id}.json` &&
+      Number.isSafeInteger(value.pid) &&
+      typeof value.hostname === "string" &&
+      typeof value.sessionId === "string" &&
+      typeof value.cwd === "string" &&
+      typeof value.label === "string" &&
+      typeof value.reason === "string" &&
+      typeof value.startedAt === "string"
+    )
+      records.push(value as QueueBypass);
+  }
+  return records.sort(
+    (a, b) =>
+      a.startedAt.localeCompare(b.startedAt) || a.id.localeCompare(b.id),
+  );
+}
 function orphanedMessage(orphans: QueueEntry[], root: string): string {
   const plain = stripVTControlCharacters;
   return [
@@ -469,7 +572,17 @@ export async function printBuildQueue(): Promise<void> {
     process.stdout.write(
       `  ${entry.id} ${entry.state}${ownerAlive(entry) ? "" : entry.state === "running" ? ` (orphaned; after confirming its workload stopped: seshx queue recover ${entry.id} --confirmed-stopped)` : " (orphaned; inspect before recovery)"}: ${stripVTControlCharacters(entry.label)}; session ${stripVTControlCharacters(entry.sessionId)}; pid ${entry.pid}; ${stripVTControlCharacters(entry.cwd)}\n`,
     );
-  if (!entries.length) process.stdout.write("  idle\n");
+  // Bypassing commands hold no slot and need no recovery; a dead owner's
+  // record is only pruned, by the next bypassing command.
+  const bypasses = await queueBypasses(root);
+  for (const bypass of bypasses)
+    process.stdout.write(
+      `  ${bypass.id} bypassed queue (${stripVTControlCharacters(bypass.reason)}; no slot used${ownerAlive(bypass) ? "" : "; owner exited"}): ${stripVTControlCharacters(bypass.label)}; session ${stripVTControlCharacters(bypass.sessionId)}; pid ${bypass.pid}; ${stripVTControlCharacters(bypass.cwd)}\n`,
+    );
+  if (!entries.length)
+    process.stdout.write(
+      bypasses.length ? "  no queue slots in use\n" : "  idle\n",
+    );
 }
 export async function queueCommand(args: string[]): Promise<void> {
   if (!args.length || (args.length === 1 && args[0] === "status"))

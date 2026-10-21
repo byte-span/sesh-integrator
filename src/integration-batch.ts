@@ -53,7 +53,11 @@ import type {
   RepositoryConfig,
   Session,
 } from "./types.js";
-import { selectValidation, type SelectedValidation } from "./validation.js";
+import {
+  selectValidation,
+  validationQueueBypass,
+  type SelectedValidation,
+} from "./validation.js";
 import { worktreePaths } from "./worktree-location.js";
 
 const ZERO = "0000000000000000000000000000000000000000";
@@ -488,7 +492,7 @@ async function recordCandidate(
 }
 
 /** The strictest selection any member needs: a shared tier, else full. */
-function batchValidation(
+export function batchValidation(
   repository: RepositoryConfig,
   sessions: Session[],
 ): SelectedValidation {
@@ -521,10 +525,13 @@ async function validateCandidate(
 ): Promise<boolean> {
   const repository = context.repository;
   const validation = batchValidation(repository, assembly.included);
+  // A shared lightweight tier still bypasses: the combined paths matched it.
+  // The full fallback, selected for any other combination, always queues.
+  const queueBypass = validationQueueBypass(validation);
   for (const session of assembly.included)
     session.integrationBatch!.validationTier = validation.name;
   process.stdout.write(
-    `Integration batch ${context.id}: validating ${assembly.included.length} sessions together on ${assembly.commit} (tier ${validation.name})\n`,
+    `Integration batch ${context.id}: validating ${assembly.included.length} sessions together on ${assembly.commit} (tier ${validation.name}${queueBypass ? "; lightweight, bypasses the build queue" : ""})\n`,
   );
   const worktree = await prepareBatchWorktree(context, assembly.commit);
   const record = async (
@@ -567,6 +574,7 @@ async function validateCandidate(
         sessionId: context.leader.id,
         resourceWaitSeconds,
         phase: "integration",
+        ...(queueBypass ? { queueBypass } : {}),
       }),
     );
   } catch (error) {

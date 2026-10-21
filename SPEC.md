@@ -203,7 +203,7 @@ Example `~/.sesh-integrator/config.json`:
 
 Integrator-launched setup, preparation, validation and post-check commands share
 a machine-local queue with a resource-aware default capacity limit, explicit
-machine overrides including `unlimited`, and no-progress wait timeouts. Scheduling preserves required checks. Repository cache reuse also keys on
+machine overrides including `unlimited`, and no-progress wait timeouts. Scheduling preserves required checks. A validation tier marked `bypassBuildQueue: true`, and setup when the repository sets `setupBypassBuildQueue: true`, run those lightweight commands without a slot; status and command output report the bypass. Repository cache reuse also keys on
 the execution environment and coalesces identical concurrent validation plans. Directly launched builds remain outside the queue.
 See [queue ownership, configuration and recovery](docs/build-queue.md).
 
@@ -516,6 +516,13 @@ repository lock, merges against the current integration HEAD using Git plumbing,
 atomically advances the dedicated staging branch, and then uses the same safe
 target-promotion path. Conflicts or an unsafe tool-owned worktree fall back to
 normal integration. It never removes a user worktree or pushes.
+
+A tier may explicitly request `bypassBuildQueue` for quick checks. Its source
+and integration commands, including a batch that runs it as the shared tier,
+then run without waiting for or holding a build queue slot. The full fallback,
+mixed changes, inferred preparation, recovery revalidation and post-integration
+commands still queue. Non-boolean values are configuration errors; older
+coordinators ignore the key and queue.
 
 Auto-configuration may add conservative documentation-only and test-only tiers
 and may group independent inferred checks in explicit parallel groups.

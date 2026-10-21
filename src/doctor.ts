@@ -20,7 +20,7 @@ import { pullRequestPromotion } from "./pull-request.js";
 import { run } from "./process.js";
 import { applyGlobalTargetPolicy, runtimePaths } from "./runtime.js";
 import type { Config, RepositoryConfig } from "./types.js";
-import { isValidationStepList } from "./validation.js";
+import { isValidationStepList, queueBypassConfigError } from "./validation.js";
 
 type CheckState = "PASS" | "SKIP" | "WARN" | "FAIL";
 
@@ -262,7 +262,7 @@ async function repositoryChecks(config: Config, cwd: string): Promise<Check[]> {
       repository.setupCommands.length > 0
         ? pass(
             `Worktree setup (${repository.path})`,
-            `${repository.setupCommands.length} command(s)`,
+            `${repository.setupCommands.length} command(s)${repository.setupBypassBuildQueue === true ? "; bypassing the build queue" : ""}`,
           )
         : warn(
             `Worktree setup (${repository.path})`,
@@ -295,7 +295,7 @@ async function repositoryChecks(config: Config, cwd: string): Promise<Check[]> {
       (repository.validationTiers ?? []).length > 0
         ? pass(
             `Validation tiers (${repository.path})`,
-            `${repository.validationTiers!.length} tier(s)`,
+            `${repository.validationTiers!.length} tier(s)${queueBypassTiers(repository)}`,
           )
         : warn(
             `Validation tiers (${repository.path})`,
@@ -544,6 +544,8 @@ function validateConfig(config: Config): void {
     ) {
       throw new Error("invalid repository entry in config.json");
     }
+    const queueBypassError = queueBypassConfigError(repository);
+    if (queueBypassError) throw new Error(queueBypassError);
     if (
       repository.targetBranch === undefined &&
       (repository.integrationBranch === repository.defaultBranch ||
@@ -688,4 +690,11 @@ export async function doctorInstalledCommand(
     process.stdout.write(`\nHarness: ${harnessInfo[harness].name}\n`);
     await doctorCommand(cwd, harness);
   }
+}
+
+function queueBypassTiers(repository: RepositoryConfig): string {
+  const names = (repository.validationTiers ?? [])
+    .filter((tier) => tier.bypassBuildQueue === true)
+    .map((tier) => tier.name);
+  return names.length ? `; bypassing the build queue: ${names.join(", ")}` : "";
 }

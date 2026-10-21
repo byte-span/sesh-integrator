@@ -13,7 +13,7 @@ import type {
   ValidationCacheEntry,
   ValidationStep,
 } from "./types.js";
-import { validationCommandValue } from "./validation.js";
+import { setupQueueBypass, validationCommandValue } from "./validation.js";
 
 export async function runSetupWithCache(
   repository: RepositoryConfig,
@@ -31,7 +31,12 @@ export async function runSetupWithCache(
     process.stdout.write("Using cached advisory setup.\n");
     return { cacheHit: true };
   }
-  await runRequiredCommands(repository.setupCommands, cwd, "setup command");
+  await runRequiredCommands(
+    repository.setupCommands,
+    cwd,
+    "setup command",
+    setupQueueBypass(repository),
+  );
   if (cachePath && (await setupMarkerExists(cwd))) {
     await writeJsonAtomic(cachePath, {
       version: 1,

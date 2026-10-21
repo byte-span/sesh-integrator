@@ -28,6 +28,11 @@ export interface ValidationTier {
   sourceValidationCommands: ValidationStep[];
   integrationValidationCommands: ValidationStep[];
   bypassIntegrationWorktree?: boolean;
+  /**
+   * Lightweight checks only: run this tier's commands at once, without waiting
+   * for or holding a build queue slot. Never for builds or test suites.
+   */
+  bypassBuildQueue?: boolean;
 }
 
 export interface RepositoryConfig {
@@ -44,6 +49,12 @@ export interface RepositoryConfig {
   gpgProgram?: string;
   setupCommands: Command[];
   setupCommandPolicy?: "advisory" | "required";
+  /**
+   * Quick setup only (such as a warm-cache frozen-lockfile install): run every
+   * setupCommands entry without a build queue slot. A sibling key, not an
+   * object form, so older coordinators keep running plain argument arrays.
+   */
+  setupBypassBuildQueue?: boolean;
   sourceValidationCommands: ValidationStep[];
   integrationValidationCommands: ValidationStep[];
   validationTiers?: ValidationTier[];
@@ -412,6 +423,11 @@ export interface QueueLoadNote {
   /** Waiting queue entries with live owners. */
   waiting?: number;
   capacity?: number | "unlimited";
+  /**
+   * Lightweight commands running outside the queue (bypassBuildQueue),
+   * counting the failed command when it ran without a slot.
+   */
+  bypassed?: number;
   /** Why the queue could not be inspected. */
   unavailable?: string;
 }
