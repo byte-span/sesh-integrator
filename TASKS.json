@@ -300,6 +300,30 @@
       "acceptance": "seshx begin without --harness currently records codex for compatibility, so Claude Code sessions begun with a plain begin --create-worktree before 2026-10-08 (for example session_mu7grty6_d5d7b75f64) are labeled codex, and nested conflict resolution and incident diagnosis use the wrong harness. When --harness is omitted, begin detects the harness for every supported harness (codex, claude, antigravity, grok): first from a documented environment marker (Claude Code sets CLAUDECODE=1; Codex, Antigravity and Grok markers are verified by running env inside each harness before use, and CODEX_SANDBOX alone is not treated as reliable), then from the parent process chain (claude, codex, antigravity/agy, grok). If nothing is detected, begin fails with a message asking for --harness instead of silently recording codex. An explicit --harness that contradicts a detected harness prints a warning and keeps the explicit value. begin output and status show the recorded harness and whether it was explicit or detected. Existing session records are not rewritten. docs/harnesses.md and docs/commands.md describe the detection order and markers, and tests cover detection for each harness by environment and by process ancestry, the undetected failure, and the mismatch warning.",
       "doc": "docs/harnesses.md",
       "evidence": []
+    },
+    {
+      "id": "SI-014",
+      "title": "Keep validation cache hits when the shell environment changes between commands",
+      "status": "ready",
+      "order": 140,
+      "executor": "automated",
+      "device_requirement": [],
+      "blocked_by": [],
+      "acceptance": "validationFingerprint in src/cache.ts hashes the entire process environment (validationEnvironment, minus PWD and OLDPWD), so any per-shell variable change between seshx validate and seshx integrate misses the cache. Agents run eval \"$(fnm env)\" before each command, and every call creates a new FNM_MULTISHELL_PATH directory (for example /run/user/1000/fnm_multishells/<pid>_<timestamp>) that is also added to PATH. On 2026-10-21 session_mviogb9q_8e23fb70b0 (agent-delly) integrated with integrationSourceReuse exact-tree, meaning the merged tree was the validated source tree, yet had 0 cache hits and reran build, typecheck and test for 436s. The next waiting session, session_mviogryh_f312d80dfa, waited 442s on the lock behind it. session_mviogkxo_1a93d7d626 also got 0 cache hits on its third validate of the same tree. The validation cache key stays the same across shells with the same effective toolchain: volatile per-shell values (FNM_MULTISHELL_PATH, fnm_multishells PATH entries, and similar documented per-shell variables such as SHLVL and _) are excluded or normalized, while changes that can alter results (resolved node and pnpm versions, NODE_OPTIONS, CI, other result-affecting variables or an explicit allowlist) still miss. Values are never persisted. docs/configuration.md describes what the key includes. Tests cover a validate then integrate under different fnm multishell paths reusing results, a changed Node version or NODE_OPTIONS still rerunning, and older cache entries treated as misses without failing.",
+      "doc": "docs/configuration.md",
+      "evidence": []
+    },
+    {
+      "id": "SI-015",
+      "title": "Tell agents to run long validate and integrate commands in the background, not under a timeout",
+      "status": "ready",
+      "order": 150,
+      "executor": "automated",
+      "device_requirement": [],
+      "blocked_by": [],
+      "acceptance": "On 2026-10-21 session_mviogkxo_1a93d7d626 (Claude Code, agent-delly) ran timeout 590 seshx validate in the foreground to stay under the harness's 10-minute command limit. The full validation was killed at 593s and recorded only \"Build queue cancelled; no successful result recorded.\" (incident at 2026-10-21T22:52:41Z), and the next full run started from scratch. The bundled skill (skill/sesh-integrator-workflow/SKILL.md) and the managed global guidance (GLOBAL_AGENTS_SNIPPET.md) tell agents to run validate, integrate and resume through the harness's background or long-running execution with its completion notification, never to wrap them in timeout or a foreground limit shorter than the configured build-queue wait, and to wait with the harness's bounded wait rather than polling. When validate, integrate or resume is stopped by a signal, the failure message and incident name the signal and elapsed time and say to rerun in the background, instead of only saying the build queue was cancelled. Tests cover the signal message, and the installed guidance check passes after install.",
+      "doc": "skill/sesh-integrator-workflow/SKILL.md",
+      "evidence": []
     }
   ]
 }
