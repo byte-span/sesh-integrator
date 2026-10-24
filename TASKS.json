@@ -328,7 +328,7 @@
     {
       "id": "SI-016",
       "title": "Finish local-target recovery when another session moved staging during conflict resolution",
-      "status": "in_progress",
+      "status": "completed",
       "order": 160,
       "executor": "automated",
       "device_requirement": [],
@@ -343,7 +343,9 @@
         "test/local-target-staging.test.ts: stops for review when staging no longer contains the recovery baseline",
         "test/local-target-staging.test.ts: all four fail with the pre-fix release.WXqttUOU coordinator",
         "docs/commands.md",
-        "SPEC.md"
+        "SPEC.md",
+        "2026-10-24: session_mvluq35m_47d7a85ab8 resumed with release.nlep6i1x (recoveryCoordinator a76ff369) and succeeded without a new commit: dev cc8e476 already contained its validated result 21260c1; stale result 33f2a63 kept in localTargetRecoveryHistory; recovery bundle archived; seshx reconcile reports all recorded integrations present on dev",
+        "session_mvmsr783_53390f96f0 promoted to dev at 1c84f32"
       ]
     }
   ]
