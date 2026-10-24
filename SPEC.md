@@ -1184,6 +1184,14 @@ and interrupted evidence publication retain recoverable state. Rewritten target
 or non-descendant staging history requires ancestry review. Historical reconcile
 remains a separate conservative fast-forward audit/apply command.
 
+Other sessions can move staging while a recovery waits, so resume re-reads it
+before trusting the recorded staging commit. When the target already contains
+the validated result, the session is recorded as integrated through that
+promotion without a new commit, the bundle is archived and the stale attempt
+stays in recovery history. Staging that moved forward and still contains the
+recorded commit restarts reconciliation from the new tip with full validation.
+Other staging stops for ancestry review.
+
 Promotion recovery also checks ancestry when the live target still equals the
 recorded expectation: isolated staging may have omitted a target refreshed
 before integration. Resume reconciles the preserved validated result with that
