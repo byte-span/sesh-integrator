@@ -97,6 +97,7 @@ import type {
   Command,
   Config,
   GitPathObservation,
+  LocalTargetRecovery,
   RepositoryConfig,
   RolloutDisposition,
   Session,
@@ -2096,6 +2097,10 @@ async function validateCommitAndFinish(
       { cwd: repository.path },
     );
     if (update.code !== 0) {
+      if (session.recoveryPhase === "local_target")
+        throw new Error(
+          `Staging ${repository.integrationBranch} moved from ${expected} while ${session.id} validated its local target recovery; the result is preserved at ${session.integratedCommit}. Run seshx resume: it re-reads staging and closes or restarts the recovery.`,
+        );
       throw new Error(
         `Integration branch advanced while ${session.id} was pending; its validated commit is preserved at ${session.integratedCommit}. Resume after reconciling the newer staging history.`,
       );
@@ -2898,6 +2903,36 @@ async function reconcileLocalTarget(
     session.recoveryPhase === "local_target"
       ? session.localTargetRecovery
       : undefined;
+  if (state) {
+    // Other sessions keep integrating while this recovery waits for a conflict
+    // fix or a retry, so the staging baseline it recorded may be stale.
+    const moved = await localTargetStagingMove(repository, session, state);
+    if (moved?.promotedThrough) {
+      await finishLocalTargetThroughPromotion(
+        repository,
+        session,
+        state,
+        moved.staging,
+        moved.promotedThrough,
+      );
+      return;
+    }
+    if (moved) {
+      process.stdout.write(
+        `Staging ${repository.integrationBranch} moved from ${state.stagingBefore} to ${moved.staging} while ${session.id} waited; restarting local target reconciliation from ${moved.staging} with full validation. The stale attempt stays in local target recovery history and ${state.worktree} is preserved.\n`,
+      );
+      if (acceptStagedResolution)
+        process.stdout.write(
+          `The staged correction in ${state.worktree} belongs to the stale attempt and is not used.\n`,
+        );
+      session.integratedCommit = state.baseCommit;
+      session.targetCommitBeforeIntegration = state.targetCommit;
+      session.awaitingConflictResolution = false;
+      delete session.validationFailure;
+      acceptStagedResolution = false;
+      state = undefined;
+    }
+  }
   if (!state) {
     const target = await refCommit(
       repository.path,
@@ -3159,4 +3194,69 @@ async function reconcileLocalTarget(
   session.targetCommitBeforeIntegration = state.targetCommit;
   // One reconciliation per resume: additional target movement stays pending.
   await validateCommitAndFinish(repository, session, worktree);
+}
+
+/**
+ * Re-reads staging for a recorded local-target recovery. Returns undefined
+ * when staging is where this recovery left it. Otherwise reports the new tip
+ * and, when the target already contains the validated result, that target
+ * commit. Staging that no longer contains the recorded baseline is a review stop.
+ */
+async function localTargetStagingMove(
+  repository: RepositoryConfig,
+  session: Session,
+  state: LocalTargetRecovery,
+): Promise<{ staging: string; promotedThrough?: string } | undefined> {
+  const staging = await refCommit(
+    repository.path,
+    `refs/heads/${repository.integrationBranch}`,
+  );
+  if (staging === state.stagingBefore || staging === state.resultCommit)
+    return undefined;
+  const target = await refCommit(
+    repository.path,
+    `refs/heads/${session.targetBranch}`,
+  );
+  const contains = async (ancestor: string, descendant: string) =>
+    (
+      await run("git", ["merge-base", "--is-ancestor", ancestor, descendant], {
+        cwd: repository.path,
+      })
+    ).code === 0;
+  if (staging && target && (await contains(state.baseCommit, target)))
+    return { staging, promotedThrough: target };
+  if (staging && (await contains(state.stagingBefore, staging)))
+    return { staging };
+  throw new Error(
+    `Staging ${repository.integrationBranch} ${staging ? `moved to ${staging}, which no longer contains` : "is missing; it no longer contains"} local target recovery baseline ${state.stagingBefore}, and target ${session.targetBranch}${target ? ` at ${target}` : ""} does not contain validated result ${state.baseCommit}${state.resultCommit ? ` or recovery result ${state.resultCommit}` : ""}. Manual ancestry review required; all recovery inputs retained.`,
+  );
+}
+
+/**
+ * Closes a local-target recovery whose validated result reached the target
+ * through another session's promotion while it waited; a new reconciliation
+ * commit would only duplicate that promotion.
+ */
+async function finishLocalTargetThroughPromotion(
+  repository: RepositoryConfig,
+  session: Session,
+  state: LocalTargetRecovery,
+  staging: string,
+  target: string,
+): Promise<void> {
+  process.stdout.write(
+    `Staging ${repository.integrationBranch} moved from ${state.stagingBefore} to ${staging} while ${session.id} waited, and ${session.targetBranch} at ${target} already contains its validated result ${state.baseCommit}. Recording the session as integrated through that promotion without a new commit; the stale attempt${state.resultCommit ? ` and its result ${state.resultCommit}` : ""} stay in local target recovery history and ${state.worktree} is preserved.\n`,
+  );
+  (session.localTargetRecoveryHistory ??= []).push({ ...state });
+  delete session.localTargetRecovery;
+  const now = new Date().toISOString();
+  session.integratedCommit = state.baseCommit;
+  session.integratedAt ??= now;
+  session.targetCommitBeforeIntegration = state.targetCommit;
+  session.promotedCommit = state.baseCommit;
+  session.promotedAt = now;
+  session.postIntegrationResults = [];
+  session.awaitingConflictResolution = false;
+  delete session.validationFailure;
+  await completePullRequestPromotion(repository, session);
 }

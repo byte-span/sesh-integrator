@@ -324,6 +324,29 @@
       "acceptance": "On 2026-10-21 session_mviogkxo_1a93d7d626 (Claude Code, agent-delly) ran timeout 590 seshx validate in the foreground to stay under the harness's 10-minute command limit. The full validation was killed at 593s and recorded only \"Build queue cancelled; no successful result recorded.\" (incident at 2026-10-21T22:52:41Z), and the next full run started from scratch. The bundled skill (skill/sesh-integrator-workflow/SKILL.md) and the managed global guidance (GLOBAL_AGENTS_SNIPPET.md) tell agents to run validate, integrate and resume through the harness's background or long-running execution with its completion notification, never to wrap them in timeout or a foreground limit shorter than the configured build-queue wait, and to wait with the harness's bounded wait rather than polling. When validate, integrate or resume is stopped by a signal, the failure message and incident name the signal and elapsed time and say to rerun in the background, instead of only saying the build queue was cancelled. Tests cover the signal message, and the installed guidance check passes after install.",
       "doc": "skill/sesh-integrator-workflow/SKILL.md",
       "evidence": []
+    },
+    {
+      "id": "SI-016",
+      "title": "Finish local-target recovery when another session moved staging during conflict resolution",
+      "status": "completed",
+      "order": 160,
+      "executor": "automated",
+      "device_requirement": [],
+      "blocked_by": [],
+      "acceptance": "Local-target recovery (reconcileLocalTarget in src/handoff.ts) saves the staging commit as stagingBefore when it starts, then advances staging with git update-ref against that saved value: once after committing the resolved result and again on resume when resultCommit is already recorded. Other sessions keep integrating while a recovery waits for its conflict fix, so the saved value goes stale and the update is always refused. Resume repeats the same update, so the session can never finish. On 2026-10-24 agent-delly session_mvluq35m_47d7a85ab8 (PC-042) started recovery at staging 21260c1 and committed result 33f2a63 at 04:49Z. session_mvlwyn6l_5acdbaf30d had already moved staging to 22e8fb6 at 04:46Z, and that commit already contained both 21260c1 and the target 24d0f18. The update was refused (incident CH-20261024-B42D42) and the session was left in needs_review, although its work was already on dev. abandon refuses needs_review sessions, so there was no supported way to close it. Before advancing staging, recovery re-reads it instead of trusting stagingBefore. If staging is unchanged, it proceeds as today. If the session's staging integration commit is already on the target branch, it records the session as integrated through that promotion, closes the recovery bundle and keeps the stale result in localTargetRecoveryHistory without creating a commit. If staging moved forward and still contains stagingBefore, it moves the stale result to history and restarts reconciliation from the new staging with full revalidation. If staging diverged, it stops with needs_review and a message that names the commits, as today. Integration tests with disposable repositories cover all three cases, with a second session integrating while the first waits on a local-target conflict. Afterwards, resume session_mvluq35m_47d7a85ab8 with a coordinator that includes the fix (resume records it as recoveryCoordinator) and confirm that it finishes.",
+      "doc": "docs/commands.md",
+      "evidence": [
+        "src/handoff.ts",
+        "test/local-target-staging.test.ts: records the session as integrated when another session promoted its result (staged resolution)",
+        "test/local-target-staging.test.ts: records the session as integrated when another session promoted its result (committed result)",
+        "test/local-target-staging.test.ts: restarts reconciliation from staging that moved forward without reaching the target",
+        "test/local-target-staging.test.ts: stops for review when staging no longer contains the recovery baseline",
+        "test/local-target-staging.test.ts: all four fail with the pre-fix release.WXqttUOU coordinator",
+        "docs/commands.md",
+        "SPEC.md",
+        "2026-10-24: session_mvluq35m_47d7a85ab8 resumed with release.nlep6i1x (recoveryCoordinator a76ff369) and succeeded without a new commit: dev cc8e476 already contained its validated result 21260c1; stale result 33f2a63 kept in localTargetRecoveryHistory; recovery bundle archived; seshx reconcile reports all recorded integrations present on dev",
+        "session_mvmsr783_53390f96f0 promoted to dev at 1c84f32"
+      ]
     }
   ]
 }

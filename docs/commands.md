@@ -657,6 +657,24 @@ recovery. A leftover repository lock still requires safe owner/state inspection.
 Post-integration failures remain resumable and rerun their configured checks from
 the promoted target worktree.
 
+Other sessions keep integrating while a local recovery waits for a conflict fix
+or a retry, so each `resume` re-reads staging before using the staging commit
+the recovery recorded when it started:
+
+- **Unchanged:** the attempt continues as before.
+- **Result already on the target:** another session's promotion delivered the
+  validated result. The session is recorded as integrated through that
+  promotion without a new commit, its recovery bundle is archived, and the
+  stale attempt, including any committed result, stays in
+  `localTargetRecoveryHistory`.
+- **Moved forward, still containing the recorded commit:** the stale attempt
+  moves to history and reconciliation restarts from the new staging with full
+  validation. A staged correction for the stale attempt is not used.
+- **No longer containing the recorded commit:** the session stays in
+  `needs_review` with a message naming the commits, for ancestry review.
+
+Stale recovery worktrees are preserved in every case.
+
 A validation failure leaves that session's integration worktree intact, records `validation_pending`, releases the one-shot lock, and exits nonzero so the agent can assess the evidence and resume safely. An unresolved conflict records `needs_review`. Later sessions use detached session-owned integration worktrees when the canonical worktree contains preserved review state, and atomically advance staging only after validation. A failed post-integration command also records `needs_review`, but preserves the already-promoted target commit; its command, exit code, stdout, and stderr remain in the session record for diagnosis. If post-integration commands are configured and the target is not checked out in exactly one clean accessible worktree, promotion remains pending. Post-integration commands are skipped when the ready commit was already present and the staging branch did not advance. The source worktree is never modified.
 
 Every integration validation failure records `validation_pending`, including
