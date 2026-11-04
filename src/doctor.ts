@@ -18,7 +18,12 @@ import { inspectGit, refCommit } from "./git.js";
 import { targetBranch, targetBranchSource } from "./promotion.js";
 import { pullRequestPromotion } from "./pull-request.js";
 import { run } from "./process.js";
-import { applyGlobalTargetPolicy, runtimePaths } from "./runtime.js";
+import {
+  applyGlobalTargetPolicy,
+  runtimePaths,
+  validateRepositoryConfig,
+} from "./runtime.js";
+import { applyConfigIncludes, includeProblems } from "./config-include.js";
 import type { Config, RepositoryConfig } from "./types.js";
 import { isValidationStepList, queueBypassConfigError } from "./validation.js";
 
@@ -94,6 +99,21 @@ export async function doctorCommand(
     checks.push(pass("Configuration", paths.config));
   } catch (error) {
     checks.push(fail("Configuration", errorMessage(error)));
+  }
+  if (config && Array.isArray(config.repositories)) {
+    await applyConfigIncludes(config, paths.root, validateRepositoryConfig);
+    const includes = config.includeReports;
+    if (includes) {
+      const problems = includes.flatMap(includeProblems);
+      checks.push(
+        problems.length === 0
+          ? pass(
+              "Configuration includes",
+              `${includes.length} include(s), ${includes.reduce((sum, report) => sum + report.loaded.length, 0)} registration(s) loaded`,
+            )
+          : warn("Configuration includes", problems.join("; ")),
+      );
+    }
   }
 
   if (config)

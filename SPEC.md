@@ -201,6 +201,14 @@ Example `~/.sesh-integrator/config.json`:
 }
 ```
 
+A global `include` list can load further registrations from
+`{ "repositories": [...] }` files, filling `{{name}}` placeholders in string
+values from each entry's `vars`. Local registrations replace included ones with
+the same path or Git common directory, and a later include replaces an earlier
+one. A failed include adds nothing and never blocks local registrations;
+`register` and other configuration writes change only `config.json`. See
+[shared registrations](docs/configuration.md#shared-registrations-include).
+
 Integrator-launched setup, preparation, validation and post-check commands share
 a machine-local queue with a resource-aware default capacity limit, explicit
 machine overrides including `unlimited`, and no-progress wait timeouts. Scheduling preserves required checks. A validation tier marked `bypassBuildQueue: true`, and setup when the repository sets `setupBypassBuildQueue: true`, run those lightweight commands without a slot; status and command output report the bypass. Repository cache reuse also keys on
