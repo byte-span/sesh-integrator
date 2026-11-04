@@ -54,6 +54,11 @@ export interface RepositoryConfig {
   globalDefaultTargetBranch?: string;
   /** Runtime-only inherited global PR participants; never persisted per repository. */
   globalDefaultPromotion?: DefaultPromotionConfig;
+  /**
+   * Runtime-only: the include file this registration came from (its 1-based
+   * position and resolved path). Absent for local registrations.
+   */
+  includedFrom?: { number: number; path: string };
   gpgProgram?: string;
   setupCommands: Command[];
   setupCommandPolicy?: "advisory" | "required";
@@ -138,7 +143,37 @@ export interface Config {
   deliveryPolicyFile?: string;
   /** Defaults for every repository; repository settings override them. */
   integrationBatching?: IntegrationBatchingConfig;
+  /** Files of shared registrations; local registrations override them. */
+  include?: ConfigInclude[];
   repositories: RepositoryConfig[];
+  /** Runtime-only result of loading `include`; never persisted. */
+  includeReports?: IncludeReport[];
+}
+
+/** One `include` entry: a `{ "repositories": [...] }` file and its values. */
+export interface ConfigInclude {
+  /** Absolute, `~`-relative, or relative to the runtime directory. */
+  path: string;
+  /** Values for `{{name}}` placeholders in the file's string values. */
+  vars?: Record<string, string>;
+}
+
+/** What loading one `include` entry produced. */
+export interface IncludeReport {
+  /** 1-based position in `include`. */
+  number: number;
+  /** The entry's path as written (empty when it has none). */
+  path: string;
+  /** The absolute file path, when the entry's path is usable. */
+  resolvedPath?: string;
+  /** Why none of this include's registrations were loaded. */
+  error?: string;
+  /** Registration paths in use from this include. */
+  loaded: string[];
+  /** Registration paths replaced by a local registration or a later include. */
+  overridden: { path: string; by: "local" | number }[];
+  /** Registration paths skipped because their checkout does not exist yet. */
+  missingCheckouts: string[];
 }
 
 export type SessionStatus =

@@ -9,6 +9,7 @@ Commands below run from the repository root unless stated otherwise.
 - [Optional pull-request promotion](#optional-pull-request-promotion)
 - [Stable default branch with a development target](#stable-default-branch-with-a-development-target)
 - [Reusing source validation when the target moves](#reusing-source-validation-when-the-target-moves)
+- [Shared registrations (`include`)](#shared-registrations-include)
 - [Central delivery policy](#central-delivery-policy)
 
 ### `register`
@@ -577,6 +578,82 @@ Any value other than `true` or `false` stops every command with a
 configuration error. Older coordinators ignore the key and rerun the full
 plan. [Integration batches](#batches-and-validation-reuse) never use it.
 
+## Shared registrations (`include`)
+
+Machines that share repository settings can load registrations from files
+kept elsewhere, such as a synced configuration checkout, instead of copying
+them into every `config.json`. List the files under the global `include` key:
+
+```json
+{
+  "include": [
+    {
+      "path": "/home/you/code/fig-sync/dist/sesh/base-worker.linux.json",
+      "vars": {
+        "codeRoot": "/home/you/code",
+        "fnmBin": "/home/you/.local/bin/fnm"
+      }
+    }
+  ],
+  "repositories": []
+}
+```
+
+- `path`: absolute, `~/...` (home directory), or relative to the runtime
+  directory.
+- `vars`: optional string values for the file's placeholders.
+- Any other key in an entry fails that include.
+
+An included file holds registrations in the same format as `repositories`:
+
+```json
+{
+  "repositories": [
+    {
+      "path": "{{codeRoot}}/my-app",
+      "gitCommonDir": "{{codeRoot}}/my-app/.git",
+      "defaultBranch": "main",
+      "integrationBranch": "sesh-integrator/integration",
+      "setupCommands": [["{{fnmBin}}", "exec", "pnpm", "install"]],
+      "sourceValidationCommands": [["pnpm", "test"]],
+      "integrationValidationCommands": [["pnpm", "test"]]
+    }
+  ]
+}
+```
+
+| Rule             | Behavior                                                                                                                                                                                                       |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Placeholders     | `{{name}}` in a string value becomes `vars.name` (case-sensitive, no spaces). Keys and raw text are never changed. A placeholder without a value, or a malformed one such as `{{ name }}`, fails that include. |
+| Paths            | After filling, `path` and `gitCommonDir` must be absolute. They are normalized with the platform's path rules and resolved to real paths when they exist.                                                      |
+| Merging          | Local registrations win: one with the same `path` or `gitCommonDir` replaces the included one whole. A later include replaces an earlier one the same way. One file registering a repository twice fails.      |
+| Missing checkout | A registration whose `path` or `gitCommonDir` does not exist yet is skipped and reported. It loads once the checkout exists.                                                                                   |
+| Rereading        | Every command rereads the files. Changes reach the next command, including running sessions' commands, as edits to `config.json` do.                                                                           |
+| Other keys       | Top-level keys other than `repositories` are ignored.                                                                                                                                                          |
+
+**Failures stay contained.** A missing, unreadable or invalid include adds no
+registrations, but never stops commands for local registrations or other
+includes. While any include fails, `register` refuses to add a local
+registration: it would silently replace the included one once the include
+loads again. Lifecycle commands in a repository that is not registered name
+the failed include.
+
+**Writes stay local.** `register`, `enable`/`disable` and dashboard Settings
+write only `config.json`, never an included file. In an included repository,
+`register` reports the include and changes nothing (`--auto-config` is
+skipped and `--setup-command` fails). Change the registration in its file, or
+add a local registration with the same `path` to replace it on one machine.
+Dashboard Settings lists local registrations only.
+
+**Status.** When `include` is set, `seshx status` ends each repository line
+with `; source: local` or `; source: include N`, then lists each include with
+its loaded, replaced and skipped registrations or its error. `seshx doctor`
+warns about failed includes and missing checkouts.
+
+**Older coordinators** ignore `include` and see only local registrations.
+Before removing a local registration in favor of an included one, finish that
+repository's sessions pinned to older coordinators.
+
 ## Central delivery policy
 
 A delivery policy decides, for many repositories at once, which branch a
@@ -597,6 +674,19 @@ This section is the canonical description of the policy format.
 When a policy is selected, `begin` fails before changing anything if the file
 is missing or unreadable (`policy_missing`) or invalid (`policy_invalid`).
 [Error documents →](commands.md#machine-readable-output)
+
+To share one policy across machines, point `deliveryPolicyFile` at a file in
+a synced checkout, such as fig-sync's
+`delivery-policy.json`. Use an absolute path; `~` is not expanded:
+
+```json
+{ "deliveryPolicyFile": "/home/you/code/fig-sync/delivery-policy.json" }
+```
+
+`begin` reads the file for each new session, so pulled changes apply to the
+next session; running sessions keep the rule recorded at `begin`. While the
+file is missing, every `begin` fails with `policy_missing`, so set this only
+once the checkout exists.
 
 Check a file without starting a session:
 

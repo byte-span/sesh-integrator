@@ -5,6 +5,7 @@ import {
   type FileLock,
 } from "./file-lock.js";
 import { recordConfigSnapshot } from "./config-history.js";
+import { applyConfigIncludes } from "./config-include.js";
 import { validateHarnessConfig } from "./harness.js";
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
@@ -147,7 +148,13 @@ export async function readConfig(readOnly = false): Promise<Config> {
       return defaultConfig();
     throw error;
   }
-  return validateConfig(value, paths.config);
+  // Include problems are reported on the result, never thrown, so local
+  // registrations keep working.
+  return applyConfigIncludes(
+    validateConfig(value, paths.config),
+    paths.root,
+    validateRepositoryConfig,
+  );
 }
 
 /**
@@ -179,85 +186,93 @@ export function validateConfig(value: Config, source: string): Config {
     throw new Error(
       `Invalid integrationBatching in ${source}: use { "enabled": true|false, "maxSessions": 1-64 }`,
     );
-  for (const repository of value.repositories) {
-    applyGlobalTargetPolicy(value, repository);
-    repository.setupCommands ??= [];
-    repository.validationTiers ??= [];
-    repository.postIntegrationCommands ??= [];
-    repository.promotion ??= { type: "none" };
-    repository.validationCache ??= "session";
-    if (
-      !isValidationStepList(repository.sourceValidationCommands) ||
-      !isValidationStepList(repository.integrationValidationCommands) ||
-      !["off", "session", "repository"].includes(repository.validationCache) ||
-      !isPromotionConfig(repository)
-    ) {
-      throw new Error(
-        `Invalid validation configuration for ${repository.path}`,
-      );
-    }
-    if (!isIntegrationBatchingConfig(repository.integrationBatching))
-      throw new Error(
-        `Invalid integrationBatching for ${repository.path}: use { "enabled": true|false, "maxSessions": 1-64 }`,
-      );
-    for (const tier of repository.validationTiers) {
-      if (
-        !isValidationStepList(tier.sourceValidationCommands) ||
-        !isValidationStepList(tier.integrationValidationCommands)
-      ) {
-        throw new Error(
-          `Invalid validation tier ${tier.name} for ${repository.path}`,
-        );
-      }
-      if (
-        tier.reuseSourceValidationOnTargetMove !== undefined &&
-        typeof tier.reuseSourceValidationOnTargetMove !== "boolean"
-      ) {
-        throw new Error(
-          `Invalid reuseSourceValidationOnTargetMove for validation tier ${tier.name} in ${repository.path}: use true or false`,
-        );
-      }
-    }
-    const queueBypassError = queueBypassConfigError(repository);
-    if (queueBypassError) throw new Error(queueBypassError);
-    // targetBranch intentionally remains optional for backward compatibility.
-    // Its effective value inherits the optional global policy, then falls back
-    // to the registered defaultBranch.
-    if (
-      !repository.defaultBranch ||
-      !repository.integrationBranch ||
-      repository.targetBranch === ""
-    ) {
-      throw new Error(
-        `Invalid branch configuration for ${repository.path}: defaultBranch and integrationBranch must be non-empty, and targetBranch must be omitted or non-empty`,
-      );
-    }
-    if (
-      repository.targetBranch === undefined &&
-      (repository.integrationBranch === repository.defaultBranch ||
-        repository.integrationBranch ===
-          (value.defaultTargetBranch ?? repository.defaultBranch))
-    ) {
-      throw new Error(
-        `Ambiguous branch configuration for ${repository.path}: integrationBranch ${repository.integrationBranch} equals the default or effective target while targetBranch is omitted. Existing integrationBranch values retain staging meaning; configure a separate staging branch or explicitly set targetBranch after reviewing the history.`,
-      );
-    }
-    if (
-      repository.promotion.type === "pull-request" &&
-      repository.promotion.mode !== "session-branch" &&
-      (repository.promotion.productionBranch ?? repository.defaultBranch) ===
-        (repository.targetBranch ??
-          value.defaultTargetBranch ??
-          repository.defaultBranch)
-    ) {
-      throw new Error(
-        `Invalid pull-request promotion for ${repository.path}: target and production branches must differ`,
-      );
-    }
-  }
+  for (const repository of value.repositories)
+    validateRepositoryConfig(value, repository);
   validateHarnessConfig(value);
   value.conflictResolutionMode ??= "current-session";
   return value;
+}
+
+/**
+ * Validate one registration in place against the global configuration: fill
+ * the defaults readers rely on and attach inherited global policy.
+ */
+export function validateRepositoryConfig(
+  value: Config,
+  repository: RepositoryConfig,
+): void {
+  applyGlobalTargetPolicy(value, repository);
+  repository.setupCommands ??= [];
+  repository.validationTiers ??= [];
+  repository.postIntegrationCommands ??= [];
+  repository.promotion ??= { type: "none" };
+  repository.validationCache ??= "session";
+  if (
+    !isValidationStepList(repository.sourceValidationCommands) ||
+    !isValidationStepList(repository.integrationValidationCommands) ||
+    !["off", "session", "repository"].includes(repository.validationCache) ||
+    !isPromotionConfig(repository)
+  ) {
+    throw new Error(`Invalid validation configuration for ${repository.path}`);
+  }
+  if (!isIntegrationBatchingConfig(repository.integrationBatching))
+    throw new Error(
+      `Invalid integrationBatching for ${repository.path}: use { "enabled": true|false, "maxSessions": 1-64 }`,
+    );
+  for (const tier of repository.validationTiers) {
+    if (
+      !isValidationStepList(tier.sourceValidationCommands) ||
+      !isValidationStepList(tier.integrationValidationCommands)
+    ) {
+      throw new Error(
+        `Invalid validation tier ${tier.name} for ${repository.path}`,
+      );
+    }
+    if (
+      tier.reuseSourceValidationOnTargetMove !== undefined &&
+      typeof tier.reuseSourceValidationOnTargetMove !== "boolean"
+    ) {
+      throw new Error(
+        `Invalid reuseSourceValidationOnTargetMove for validation tier ${tier.name} in ${repository.path}: use true or false`,
+      );
+    }
+  }
+  const queueBypassError = queueBypassConfigError(repository);
+  if (queueBypassError) throw new Error(queueBypassError);
+  // targetBranch intentionally remains optional for backward compatibility.
+  // Its effective value inherits the optional global policy, then falls back
+  // to the registered defaultBranch.
+  if (
+    !repository.defaultBranch ||
+    !repository.integrationBranch ||
+    repository.targetBranch === ""
+  ) {
+    throw new Error(
+      `Invalid branch configuration for ${repository.path}: defaultBranch and integrationBranch must be non-empty, and targetBranch must be omitted or non-empty`,
+    );
+  }
+  if (
+    repository.targetBranch === undefined &&
+    (repository.integrationBranch === repository.defaultBranch ||
+      repository.integrationBranch ===
+        (value.defaultTargetBranch ?? repository.defaultBranch))
+  ) {
+    throw new Error(
+      `Ambiguous branch configuration for ${repository.path}: integrationBranch ${repository.integrationBranch} equals the default or effective target while targetBranch is omitted. Existing integrationBranch values retain staging meaning; configure a separate staging branch or explicitly set targetBranch after reviewing the history.`,
+    );
+  }
+  if (
+    repository.promotion.type === "pull-request" &&
+    repository.promotion.mode !== "session-branch" &&
+    (repository.promotion.productionBranch ?? repository.defaultBranch) ===
+      (repository.targetBranch ??
+        value.defaultTargetBranch ??
+        repository.defaultBranch)
+  ) {
+    throw new Error(
+      `Invalid pull-request promotion for ${repository.path}: target and production branches must differ`,
+    );
+  }
 }
 
 function isPromotionConfig(repository: RepositoryConfig): boolean {
@@ -320,7 +335,18 @@ export async function writeConfig(
   source = "seshx",
 ): Promise<void> {
   const paths = await ensureRuntime();
-  await writeConfigFile(paths.config, config, source);
+  // Registrations loaded from include files are never written locally.
+  const local = config.repositories.some(
+    (repository) => repository.includedFrom,
+  )
+    ? {
+        ...config,
+        repositories: config.repositories.filter(
+          (repository) => !repository.includedFrom,
+        ),
+      }
+    : config;
+  await writeConfigFile(paths.config, local, source);
 }
 
 /** Replace config.json, first keeping the text it replaces in its history. */

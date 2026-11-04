@@ -69,6 +69,7 @@ import {
   runValidation,
   ValidationFailure,
 } from "./process.js";
+import { failedIncludesText } from "./config-include.js";
 import {
   DEFAULT_INTEGRATION_BRANCH,
   abandonedSessionMessage,
@@ -212,6 +213,20 @@ async function registerRepository(
   const existing = config.repositories.find(
     (repo) => repo.gitCommonDir === context.gitCommonDir,
   );
+  if (existing?.includedFrom) {
+    // Registration writes only local entries, never into an include file.
+    const source = `include ${existing.includedFrom.number} (${existing.includedFrom.path})`;
+    if (setupCommands.length > 0)
+      throw new Error(
+        `This repository's registration comes from ${source}. Change its setup commands in that file, or add a local registration with the same path to replace it.`,
+      );
+    if (!isRepositoryDisabled(config, context.gitCommonDir))
+      await ensureGlobalTargetBranch(existing);
+    process.stdout.write(
+      `Repository already registered by ${source}; nothing written.${autoConfig ? " Auto-configuration skipped: change detected commands in that file, or add a local registration with the same path to replace it." : ""}\n${JSON.stringify(existing, null, 2)}\n`,
+    );
+    return existing;
+  }
   if (existing) {
     if (!isRepositoryDisabled(config, context.gitCommonDir))
       await ensureGlobalTargetBranch(existing);
@@ -226,6 +241,13 @@ async function registerRepository(
     );
     return existing;
   }
+  // A local entry would silently replace the registration a failed include
+  // might provide once it loads again, so refuse until it does.
+  const failed = failedIncludesText(config);
+  if (failed)
+    throw new Error(
+      `Not registering ${context.worktreePath}: ${failed}. A local registration would replace an included one for the same path, so fix or remove that include first (see seshx status).`,
+    );
   const repository: RepositoryConfig = {
     path: context.worktreePath,
     gitCommonDir: context.gitCommonDir,
@@ -2816,8 +2838,14 @@ function findRepository(
   const repository = config.repositories.find(
     (item) => item.gitCommonDir === gitCommonDir,
   );
-  if (!repository)
-    throw new Error("Repository is not registered. Run seshx register first.");
+  if (!repository) {
+    const failed = failedIncludesText(config);
+    throw new Error(
+      failed
+        ? `Repository is not registered, and ${failed}. Fix that include (see seshx status); seshx register refuses new local registrations until it loads.`
+        : "Repository is not registered. Run seshx register first.",
+    );
+  }
   return repository;
 }
 
