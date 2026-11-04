@@ -7,6 +7,7 @@ import { worktreePaths } from "./worktree-location.js";
 import { coordinatorDescription } from "./coordinator.js";
 import { isRepositoryDisabled, repositoryCommonDir } from "./enablement.js";
 import { writeCompletionSummary } from "./completion.js";
+import { includeReportLines } from "./config-include.js";
 import { currentTask, taskProgress, taskLines } from "./tasks.js";
 import { stripVTControlCharacters } from "node:util";
 import { readdir } from "node:fs/promises";
@@ -59,11 +60,25 @@ export async function statusCommand(sessionId?: string): Promise<void> {
       `Disabled repository: ${commonDir} (run seshx enable from that repository)\n`,
     );
   process.stdout.write(`Repositories: ${config.repositories.length}\n`);
+  // Sources are shown only when includes are configured, so existing output
+  // that other tools match stays unchanged.
+  const includes = config.includeReports;
   for (const repository of config.repositories) {
     const remote = pullRequestPromotion(repository);
+    const source = !includes
+      ? ""
+      : repository.includedFrom
+        ? `; source: include ${repository.includedFrom.number}`
+        : "; source: local";
     process.stdout.write(
-      `  ${repository.path} [registered, ${isRepositoryDisabled(config, repository.gitCommonDir) ? "disabled" : "enabled"}]: staging ${repository.integrationBranch} -> target ${targetBranch(repository)} (${targetBranchSource(repository)})${remote ? ` -> PR (${remote.mode}) to ${remote.productionBranch} via ${remote.remote}` : ""}\n`,
+      `  ${repository.path} [registered, ${isRepositoryDisabled(config, repository.gitCommonDir) ? "disabled" : "enabled"}]: staging ${repository.integrationBranch} -> target ${targetBranch(repository)} (${targetBranchSource(repository)})${remote ? ` -> PR (${remote.mode}) to ${remote.productionBranch} via ${remote.remote}` : ""}${source}\n`,
     );
+  }
+  if (includes) {
+    process.stdout.write(`Includes: ${includes.length}\n`);
+    for (const report of includes)
+      for (const line of includeReportLines(report))
+        process.stdout.write(`  ${terminalSafe(line)}\n`);
   }
   // Abandoned sessions are terminal; list them apart unless one is selected.
   const abandoned = selected

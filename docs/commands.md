@@ -692,6 +692,11 @@ seshx status
 
 Shows every session, active/ready/waiting/succeeded/`needs_review`/`promotion_pending` state, staging and promoted commits, target branch, recovery phase, worktree paths, latest error, and current lock owners.
 
+With [`include`](configuration.md#shared-registrations-include) configured, each
+repository line ends with its source (`; source: local` or
+`; source: include N`) and an `Includes:` list reports what each include loaded,
+replaced or skipped, or why it failed.
+
 Abandoned sessions are listed after the others under `Abandoned sessions: N`,
 with the abandon time, reason and restore command; `Sessions: N` counts only
 the rest. `status --session <id>` shows one session in full, including the
