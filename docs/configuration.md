@@ -9,7 +9,7 @@ Commands below run from the repository root unless stated otherwise.
 - [Optional pull-request promotion](#optional-pull-request-promotion)
 - [Stable default branch with a development target](#stable-default-branch-with-a-development-target)
 - [Reusing source validation when the target moves](#reusing-source-validation-when-the-target-moves)
-- [Shared registrations (`include`)](#shared-registrations-include)
+- [Shared settings and registrations (`include`)](#shared-settings-and-registrations-include)
 - [Central delivery policy](#central-delivery-policy)
 
 ### `register`
@@ -578,11 +578,11 @@ Any value other than `true` or `false` stops every command with a
 configuration error. Older coordinators ignore the key and rerun the full
 plan. [Integration batches](#batches-and-validation-reuse) never use it.
 
-## Shared registrations (`include`)
+## Shared settings and registrations (`include`)
 
-Machines that share repository settings can load registrations from files
-kept elsewhere, such as a synced configuration checkout, instead of copying
-them into every `config.json`. List the files under the global `include` key:
+Machines that share settings can load them from files kept elsewhere, such as
+a synced or generated configuration checkout, instead of copying them into
+every `config.json`. List the files under the global `include` key:
 
 ```json
 {
@@ -604,10 +604,19 @@ them into every `config.json`. List the files under the global `include` key:
 - `vars`: optional string values for the file's placeholders.
 - Any other key in an entry fails that include.
 
-An included file holds registrations in the same format as `repositories`:
+An included file is a JSON object. It may set these top-level settings, with
+the same meaning and format as in `config.json`, and a `repositories` list in
+the same format as `config.json`'s:
+
+`lockWaitSeconds`, `codexCommand`, `harnessCommands`,
+`conflictResolutionMode`, `defaultTargetBranch`, `defaultPromotion`,
+`deliveryPolicyFile`, `integrationBatching`
 
 ```json
 {
+  "defaultTargetBranch": "dev",
+  "defaultPromotion": { "reviewers": ["you"], "assignees": ["you"] },
+  "deliveryPolicyFile": "{{figSyncRoot}}/delivery-policy.json",
   "repositories": [
     {
       "path": "{{codeRoot}}/my-app",
@@ -622,37 +631,88 @@ An included file holds registrations in the same format as `repositories`:
 }
 ```
 
-| Rule             | Behavior                                                                                                                                                                                                       |
-| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Placeholders     | `{{name}}` in a string value becomes `vars.name` (case-sensitive, no spaces). Keys and raw text are never changed. A placeholder without a value, or a malformed one such as `{{ name }}`, fails that include. |
-| Paths            | After filling, `path` and `gitCommonDir` must be absolute. They are normalized with the platform's path rules and resolved to real paths when they exist.                                                      |
-| Merging          | Local registrations win: one with the same `path` or `gitCommonDir` replaces the included one whole. A later include replaces an earlier one the same way. One file registering a repository twice fails.      |
-| Missing checkout | A registration whose `path` or `gitCommonDir` does not exist yet is skipped and reported. It loads once the checkout exists.                                                                                   |
-| Rereading        | Every command rereads the files. Changes reach the next command, including running sessions' commands, as edits to `config.json` do.                                                                           |
-| Other keys       | Top-level keys other than `repositories` are ignored.                                                                                                                                                          |
+| Rule             | Behavior                                                                                                                                                                                                                                                                                         |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Placeholders     | `{{name}}` in a string value becomes `vars.name` (case-sensitive, no spaces). Keys and raw text are never changed. A placeholder without a value, or a malformed one such as `{{ name }}`, fails that include.                                                                                   |
+| Setting merging  | Per top-level key, the value comes from `config.json` if it sets the key, else from the last include that sets it. Values are replaced whole, never merged: a local `defaultPromotion` replaces the included one, reviewers and assignees together.                                              |
+| Registrations    | Local registrations win: one with the same `path` or `gitCommonDir` replaces the included one whole. A later include replaces an earlier one the same way. One file registering a repository twice fails.                                                                                        |
+| Paths            | After filling, `path` and `gitCommonDir` must be absolute. They are normalized with the platform's path rules and resolved to real paths when they exist. A relative `deliveryPolicyFile` resolves against the runtime directory, as in `config.json`; prefer an absolute path or a placeholder. |
+| Missing checkout | A registration whose `path` or `gitCommonDir` does not exist yet is skipped and reported. It loads once the checkout exists.                                                                                                                                                                     |
+| Rereading        | Every command rereads the files. Changes reach the next command, including running sessions' commands, as edits to `config.json` do.                                                                                                                                                             |
+| Local-only keys  | `include` and `disabledRepositories` describe one machine; either one in an included file fails that include.                                                                                                                                                                                    |
+| Other keys       | Keys starting with `$` (such as `$schema`) are ignored silently. Any other unknown top-level key is ignored and reported by `status` and `doctor`.                                                                                                                                               |
 
-**Failures stay contained.** A missing, unreadable or invalid include adds no
-registrations, but never stops commands for local registrations or other
-includes. While any include fails, `register` refuses to add a local
-registration: it would silently replace the included one once the include
-loads again. Lifecycle commands in a repository that is not registered name
-the failed include.
+`lockWaitSeconds` defaults to 900 when neither `config.json` nor an include
+sets it, so `config.json` can be as small as its `include` list plus deliberate
+local overrides.
+
+**Failures stay contained.** A missing, unreadable or invalid include,
+including one with an invalid setting, adds no settings or registrations, but
+never stops commands for local registrations or other includes. A registration
+that fails validation against the effective settings drops that include's
+registrations but keeps its settings. While any include fails, `register`
+refuses to add a local registration: it would silently replace the included
+one once the include loads again. Lifecycle commands in a repository that is
+not registered name the failed include.
 
 **Writes stay local.** `register`, `enable`/`disable` and dashboard Settings
-write only `config.json`, never an included file. In an included repository,
-`register` reports the include and changes nothing (`--auto-config` is
-skipped and `--setup-command` fails). Change the registration in its file, or
-add a local registration with the same `path` to replace it on one machine.
-Dashboard Settings lists local registrations only.
+write only `config.json`, never an included file, and never copy an included
+setting or registration into it. A setting a command changes is written to
+`config.json` and becomes a local override. Dashboard Settings shows and edits
+`config.json` values only and lists local registrations only. In an included
+repository, `register` reports the include and changes nothing
+(`--auto-config` is skipped and `--setup-command` fails). Change the
+registration in its file, or add a local registration with the same `path` to
+replace it on one machine.
 
-**Status.** When `include` is set, `seshx status` ends each repository line
-with `; source: local` or `; source: include N`, then lists each include with
-its loaded, replaced and skipped registrations or its error. `seshx doctor`
-warns about failed includes and missing checkouts.
+**Status and drift.** When `include` is set, `seshx status` ends each
+repository line with `; source: local` or `; source: include N`, then lists
+each include with its loaded registrations and used settings, and every value
+it does not supply:
 
-**Older coordinators** ignore `include` and see only local registrations.
-Before removing a local registration in favor of an included one, finish that
-repository's sessions pinned to older coordinators.
+| Line                                                                            | Meaning                                   |
+| ------------------------------------------------------------------------------- | ----------------------------------------- |
+| `setting KEY: config.json sets the same value (redundant, safe to remove)`      | A local copy of an included setting.      |
+| `setting KEY: config.json sets it (local override)`                             | A deliberate local difference.            |
+| `setting KEY: replaced by include N`                                            | A later include sets it.                  |
+| `PATH: replaced by an identical local registration (redundant, safe to remove)` | A local copy of an included registration. |
+| `PATH: replaced by a local registration (local override)`                       | A local registration that differs.        |
+
+`seshx doctor` warns about failed includes, missing checkouts and unknown keys,
+and counts redundant local values. Neither command edits configuration.
+
+**Older coordinators** read settings only from `config.json`. Coordinators
+that predate included settings also fail without `lockWaitSeconds` in
+`config.json` and reject an included file without a `repositories` list;
+coordinators older than `include` ignore included registrations too. Keep
+`"repositories": []` in a settings-only include, and before removing a local
+value in favor of an included one, finish the sessions pinned to older
+coordinators.
+
+### Recommended layout for generated configuration
+
+Generate one file per machine profile and keep only true one-offs local:
+
+```text
+~/.config/fig-sync/sesh.json       generated: shared settings + registrations
+~/.sesh-integrator/config.json     include + local overrides only
+```
+
+```json
+{
+  "include": [
+    {
+      "path": "~/.config/fig-sync/sesh.json",
+      "vars": { "codeRoot": "/home/you/code" }
+    }
+  ],
+  "repositories": []
+}
+```
+
+Add a local value only for a deliberate difference on this machine; `status`
+labels it `local override`. Remove values `status` labels `redundant` once no
+older coordinator needs them.
 
 ## Central delivery policy
 

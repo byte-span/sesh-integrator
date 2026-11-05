@@ -22,8 +22,14 @@ import {
   applyGlobalTargetPolicy,
   runtimePaths,
   validateRepositoryConfig,
+  validateSharedSetting,
 } from "./runtime.js";
-import { applyConfigIncludes, includeProblems } from "./config-include.js";
+import {
+  applyConfigIncludes,
+  includeProblems,
+  loadConfigIncludes,
+  redundantLocalEntries,
+} from "./config-include.js";
 import type { Config, RepositoryConfig } from "./types.js";
 import { isValidationStepList, queueBypassConfigError } from "./validation.js";
 
@@ -87,6 +93,9 @@ export async function doctorCommand(
   let config: Config | undefined;
   try {
     config = JSON.parse(await readFile(paths.config, "utf8")) as Config;
+    // Included settings apply first, as for every other command.
+    if (config && typeof config === "object")
+      await loadConfigIncludes(config, paths.root, validateSharedSetting);
     for (const repository of config.repositories ?? []) {
       repository.setupCommands ??= [];
       repository.validationTiers ??= [];
@@ -105,11 +114,19 @@ export async function doctorCommand(
     const includes = config.includeReports;
     if (includes) {
       const problems = includes.flatMap(includeProblems);
+      const redundant = includes.flatMap(redundantLocalEntries);
+      const settings = includes.reduce(
+        (sum, report) =>
+          sum +
+          (report.settings ?? []).filter((item) => item.outcome === "used")
+            .length,
+        0,
+      );
       checks.push(
         problems.length === 0
           ? pass(
               "Configuration includes",
-              `${includes.length} include(s), ${includes.reduce((sum, report) => sum + report.loaded.length, 0)} registration(s) loaded`,
+              `${includes.length} include(s), ${includes.reduce((sum, report) => sum + report.loaded.length, 0)} registration(s) and ${settings} setting(s) loaded${redundant.length ? `; config.json repeats ${redundant.length} included value(s) (${redundant.join(", ")}); see seshx status` : ""}`,
             )
           : warn("Configuration includes", problems.join("; ")),
       );
@@ -513,7 +530,8 @@ async function executableCheck(
 function validateConfig(config: Config): void {
   if (
     !config ||
-    typeof config.lockWaitSeconds !== "number" ||
+    (config.lockWaitSeconds !== undefined &&
+      typeof config.lockWaitSeconds !== "number") ||
     !Array.isArray(config.repositories)
   ) {
     throw new Error("invalid config.json structure");

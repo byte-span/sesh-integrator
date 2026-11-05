@@ -2,11 +2,42 @@ import { existsSync } from "node:fs";
 import { readFile, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, resolve } from "node:path";
-import type { Config, IncludeReport, RepositoryConfig } from "./types.js";
+import { isDeepStrictEqual } from "node:util";
+import type {
+  Config,
+  IncludeReport,
+  IncludedSettingReport,
+  RepositoryConfig,
+} from "./types.js";
 
 /** `{{name}}`; anything else between the braces is a malformed placeholder. */
 const PLACEHOLDER = /\{\{(.*?)\}\}/g;
 const NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/**
+ * Top-level settings an include file may set. Each is taken whole from the
+ * last source that sets it: `config.json`, else the last include; values are
+ * never merged key by key.
+ */
+export const SHARED_SETTINGS = [
+  "lockWaitSeconds",
+  "codexCommand",
+  "harnessCommands",
+  "conflictResolutionMode",
+  "defaultTargetBranch",
+  "defaultPromotion",
+  "deliveryPolicyFile",
+  "integrationBatching",
+] as const;
+
+/** Keys that describe one machine and so belong only in `config.json`. */
+const LOCAL_ONLY = ["include", "disabledRepositories"];
+
+interface LoadedInclude {
+  report: IncludeReport;
+  /** Registrations with placeholders filled and paths checked. */
+  repositories: RepositoryConfig[];
+}
 
 interface Candidate {
   repository: RepositoryConfig;
@@ -14,29 +45,29 @@ interface Candidate {
   exists: boolean;
 }
 
+/** Include files read by `loadConfigIncludes`, for `applyConfigIncludes`. */
+const loadedIncludes = new WeakMap<Config, LoadedInclude[]>();
+
 /**
- * Load the registrations listed by the global `include` entries and append
- * them to `config.repositories` after the local ones. A local registration
- * replaces an included one with the same path (or Git common directory), and
- * a later include replaces an earlier one. Include problems never throw: an
- * include that fails contributes nothing, and every outcome is recorded in
- * the runtime-only `config.includeReports`.
+ * Read the global `include` files and apply their top-level settings to
+ * `config` wherever `config.json` does not set them (a later include wins over
+ * an earlier one). Run before validating the configuration, so registrations
+ * are validated against the effective settings. `validateSetting` throws for
+ * an invalid value. Include problems never throw: an include that fails here
+ * contributes neither settings nor registrations, and every outcome is
+ * recorded in the runtime-only `config.includeReports`.
  */
-export async function applyConfigIncludes(
+export async function loadConfigIncludes(
   config: Config,
   runtimeRoot: string,
-  validateRepository: (config: Config, repository: RepositoryConfig) => void,
+  validateSetting: (key: string, value: unknown) => void,
   home = homedir(),
 ): Promise<Config> {
   const entries: unknown = config.include;
+  loadedIncludes.set(config, []);
   if (entries === undefined) return config;
   const reports: IncludeReport[] = [];
-  Object.defineProperty(config, "includeReports", {
-    value: reports,
-    configurable: true,
-    enumerable: false,
-    writable: true,
-  });
+  hide(config, "includeReports", reports);
   if (!Array.isArray(entries)) {
     reports.push({
       ...emptyReport(1, ""),
@@ -45,7 +76,8 @@ export async function applyConfigIncludes(
     });
     return config;
   }
-  let candidates: Candidate[] = [];
+  const loaded: LoadedInclude[] = [];
+  const settings: { number: number; values: Record<string, unknown> }[] = [];
   for (const [index, entry] of entries.entries()) {
     const number = index + 1;
     const report = emptyReport(
@@ -57,12 +89,105 @@ export async function applyConfigIncludes(
       const { path, vars } = parseEntry(entry);
       const file = resolveIncludePath(path, runtimeRoot, home);
       report.resolvedPath = file;
+      const parsed = await readIncludeFile(file);
+      const errors: string[] = [];
+      const values: Record<string, unknown> = {};
+      for (const key of SHARED_SETTINGS)
+        if (parsed[key] !== undefined)
+          values[key] = fill(parsed[key], vars, key, errors);
+      const repositories = (
+        (parsed.repositories as unknown[] | undefined) ?? []
+      ).map((raw, position) => {
+        const where = `repositories[${position}]`;
+        if (!isRecord(raw)) throw new Error(`${where} must be an object`);
+        return fill(raw, vars, where, errors) as RepositoryConfig;
+      });
+      if (errors.length) throw new Error([...new Set(errors)].join("; "));
+      for (const [key, value] of Object.entries(values))
+        try {
+          validateSetting(key, value);
+        } catch (error) {
+          throw new Error(
+            `invalid "${key}": ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      for (const [position, repository] of repositories.entries())
+        checkPaths(repository, `repositories[${position}]`);
+      const ignored = Object.keys(parsed).filter(
+        (key) =>
+          key !== "repositories" &&
+          !key.startsWith("$") &&
+          !(SHARED_SETTINGS as readonly string[]).includes(key),
+      );
+      if (ignored.length) report.ignoredKeys = ignored;
+      if (Object.keys(values).length) {
+        report.settings = [];
+        settings.push({ number, values });
+      }
+      loaded.push({ report, repositories });
+    } catch (error) {
+      report.error = error instanceof Error ? error.message : String(error);
+    }
+  }
+  const included = new Map<string, { number: number; value: unknown }>();
+  for (const key of SHARED_SETTINGS) {
+    const sources = settings.filter(({ values }) => key in values);
+    if (sources.length === 0) continue;
+    const local = config[key];
+    const last = sources.at(-1)!;
+    for (const { number, values } of sources) {
+      const outcome: IncludedSettingReport =
+        local !== undefined
+          ? {
+              key,
+              outcome: isDeepStrictEqual(local, values[key])
+                ? "local-same"
+                : "local-differs",
+            }
+          : number === last.number
+            ? { key, outcome: "used" }
+            : { key, outcome: "include", by: last.number };
+      reports[number - 1]!.settings!.push(outcome);
+    }
+    if (local === undefined) {
+      included.set(key, {
+        number: last.number,
+        value: structuredClone(last.values[key]),
+      });
+      (config as unknown as Record<string, unknown>)[key] = structuredClone(
+        last.values[key],
+      );
+    }
+  }
+  hide(config, "includedSettings", included);
+  loadedIncludes.set(config, loaded);
+  return config;
+}
+
+/**
+ * Append the registrations from the include files that `loadConfigIncludes`
+ * read (reading them now when it has not) to `config.repositories` after the
+ * local ones. A local registration replaces an included one with the same
+ * path (or Git common directory), and a later include replaces an earlier one.
+ * A registration that fails validation drops that include's registrations,
+ * not its settings.
+ */
+export async function applyConfigIncludes(
+  config: Config,
+  runtimeRoot: string,
+  validateRepository: (config: Config, repository: RepositoryConfig) => void,
+  home = homedir(),
+): Promise<Config> {
+  if (!loadedIncludes.has(config))
+    await loadConfigIncludes(config, runtimeRoot, () => undefined, home);
+  let candidates: Candidate[] = [];
+  for (const { report, repositories } of loadedIncludes.get(config) ?? []) {
+    const number = report.number;
+    try {
       const loaded: Candidate[] = [];
-      for (const [position, raw] of (await readIncludeFile(file)).entries()) {
+      for (const [position, raw] of repositories.entries()) {
         const { repository, exists } = await includedRepository(
-          raw,
-          vars,
-          `repositories[${position}]`,
+          structuredClone(raw),
           config,
           validateRepository,
         );
@@ -73,11 +198,9 @@ export async function applyConfigIncludes(
           throw new Error(
             `repositories[${duplicate}] and repositories[${position}] both register ${repository.path}`,
           );
-        Object.defineProperty(repository, "includedFrom", {
-          value: { number, path: file },
-          configurable: true,
-          enumerable: false,
-          writable: true,
+        hide(repository, "includedFrom", {
+          number,
+          path: report.resolvedPath ?? report.path,
         });
         loaded.push({ repository, report, exists });
       }
@@ -99,8 +222,13 @@ export async function applyConfigIncludes(
   }
   const local = [...config.repositories];
   for (const { repository, report, exists } of candidates) {
-    if (local.some((item) => sameRepository(item, repository)))
-      report.overridden.push({ path: repository.path, by: "local" });
+    const replacing = local.find((item) => sameRepository(item, repository));
+    if (replacing)
+      report.overridden.push({
+        path: repository.path,
+        by: "local",
+        identical: sameRegistration(replacing, repository),
+      });
     else if (!exists) report.missingCheckouts.push(repository.path);
     else {
       report.loaded.push(repository.path);
@@ -108,6 +236,23 @@ export async function applyConfigIncludes(
     }
   }
   return config;
+}
+
+/**
+ * `config` as `config.json` should store it: without registrations loaded
+ * from includes, and without included settings that no command changed.
+ */
+export function localConfig(config: Config): Config {
+  const local: Config = {
+    ...config,
+    repositories: config.repositories.filter(
+      (repository) => !repository.includedFrom,
+    ),
+  };
+  for (const [key, { value }] of config.includedSettings ?? [])
+    if (isDeepStrictEqual(local[key as keyof Config], value))
+      delete local[key as keyof Config];
+  return local;
 }
 
 /** Every failed include and its error, or undefined when none failed. */
@@ -119,13 +264,29 @@ export function failedIncludesText(config: Config): string | undefined {
     .join("; ");
 }
 
-/** Failures and skipped checkouts, for `doctor`. */
+/** Failures, skipped checkouts and ignored keys, for `doctor`. */
 export function includeProblems(report: IncludeReport): string[] {
   return [
     ...(report.error ? [`${includeLabel(report)}: ${report.error}`] : []),
     ...report.missingCheckouts.map(
       (path) => `${path}: checkout does not exist yet`,
     ),
+    ...(report.ignoredKeys ?? []).map(
+      (key) =>
+        `${includeLabel(report)}: unknown top-level key "${key}" ignored`,
+    ),
+  ];
+}
+
+/** Local settings and registrations identical to this include's. */
+export function redundantLocalEntries(report: IncludeReport): string[] {
+  return [
+    ...(report.settings ?? [])
+      .filter((setting) => setting.outcome === "local-same")
+      .map((setting) => setting.key),
+    ...report.overridden
+      .filter((item) => item.by === "local" && item.identical)
+      .map((item) => item.path),
   ];
 }
 
@@ -135,17 +296,37 @@ function includeLabel(report: IncludeReport): string {
 
 /** Human-readable outcome lines for `status`. */
 export function includeReportLines(report: IncludeReport): string[] {
+  const used = (report.settings ?? []).filter(
+    (setting) => setting.outcome === "used",
+  ).length;
   const lines = [
     report.error
       ? `${includeLabel(report)}: not loaded: ${report.error}`
-      : `${includeLabel(report)}: ${report.loaded.length} registration(s) loaded`,
+      : `${includeLabel(report)}: ${report.loaded.length} registration(s) loaded${report.settings ? `, ${used} setting(s) used` : ""}`,
   ];
-  for (const { path, by } of report.overridden)
+  for (const { key, outcome, by } of report.settings ?? [])
+    if (outcome === "local-same")
+      lines.push(
+        `  setting ${key}: config.json sets the same value (redundant, safe to remove)`,
+      );
+    else if (outcome === "local-differs")
+      lines.push(`  setting ${key}: config.json sets it (local override)`);
+    else if (outcome === "include")
+      lines.push(`  setting ${key}: replaced by include ${by}`);
+  for (const { path, by, identical } of report.overridden)
     lines.push(
-      `  ${path}: replaced by ${by === "local" ? "a local registration" : `include ${by}`}`,
+      `  ${path}: replaced by ${
+        by !== "local"
+          ? `include ${by}`
+          : identical
+            ? "an identical local registration (redundant, safe to remove)"
+            : "a local registration (local override)"
+      }`,
     );
   for (const path of report.missingCheckouts)
     lines.push(`  ${path}: checkout does not exist yet; skipped`);
+  for (const key of report.ignoredKeys ?? [])
+    lines.push(`  unknown top-level key "${key}": ignored`);
   return lines;
 }
 
@@ -192,7 +373,7 @@ function resolveIncludePath(
   return resolve(runtimeRoot, path);
 }
 
-async function readIncludeFile(path: string): Promise<unknown[]> {
+async function readIncludeFile(path: string): Promise<Record<string, unknown>> {
   let text: string;
   try {
     text = await readFile(path, "utf8");
@@ -207,24 +388,22 @@ async function readIncludeFile(path: string): Promise<unknown[]> {
   } catch (error) {
     throw new Error(`not valid JSON: ${(error as Error).message}`);
   }
-  if (!isRecord(parsed) || !Array.isArray(parsed.repositories))
+  if (
+    !isRecord(parsed) ||
+    (parsed.repositories !== undefined && !Array.isArray(parsed.repositories))
+  )
     throw new Error(
-      'the file must be a JSON object with a "repositories" list',
+      'the file must be a JSON object of settings and an optional "repositories" list',
     );
-  return parsed.repositories;
+  for (const key of LOCAL_ONLY)
+    if (key in parsed)
+      throw new Error(
+        `"${key}" is allowed only in config.json, not in an included file`,
+      );
+  return parsed;
 }
 
-async function includedRepository(
-  raw: unknown,
-  vars: Record<string, string>,
-  where: string,
-  config: Config,
-  validateRepository: (config: Config, repository: RepositoryConfig) => void,
-): Promise<{ repository: RepositoryConfig; exists: boolean }> {
-  if (!isRecord(raw)) throw new Error(`${where} must be an object`);
-  const errors: string[] = [];
-  const repository = fill(raw, vars, where, errors) as RepositoryConfig;
-  if (errors.length) throw new Error([...new Set(errors)].join("; "));
+function checkPaths(repository: RepositoryConfig, where: string): void {
   for (const key of ["path", "gitCommonDir"] as const) {
     const value: unknown = repository[key];
     if (typeof value !== "string" || !isAbsolute(value))
@@ -233,6 +412,13 @@ async function includedRepository(
       );
     repository[key] = resolve(value);
   }
+}
+
+async function includedRepository(
+  repository: RepositoryConfig,
+  config: Config,
+  validateRepository: (config: Config, repository: RepositoryConfig) => void,
+): Promise<{ repository: RepositoryConfig; exists: boolean }> {
   repository.conflictInstructions ??= "";
   if (
     !Array.isArray(repository.setupCommands ?? []) ||
@@ -290,6 +476,28 @@ function fill(
 
 function sameRepository(a: RepositoryConfig, b: RepositoryConfig): boolean {
   return a.path === b.path || a.gitCommonDir === b.gitCommonDir;
+}
+
+/**
+ * Equal effective settings once defaults are filled; runtime-only
+ * (non-enumerable) properties are ignored.
+ */
+function sameRegistration(a: RepositoryConfig, b: RepositoryConfig): boolean {
+  const stored = (repository: RepositoryConfig) => {
+    const copy = JSON.parse(JSON.stringify(repository)) as RepositoryConfig;
+    copy.conflictInstructions ??= "";
+    return copy;
+  };
+  return isDeepStrictEqual(stored(a), stored(b));
+}
+
+function hide(target: object, key: string, value: unknown): void {
+  Object.defineProperty(target, key, {
+    value,
+    configurable: true,
+    enumerable: false,
+    writable: true,
+  });
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

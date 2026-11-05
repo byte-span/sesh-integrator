@@ -201,13 +201,16 @@ Example `~/.sesh-integrator/config.json`:
 }
 ```
 
-A global `include` list can load further registrations from
-`{ "repositories": [...] }` files, filling `{{name}}` placeholders in string
-values from each entry's `vars`. Local registrations replace included ones with
-the same path or Git common directory, and a later include replaces an earlier
-one. A failed include adds nothing and never blocks local registrations;
-`register` and other configuration writes change only `config.json`. See
-[shared registrations](docs/configuration.md#shared-registrations-include).
+A global `include` list can load shared top-level settings and further
+registrations from other files, filling `{{name}}` placeholders in string
+values from each entry's `vars`. Values in `config.json` override included
+settings key by key (whole values, never deep-merged), local registrations
+replace included ones with the same path or Git common directory, and a later
+include replaces an earlier one. A failed include adds nothing and never blocks
+local registrations; `register` and other configuration writes change only
+`config.json` and never copy included values into it. `status` reports local
+values that repeat or override included ones. See
+[shared settings and registrations](docs/configuration.md#shared-settings-and-registrations-include).
 
 Integrator-launched setup, preparation, validation and post-check commands share
 a machine-local queue with a resource-aware default capacity limit, explicit
