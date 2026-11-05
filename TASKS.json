@@ -373,6 +373,42 @@
         "docs/commands.md#status",
         "SPEC.md"
       ]
+    },
+    {
+      "id": "SI-018",
+      "title": "Make automated incident diagnosis work for Claude Code sessions",
+      "status": "ready",
+      "order": 180,
+      "blocked_by": [],
+      "acceptance": "Incident CH-20261104-8B29C4 (agent-delly session_mw1of8fy_2252474279, harness claude) fell back with \"Claude Code diagnose exited 1\", so the ticket only said to inspect the log. The real cause was a WSL host where connecting to a closed 127.0.0.1 port hangs instead of being refused, making 7 worker tests time out. Find and fix why the Claude Code diagnose runner exits 1. A fallback ticket records the runner's exit code and a bounded, redacted error excerpt so the cause is visible without rerunning. An integration test runs the Claude Code diagnose path with a stubbed executable and checks both a validated diagnosis and the improved fallback. Diagnosis stays read-only and schema-validated.",
+      "executor": "automated",
+      "device_requirement": [],
+      "doc": "docs/commands.md",
+      "evidence": []
+    },
+    {
+      "id": "SI-019",
+      "title": "Evaluate external scripts, tools and agents for troubleshooting stuck sessions",
+      "status": "ready",
+      "order": 190,
+      "blocked_by": [],
+      "acceptance": "Write a recommendation (docs/troubleshooting-options.md) comparing ways to analyze stuck or failed sessions and suggest fixes: repository-provided diagnostic scripts declared in the registration (for example an environment probe that checks closed localhost ports are refused), host probes added to seshx doctor, headless harness agents (claude -p, codex exec), scheduled cloud agents, and existing local monitoring. For each option cover what it can see, cost, cross-platform support (Linux/WSL, macOS, Windows), how it stays read-only, and how it keeps secrets and Production access out of reach. Pick one approach for SI-020 and record any extra follow-up tasks it needs.",
+      "executor": "automated",
+      "device_requirement": [],
+      "doc": "docs/troubleshooting-options.md",
+      "evidence": []
+    },
+    {
+      "id": "SI-020",
+      "title": "Detect stalled sessions automatically and report a suggested fix",
+      "status": "blocked",
+      "order": 200,
+      "blocked_by": ["SI-019"],
+      "acceptance": "session_mw1of8fy_2252474279 sat blocked at validation for hours with nobody told. Using the approach SI-019 picks, add a scheduled, read-only sweep (cross-platform scheduling) that finds sessions blocked, validation_pending, promotion_pending or idle past a configurable threshold. For each one it reuses or reruns the incident diagnosis, checks whether the recorded blocker still applies (for example rerunning an environment probe), and reports the session, cause, suggested fix and exact resume command through the dashboard's needs-attention view and a desktop notification. It never edits code, resumes, abandons or retries sessions on its own; one report per new or changed finding, no repeats. Can be turned off per machine and per repository.",
+      "executor": "automated",
+      "device_requirement": [],
+      "doc": "docs/commands.md",
+      "evidence": []
     }
   ]
 }
