@@ -478,8 +478,9 @@ it("parses edited config text with CLI validation and fixed registrations", () =
   expect(() => parseConfigText('{"repositories":[1]}', stored)).toThrow(
     "path and gitCommonDir",
   );
+  // An include may supply lockWaitSeconds, so only a wrong type is invalid.
   const invalid = config() as unknown as Record<string, unknown>;
-  delete invalid.lockWaitSeconds;
+  invalid.lockWaitSeconds = "soon";
   expect(() => parseConfigText(JSON.stringify(invalid), stored)).toThrow(
     "Invalid configuration: edited configuration",
   );

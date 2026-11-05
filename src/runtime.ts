@@ -5,7 +5,11 @@ import {
   type FileLock,
 } from "./file-lock.js";
 import { recordConfigSnapshot } from "./config-history.js";
-import { applyConfigIncludes } from "./config-include.js";
+import {
+  applyConfigIncludes,
+  loadConfigIncludes,
+  localConfig,
+} from "./config-include.js";
 import { validateHarnessConfig } from "./harness.js";
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
@@ -149,7 +153,9 @@ export async function readConfig(readOnly = false): Promise<Config> {
     throw error;
   }
   // Include problems are reported on the result, never thrown, so local
-  // registrations keep working.
+  // registrations keep working. Included settings apply before validation so
+  // registrations see the effective global policy.
+  await loadConfigIncludes(value, paths.root, validateSharedSetting);
   return applyConfigIncludes(
     validateConfig(value, paths.config),
     paths.root,
@@ -157,11 +163,31 @@ export async function readConfig(readOnly = false): Promise<Config> {
   );
 }
 
+/** Throw when one top-level setting from an include file is invalid. */
+export function validateSharedSetting(key: string, value: unknown): void {
+  try {
+    validateConfig(
+      { ...defaultConfig(), [key]: structuredClone(value) } as Config,
+      key,
+    );
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message.startsWith("Invalid configuration")
+    )
+      throw new Error("not a valid value; see the configuration reference");
+    throw error;
+  }
+}
+
 /**
  * Validate a parsed configuration in place: fill defaults that readers rely
  * on and attach inherited global policy. Throws on invalid or ambiguous values.
  */
 export function validateConfig(value: Config, source: string): Config {
+  // An include may supply lockWaitSeconds; otherwise use the default.
+  if (value && typeof value === "object" && value.lockWaitSeconds === undefined)
+    value.lockWaitSeconds = defaultConfig().lockWaitSeconds;
   if (
     !value ||
     typeof value !== "object" ||
@@ -335,18 +361,9 @@ export async function writeConfig(
   source = "seshx",
 ): Promise<void> {
   const paths = await ensureRuntime();
-  // Registrations loaded from include files are never written locally.
-  const local = config.repositories.some(
-    (repository) => repository.includedFrom,
-  )
-    ? {
-        ...config,
-        repositories: config.repositories.filter(
-          (repository) => !repository.includedFrom,
-        ),
-      }
-    : config;
-  await writeConfigFile(paths.config, local, source);
+  // Registrations and unchanged settings from include files are never
+  // written locally.
+  await writeConfigFile(paths.config, localConfig(config), source);
 }
 
 /** Replace config.json, first keeping the text it replaces in its history. */

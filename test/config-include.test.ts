@@ -259,3 +259,116 @@ it("reports broken includes without breaking local registrations or letting regi
     local,
   ]);
 });
+
+it("takes shared settings from includes, lets config.json override them, reports drift and never writes them locally", async () => {
+  const f = await fixture();
+  const alpha = await f.repo("alpha");
+  const beta = await f.repo("beta");
+  const gamma = await f.repo("gamma");
+  const promotion = { reviewers: ["octo"], assignees: ["octo"] };
+  await writeFile(
+    join(f.root, "shared.json"),
+    JSON.stringify({
+      $comment: "generated",
+      lockWaitSeconds: 120,
+      conflictResolutionMode: "nested-agent",
+      defaultTargetBranch: "{{target}}",
+      defaultPromotion: promotion,
+      typo: true,
+      repositories: [f.registration("alpha"), f.registration("beta")],
+    }),
+  );
+  await writeFile(
+    join(f.root, "later.json"),
+    JSON.stringify({ lockWaitSeconds: 60 }),
+  );
+  await writeFile(
+    join(f.root, "invalid.json"),
+    JSON.stringify({ lockWaitSeconds: "soon", repositories: [] }),
+  );
+  await writeFile(
+    join(f.root, "local-only.json"),
+    JSON.stringify({ disabledRepositories: [], repositories: [] }),
+  );
+  const vars = { codeRoot: f.code, target: "dev" };
+  // config.json holds only includes and deliberate local values: an override,
+  // a copy of an included setting and a copy of an included registration.
+  const betaCopy = {
+    ...f.registration("beta"),
+    path: beta,
+    gitCommonDir: join(beta, ".git"),
+  };
+  await mkdir(f.runtime, { recursive: true });
+  await writeFile(
+    join(f.runtime, "config.json"),
+    JSON.stringify({
+      include: [
+        { path: join(f.root, "shared.json"), vars },
+        { path: join(f.root, "later.json") },
+        { path: join(f.root, "invalid.json") },
+        { path: join(f.root, "local-only.json") },
+      ],
+      conflictResolutionMode: "current-session",
+      defaultPromotion: promotion,
+      repositories: [betaCopy],
+    }),
+  );
+
+  const status = f.run(["status"], alpha);
+  expect(status).toContain(
+    `${alpha} [registered, enabled]: staging sesh-integrator/integration -> target dev (global default)`,
+  );
+  expect(status).toContain(
+    `include 1 (${join(f.root, "shared.json")}): 1 registration(s) loaded, 1 setting(s) used`,
+  );
+  expect(status).toContain("setting lockWaitSeconds: replaced by include 2");
+  expect(status).toContain(
+    "setting conflictResolutionMode: config.json sets it (local override)",
+  );
+  expect(status).toContain(
+    "setting defaultPromotion: config.json sets the same value (redundant, safe to remove)",
+  );
+  expect(status).toContain(
+    `${beta}: replaced by an identical local registration (redundant, safe to remove)`,
+  );
+  expect(status).toContain('unknown top-level key "typo": ignored');
+  expect(status).not.toContain('"$comment"');
+  expect(status).toContain(
+    `include 2 (${join(f.root, "later.json")}): 0 registration(s) loaded, 1 setting(s) used`,
+  );
+  expect(status).toContain('not loaded: invalid "lockWaitSeconds"');
+  expect(status).toContain(
+    'not loaded: "disabledRepositories" is allowed only in config.json',
+  );
+  expect(status).toContain("Before removing a redundant setting");
+  expect(f.run(["doctor"], alpha, -1)).toMatch(
+    /Configuration includes: .*unknown top-level key "typo" ignored/,
+  );
+
+  // Registering writes the new registration but none of the included
+  // settings; local values and the includes stay as written.
+  const before = JSON.parse(
+    await readFile(join(f.runtime, "config.json"), "utf8"),
+  ) as Record<string, unknown>;
+  await writeFile(
+    join(f.runtime, "config.json"),
+    JSON.stringify({
+      ...before,
+      include: (before.include as unknown[]).slice(0, 2),
+    }),
+  );
+  f.run(["register"], gamma);
+  const saved = JSON.parse(
+    await readFile(join(f.runtime, "config.json"), "utf8"),
+  ) as Record<string, unknown>;
+  expect(saved).not.toHaveProperty("defaultTargetBranch");
+  expect(saved).not.toHaveProperty("lockWaitSeconds");
+  expect(saved.conflictResolutionMode).toBe("current-session");
+  expect(saved.defaultPromotion).toEqual(promotion);
+  expect(
+    (saved.repositories as { path: string }[]).map((item) => item.path),
+  ).toEqual([beta, gamma]);
+  expect(f.run(["status"], gamma)).toContain(
+    `${gamma} [registered, enabled]: staging sesh-integrator/integration -> target dev (global default)`,
+  );
+});
