@@ -403,9 +403,7 @@
       "title": "Detect stalled sessions automatically and report a suggested fix",
       "status": "blocked",
       "order": 200,
-      "blocked_by": [
-        "SI-019"
-      ],
+      "blocked_by": ["SI-019"],
       "acceptance": "session_mw1of8fy_2252474279 sat blocked at validation for hours with nobody told. Using the approach SI-019 picks, add a scheduled, read-only sweep (cross-platform scheduling) that finds sessions blocked, validation_pending, promotion_pending or idle past a configurable threshold. For each one it reuses or reruns the incident diagnosis, checks whether the recorded blocker still applies (for example rerunning an environment probe), and reports the session, cause, suggested fix and exact resume command through the dashboard's needs-attention view and a desktop notification. It never edits code, resumes, abandons or retries sessions on its own; one report per new or changed finding, no repeats. Can be turned off per machine and per repository.",
       "executor": "automated",
       "device_requirement": [],
