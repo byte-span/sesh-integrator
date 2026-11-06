@@ -143,14 +143,20 @@ export interface Config {
   deliveryPolicyFile?: string;
   /** Defaults for every repository; repository settings override them. */
   integrationBatching?: IntegrationBatchingConfig;
-  /** Files of shared registrations; local registrations override them. */
+  /** Files of shared settings and registrations; local values override them. */
   include?: ConfigInclude[];
   repositories: RepositoryConfig[];
   /** Runtime-only result of loading `include`; never persisted. */
   includeReports?: IncludeReport[];
+  /**
+   * Runtime-only: top-level settings taken from an include because
+   * `config.json` does not set them, with the value as loaded. `writeConfig`
+   * leaves an unchanged one out of `config.json`.
+   */
+  includedSettings?: Map<string, { number: number; value: unknown }>;
 }
 
-/** One `include` entry: a `{ "repositories": [...] }` file and its values. */
+/** One `include` entry: a file of shared settings and registrations, and its values. */
 export interface ConfigInclude {
   /** Absolute, `~`-relative, or relative to the runtime directory. */
   path: string;
@@ -170,10 +176,29 @@ export interface IncludeReport {
   error?: string;
   /** Registration paths in use from this include. */
   loaded: string[];
-  /** Registration paths replaced by a local registration or a later include. */
-  overridden: { path: string; by: "local" | number }[];
+  /**
+   * Registration paths replaced by a local registration or a later include.
+   * `identical` is set for a local registration equal to the included one.
+   */
+  overridden: { path: string; by: "local" | number; identical?: boolean }[];
   /** Registration paths skipped because their checkout does not exist yet. */
   missingCheckouts: string[];
+  /** What happened to each top-level setting this include sets. */
+  settings?: IncludedSettingReport[];
+  /** Top-level keys the file has that are neither settings nor `repositories`. */
+  ignoredKeys?: string[];
+}
+
+/** One top-level setting from an include file. */
+export interface IncludedSettingReport {
+  key: string;
+  /**
+   * `used`: in effect. `include`: a later include sets it. `local-same` /
+   * `local-differs`: `config.json` sets it to the same / a different value.
+   */
+  outcome: "used" | "include" | "local-same" | "local-differs";
+  /** The later include, for `include`. */
+  by?: number;
 }
 
 export type SessionStatus =

@@ -79,6 +79,14 @@ export async function statusCommand(sessionId?: string): Promise<void> {
     for (const report of includes)
       for (const line of includeReportLines(report))
         process.stdout.write(`  ${terminalSafe(line)}\n`);
+    if (
+      includes.some((report) =>
+        report.settings?.some((setting) => setting.outcome === "local-same"),
+      )
+    )
+      process.stdout.write(
+        "  Before removing a redundant setting, finish sessions pinned to coordinators older than included settings: they read settings only from config.json.\n",
+      );
   }
   // Abandoned sessions are terminal; list them apart unless one is selected.
   const abandoned = selected
