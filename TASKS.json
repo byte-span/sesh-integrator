@@ -440,6 +440,46 @@
         "test/build-queue.test.ts \"admits while a socket outside this network namespace holds the legacy mutex port\" fails against the previous src/build-queue.ts with \"Build queue admission mutex busy on 127.0.0.1:<legacyPort>\" and passes with the fix; existing legacy-port tests (Linux listener blocks admission until its owner dies, established/TIME_WAIT sockets skipped) pass unchanged.",
         "corepack pnpm exec vitest run test/validation-reuse.test.ts on the WSL2 machine: 2 of 6 runs failed before the fix (fixture timeout), 15 of 15 passed after it."
       ]
+    },
+    {
+      "id": "SI-023",
+      "title": "Compose layered include files with seshx config apply, report folder use with sessions idle, and report the built commit",
+      "status": "completed",
+      "order": 230,
+      "blocked_by": [],
+      "acceptance": "A configuration repository can hand seshx plain ordered layer files with vars and no generated output: each layer is an ordinary include entry, a later include's registration entry for the same repository is laid over the earlier one key by key and null removes a setting or key. seshx config apply --layer FILE... --var NAME=VALUE... --drop-include PATH... --register DIR... [--check] sets those includes in order (keeping the place of the entries they replace), drops stale include entries, registers listed checkouts with --auto-config, validates every layer before writing and is idempotent; --check changes nothing and exits 0 when done, 1 with a first line listing what is pending, and 2 on any error. seshx sessions idle --repo DIR exits 0 when no unfinished session uses the folder, 75 when one or more do and 1 when it cannot tell. seshx version --json reports the Git commit the build was made from. Code, docs and CLI name no other tool.",
+      "executor": "automated",
+      "device_requirement": [],
+      "doc": "docs/configuration.md",
+      "evidence": [
+        "test/config-apply.test.ts: fresh --check exits 1 and creates nothing; apply sets three layers with vars, notes a missing checkout and a non-checkout, registers an unregistered repository, a later layer changes one registration field and removes a setting with null, reruns are byte-identical, a role change drops the old layer and an older include in place, and a broken layer exits 2 in both modes with config.json unchanged.",
+        "test/session-audit.test.ts: sessions idle exits 0 without a runtime and for other repositories, 75 for a real session and for a record matched by its launch path, 0 after it finishes and 1 when a session record cannot be read.",
+        "test/package-smoke.test.ts: the packed and installed CLI's version --json commit equals the checkout's HEAD."
+      ]
+    },
+    {
+      "id": "SI-024",
+      "title": "Stop register and other config writes from adding defaults that shadow included settings",
+      "status": "ready",
+      "order": 240,
+      "blocked_by": [],
+      "acceptance": "register, enable/disable and dashboard Settings no longer write a default (such as conflictResolutionMode or lockWaitSeconds) into config.json that no command or person set, so a layer added or changed later is not silently overridden by a local default; values older coordinators require in config.json are kept or migrated deliberately. A disposable-repository test registers a repository after config apply, then changes a layer's conflictResolutionMode and sees status use it.",
+      "executor": "automated",
+      "device_requirement": [],
+      "doc": "docs/configuration.md",
+      "evidence": []
+    },
+    {
+      "id": "SI-025",
+      "title": "Let begin work in a repository without a GitHub remote while a delivery policy is set",
+      "status": "ready",
+      "order": 250,
+      "blocked_by": [],
+      "acceptance": "With a global deliveryPolicyFile set, seshx begin in a local-only repository (no origin, or a non-GitHub fetch URL) no longer fails with repository_unidentified when the policy's applicable rule needs no remote: it applies the policy defaults (or a documented local-only rule) and records that the repository had no GitHub identity. When the resolved rule needs a remote, such as pull-request promotion or production-merged landing, begin still fails before changing anything with an exact message. A disposable-repository test covers a repository without a remote under a policy with local promotion, and one with pull-request promotion.",
+      "executor": "automated",
+      "device_requirement": [],
+      "doc": "docs/configuration.md",
+      "evidence": []
     }
   ]
 }

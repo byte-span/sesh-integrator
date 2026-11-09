@@ -17,7 +17,8 @@ const NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 /**
  * Top-level settings an include file may set. Each is taken whole from the
  * last source that sets it: `config.json`, else the last include; values are
- * never merged key by key.
+ * never merged key by key. An include's `null` removes the value earlier
+ * includes set.
  */
 export const SHARED_SETTINGS = [
   "lockWaitSeconds",
@@ -40,10 +41,20 @@ interface LoadedInclude {
 }
 
 interface Candidate {
+  /** The registration laid over from the include files, before validation. */
+  layered: Record<string, unknown>;
   repository: RepositoryConfig;
   report: IncludeReport;
   exists: boolean;
 }
+
+/** Keys a registration needs once every include has been laid over it. */
+const REQUIRED_REGISTRATION_KEYS = [
+  "defaultBranch",
+  "integrationBranch",
+  "sourceValidationCommands",
+  "integrationValidationCommands",
+];
 
 /** Include files read by `loadConfigIncludes`, for `applyConfigIncludes`. */
 const loadedIncludes = new WeakMap<Config, LoadedInclude[]>();
@@ -94,7 +105,8 @@ export async function loadConfigIncludes(
       const values: Record<string, unknown> = {};
       for (const key of SHARED_SETTINGS)
         if (parsed[key] !== undefined)
-          values[key] = fill(parsed[key], vars, key, errors);
+          values[key] =
+            parsed[key] === null ? null : fill(parsed[key], vars, key, errors);
       const repositories = (
         (parsed.repositories as unknown[] | undefined) ?? []
       ).map((raw, position) => {
@@ -104,13 +116,14 @@ export async function loadConfigIncludes(
       });
       if (errors.length) throw new Error([...new Set(errors)].join("; "));
       for (const [key, value] of Object.entries(values))
-        try {
-          validateSetting(key, value);
-        } catch (error) {
-          throw new Error(
-            `invalid "${key}": ${error instanceof Error ? error.message : String(error)}`,
-          );
-        }
+        if (value !== null)
+          try {
+            validateSetting(key, value);
+          } catch (error) {
+            throw new Error(
+              `invalid "${key}": ${error instanceof Error ? error.message : String(error)}`,
+            );
+          }
       for (const [position, repository] of repositories.entries())
         checkPaths(repository, `repositories[${position}]`);
       const ignored = Object.keys(parsed).filter(
@@ -135,6 +148,7 @@ export async function loadConfigIncludes(
     if (sources.length === 0) continue;
     const local = config[key];
     const last = sources.at(-1)!;
+    const cleared = last.values[key] === null;
     for (const { number, values } of sources) {
       const outcome: IncludedSettingReport =
         local !== undefined
@@ -145,11 +159,11 @@ export async function loadConfigIncludes(
                 : "local-differs",
             }
           : number === last.number
-            ? { key, outcome: "used" }
+            ? { key, outcome: cleared ? "cleared" : "used" }
             : { key, outcome: "include", by: last.number };
       reports[number - 1]!.settings!.push(outcome);
     }
-    if (local === undefined) {
+    if (local === undefined && !cleared) {
       included.set(key, {
         number: last.number,
         value: structuredClone(last.values[key]),
@@ -168,9 +182,10 @@ export async function loadConfigIncludes(
  * Append the registrations from the include files that `loadConfigIncludes`
  * read (reading them now when it has not) to `config.repositories` after the
  * local ones. A local registration replaces an included one with the same
- * path (or Git common directory), and a later include replaces an earlier one.
- * A registration that fails validation drops that include's registrations,
- * not its settings.
+ * path (or Git common directory). A later include's entry is laid over an
+ * earlier include's for the same repository: each key it sets replaces the
+ * earlier value whole and `null` removes the key. A registration that fails
+ * validation drops that include's registrations, not its settings.
  */
 export async function applyConfigIncludes(
   config: Config,
@@ -185,24 +200,46 @@ export async function applyConfigIncludes(
     const number = report.number;
     try {
       const loaded: Candidate[] = [];
+      const entries: RepositoryConfig[] = [];
       for (const [position, raw] of repositories.entries()) {
-        const { repository, exists } = await includedRepository(
-          structuredClone(raw),
-          config,
-          validateRepository,
-        );
-        const duplicate = loaded.findIndex((other) =>
-          sameRepository(other.repository, repository),
+        const entry = await realPaths(structuredClone(raw));
+        const duplicate = entries.findIndex((other) =>
+          sameRepository(other, entry),
         );
         if (duplicate >= 0)
           throw new Error(
-            `repositories[${duplicate}] and repositories[${position}] both register ${repository.path}`,
+            `repositories[${duplicate}] and repositories[${position}] both register ${entry.path}`,
           );
+        entries.push(entry);
+        const earlier = candidates.find((candidate) =>
+          sameRepository(
+            candidate.layered as unknown as RepositoryConfig,
+            entry,
+          ),
+        );
+        const layered = layer(earlier?.layered ?? {}, entry);
+        let included: { repository: RepositoryConfig; exists: boolean };
+        try {
+          included = await includedRepository(
+            structuredClone(layered) as unknown as RepositoryConfig,
+            config,
+            validateRepository,
+          );
+        } catch (error) {
+          const missing = REQUIRED_REGISTRATION_KEYS.filter(
+            (key) => layered[key] === undefined,
+          );
+          if (earlier || missing.length === 0) throw error;
+          throw new Error(
+            `repositories[${position}] (${entry.path}) has no ${missing.join(", ")}; no earlier include registers it, so it must be a complete registration`,
+          );
+        }
+        const { repository, exists } = included;
         hide(repository, "includedFrom", {
           number,
           path: report.resolvedPath ?? report.path,
         });
-        loaded.push({ repository, report, exists });
+        loaded.push({ layered, repository, report, exists });
       }
       candidates = candidates.filter((earlier) => {
         if (
@@ -313,6 +350,8 @@ export function includeReportLines(report: IncludeReport): string[] {
       lines.push(`  setting ${key}: config.json sets it (local override)`);
     else if (outcome === "include")
       lines.push(`  setting ${key}: replaced by include ${by}`);
+    else if (outcome === "cleared")
+      lines.push(`  setting ${key}: removed (null); no included value`);
   for (const { path, by, identical } of report.overridden)
     lines.push(
       `  ${path}: replaced by ${
@@ -363,7 +402,7 @@ function parseEntry(entry: unknown): {
 }
 
 /** `~` and `~/...` expand to the home directory; relative paths use the runtime directory. */
-function resolveIncludePath(
+export function resolveIncludePath(
   path: string,
   runtimeRoot: string,
   home = homedir(),
@@ -429,12 +468,30 @@ async function includedRepository(
   validateRepository(config, repository);
   const exists =
     existsSync(repository.path) && existsSync(repository.gitCommonDir);
-  // Match local registrations and Git, which record real paths.
-  if (exists) {
+  return { repository, exists };
+}
+
+/** Match local registrations and Git, which record real paths. */
+async function realPaths(
+  repository: RepositoryConfig,
+): Promise<RepositoryConfig> {
+  if (existsSync(repository.path) && existsSync(repository.gitCommonDir)) {
     repository.path = await realpath(repository.path);
     repository.gitCommonDir = await realpath(repository.gitCommonDir);
   }
-  return { repository, exists };
+  return repository;
+}
+
+/** `patch` over `base`: each key replaces the earlier value whole; `null` removes it. */
+function layer(
+  base: Record<string, unknown>,
+  patch: object,
+): Record<string, unknown> {
+  const out = { ...base };
+  for (const [key, value] of Object.entries(patch))
+    if (value === null) delete out[key];
+    else out[key] = structuredClone(value);
+  return out;
 }
 
 /** Fill placeholders in parsed string values only, never in keys or raw text. */

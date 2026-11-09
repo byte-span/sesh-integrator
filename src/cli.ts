@@ -35,6 +35,8 @@ import { dashboardCommand } from "./dashboard.js";
 import { webDashboardCommand } from "./dashboard-web.js";
 import { tasksCommand } from "./tasks.js";
 import { sessionsCommand } from "./session-audit.js";
+import { configCommand } from "./config-apply.js";
+import { versionCommand } from "./version.js";
 import { abandonCommand, restoreCommand } from "./abandon.js";
 import { CodedError, policyCommand } from "./delivery-policy.js";
 import {
@@ -199,6 +201,12 @@ async function dispatch(
         break;
       case "sessions":
         await sessionsCommand(args);
+        break;
+      case "config":
+        await configCommand(args);
+        break;
+      case "version":
+        await versionCommand(args);
         break;
       case "abandon":
         await abandonCommand(args);
@@ -599,7 +607,9 @@ Usage:
   seshx installation-readiness
   seshx worktree-location [--directory <absolute-path> | --repo-local]
   seshx capabilities [--recheck | --mode manual|automatic]
+  seshx version [--json]
   seshx init
+  seshx config apply [--layer <file>]... [--var <name>=<value>]... [--drop-include <path>]... [--register <repo-path>]... [--check]
   seshx disable [repo-path]
   seshx enable [repo-path]
   seshx register [repo-path] [--auto-config] [--setup-command '<json-array>']... [--moved-from <old-path>]
@@ -619,6 +629,7 @@ Usage:
   seshx tasks update <task-id> [--title "..."] [--description "..."] [--status pending|in_progress|completed|blocked|skipped] [--reason "..."] [--session <session-id>]
   seshx tasks move <task-id> --position <n> [--session <session-id>]
   seshx sessions audit [--repo <path>] [--idle-days <n>] [--json]
+  seshx sessions idle --repo <path>
   seshx abandon --session <session-id> --reason "..." [--include-unsaved]
   seshx abandon --all [--repo <path>] [--idle-days <n>] [--bucket <list>] [--include-unsaved] [--apply --reason "..."]
   seshx restore --session <session-id>
@@ -635,7 +646,9 @@ if (isMainModule()) {
     process.stderr.write(
       `seshx: ${error instanceof Error ? error.message : String(error)}\n`,
     );
-    process.exitCode = 1;
+    // A command may document its own error exit code, such as `config apply`.
+    const code = (error as { exitCode?: unknown } | undefined)?.exitCode;
+    process.exitCode = typeof code === "number" && code > 1 ? code : 1;
   });
 }
 

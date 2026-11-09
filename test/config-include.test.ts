@@ -67,7 +67,7 @@ async function fixture() {
     update(config);
     await writeFile(configPath, JSON.stringify(config, null, 2));
   }
-  // A registration in the shape fig-sync generates.
+  // A registration in the shape a shared include file holds.
   const registration = (name: string, extra: object = {}) => ({
     path: `{{codeRoot}}/${name}`,
     gitCommonDir: `{{codeRoot}}/${name}/.git`,
@@ -101,9 +101,9 @@ it("loads included registrations with filled placeholders, keeps local ones firs
     "-e",
     `require("fs").appendFileSync("{{codeRoot}}/validated.log", "${label}\\n")`,
   ];
-  await mkdir(join(f.root, "fig"));
+  await mkdir(join(f.root, "shared"));
   await writeFile(
-    join(f.root, "fig", "sesh.json"),
+    join(f.root, "shared", "sesh.json"),
     JSON.stringify({
       repositories: [
         f.registration("alpha", {
@@ -127,7 +127,7 @@ it("loads included registrations with filled placeholders, keeps local ones firs
   await f.writeConfig((config) => {
     config.include = [
       {
-        path: "../fig/sesh.json",
+        path: "../shared/sesh.json",
         vars: { codeRoot: f.code, node: process.execPath },
       },
       {
@@ -148,7 +148,7 @@ it("loads included registrations with filled placeholders, keeps local ones firs
   );
   expect(status).toContain("Includes: 2");
   expect(status).toContain(
-    `include 1 (${join(f.root, "fig", "sesh.json")}): 0 registration(s) loaded`,
+    `include 1 (${join(f.root, "shared", "sesh.json")}): 0 registration(s) loaded`,
   );
   expect(status).toContain(`${alpha}: replaced by include 2`);
   expect(status).toContain(`${beta}: replaced by a local registration`);

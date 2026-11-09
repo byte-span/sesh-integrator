@@ -7,6 +7,7 @@ Commands below run from the repository root unless stated otherwise.
 - [Install](#install)
 - [Adopting existing work and changing installations](#adopting-existing-work-and-changing-installations)
 - [Install from source](#install-from-source)
+- [Install a pinned commit](#install-a-pinned-commit)
 - [Renaming an existing installation](#renaming-an-existing-installation)
 - [macOS upgrade export](#macos-upgrade-export)
 - [Auditing and disabling the old daemon](#auditing-and-disabling-the-old-daemon)
@@ -121,6 +122,32 @@ seshx setup
 The source installer creates CLI symlinks in `~/.local/bin`; ensure it is on
 `PATH`. Set `SESH_INTEGRATOR_BIN_DIR` to choose another user-writable directory.
 Neither installation method installs Git hooks or scheduled maintenance.
+
+### Install a pinned commit
+
+To install one reviewed commit unattended (the same commands work in
+PowerShell and cmd):
+
+```bash
+git clone https://github.com/byte-span/sesh-integrator.git ~/src/sesh-integrator  # once
+cd ~/src/sesh-integrator
+git fetch origin
+git checkout --detach <commit>
+corepack pnpm install --frozen-lockfile
+corepack pnpm build
+npm install --global --foreground-scripts .
+seshx version --json
+```
+
+Expect `"commit": "<commit>"` and `"dirty": false`. The build records the
+checkout's commit, so the installed CLI is at `<commit>` exactly when
+`seshx version --json` reports it. `npm install --global .` links the checkout:
+after checking out another commit, rebuild and reinstall. Then configure the
+machine with [`seshx config apply`](configuration.md#layered-configuration).
+
+Install from a checkout as shown. Do not install a Git URL with `npm install -g`
+(such as `git+https://...#<commit>`): npm can leave the global command linked
+to a deleted temporary clone.
 
 ### Renaming an existing installation
 
