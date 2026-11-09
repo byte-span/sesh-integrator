@@ -289,8 +289,36 @@ async function holdLegacy(port: number): Promise<Server | "busy" | "occupied"> {
   }
   return "occupied";
 }
+// Linux lists every listener in this network namespace, where an older
+// coordinator sharing the queue must run. A port held only outside it, as WSL
+// mirrored networking shows Windows sockets and excluded port ranges, rejects
+// their listeners too and is skipped. Probing it would wait out the deadline: a
+// Windows listener accepts, and connects to other such ports hang. Elsewhere,
+// probe instead.
+async function listening(port: number): Promise<boolean> {
+  return (await listedListener(port)) ?? probeListener(port);
+}
+async function listedListener(port: number): Promise<boolean | undefined> {
+  if (process.platform !== "linux") return undefined;
+  const tables = await Promise.all(
+    ["/proc/net/tcp", "/proc/net/tcp6"].map((path) =>
+      readFile(path, "utf8").catch(() => undefined),
+    ),
+  );
+  if (tables[0] === undefined) return undefined;
+  const local = `:${port.toString(16).toUpperCase().padStart(4, "0")}`;
+  return tables.some((table) =>
+    (table ?? "")
+      .split("\n")
+      .slice(1)
+      .some((line) => {
+        const [, address, , state] = line.trim().split(/\s+/);
+        return state === "0A" && !!address?.endsWith(local);
+      }),
+  );
+}
 // Unclear outcomes count as a listener so admission fails closed.
-function listening(port: number): Promise<boolean> {
+function probeListener(port: number): Promise<boolean> {
   return new Promise((resolve) => {
     const socket = connect({ host: "127.0.0.1", port });
     // Windows reports a refused loopback connection only after SYN retries.

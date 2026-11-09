@@ -13,6 +13,8 @@ import { stripVTControlCharacters } from "node:util";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { readLockMetadata } from "./lock.js";
+import { inspectGit } from "./git.js";
+import { movedRegistrationStatus } from "./moved-repository.js";
 import { targetBranch, targetBranchSource } from "./promotion.js";
 import { pullRequestPromotion } from "./pull-request.js";
 import type { Session } from "./types.js";
@@ -54,6 +56,13 @@ export async function statusCommand(sessionId?: string): Promise<void> {
     process.stdout.write(
       `Current repository: ${currentCommonDir}\nRegistration: ${registered ? "registered" : "unregistered"}\nEnablement: ${isRepositoryDisabled(config, currentCommonDir) ? "disabled (run seshx enable to re-enable)" : "enabled"}\n`,
     );
+    try {
+      process.stdout.write(
+        await movedRegistrationStatus(config, await inspectGit(process.cwd())),
+      );
+    } catch {
+      // Detection is advisory; a repository without commits has nothing moved.
+    }
   }
   for (const commonDir of config.disabledRepositories ?? [])
     process.stdout.write(

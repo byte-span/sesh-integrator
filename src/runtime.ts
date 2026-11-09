@@ -152,6 +152,18 @@ export async function readConfig(readOnly = false): Promise<Config> {
       return defaultConfig();
     throw error;
   }
+  return loadConfig(value, paths);
+}
+
+/**
+ * Validate a parsed `config.json` and load its includes, as `readConfig`
+ * does, without reading or writing the file. Throws when `config.json` itself
+ * is invalid.
+ */
+export async function loadConfig(
+  value: Config,
+  paths: Pick<RuntimePaths, "root" | "config"> = runtimePaths(),
+): Promise<Config> {
   // Include problems are reported on the result, never thrown, so local
   // registrations keep working. Included settings apply before validation so
   // registrations see the effective global policy.

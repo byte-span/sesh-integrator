@@ -498,3 +498,32 @@ it("derives last activity from lastActivityAt, then tasksUpdatedAt, then started
     idleDays({ at: "2026-10-12T00:00:00.000Z", source: "startedAt" }, now),
   ).toBe(0);
 });
+
+it("tells whether an unfinished session uses a folder: 0 idle, 75 busy, 1 cannot tell", async () => {
+  const f = await fixture();
+  const idle = (folder: string, code: number) =>
+    f.run(["sessions", "idle", "--repo", folder], f.root, code);
+  // No runtime yet: nothing can use the folder.
+  expect(idle(join(f.root, "first"), 0)).toContain("Idle: no unfinished");
+  const first = await f.createRepo("first");
+  const second = await f.createRepo("second");
+  expect(idle(first, 0)).toContain(`Idle: no unfinished session uses ${first}`);
+  const session = await f.begin(first, "Work in first");
+  expect(idle(first, 75)).toContain(
+    `Busy: 1 unfinished session(s) use ${first}: ${session.id} (active).`,
+  );
+  expect(idle(second, 0)).toContain("Idle");
+  // A session recorded at a folder that is no longer a Git checkout still
+  // counts, matched by its recorded path.
+  const moved = join(f.root, "moved");
+  await f.clone(session, "moved", {
+    repositoryPath: moved,
+    repositoryId: "x",
+    launchWorktreePath: moved,
+  });
+  expect(idle(moved, 75)).toContain(`${session.id}_moved (active)`);
+  await f.save({ ...session, status: "succeeded" });
+  expect(idle(first, 0)).toContain("Idle");
+  await writeFile(join(f.runtime, "sessions", "broken.json"), "{");
+  idle(first, 1);
+});

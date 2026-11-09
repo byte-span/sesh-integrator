@@ -193,10 +193,12 @@ export interface IncludeReport {
 export interface IncludedSettingReport {
   key: string;
   /**
-   * `used`: in effect. `include`: a later include sets it. `local-same` /
-   * `local-differs`: `config.json` sets it to the same / a different value.
+   * `used`: in effect. `include`: a later include sets it. `cleared`: this
+   * last include sets it to `null`, removing earlier includes' value.
+   * `local-same` / `local-differs`: `config.json` sets it to the same / a
+   * different value.
    */
-  outcome: "used" | "include" | "local-same" | "local-differs";
+  outcome: "used" | "include" | "cleared" | "local-same" | "local-differs";
   /** The later include, for `include`. */
   by?: number;
 }

@@ -236,7 +236,8 @@ secret-registry policies. Maintain them in shared agent instructions outside its
 markers. Before upgrading an older installation that bundled those policies,
 verify their requirements are retained in the independently managed shared
 layer; upgrading the workflow replaces the old managed copy. For installations
-using `agent-instructions`, reconcile its shared layer first, then refresh this
+that manage shared instructions with a separate tool, reconcile its shared
+layer first, then refresh this
 workflow and run the instruction comparison again. Machine-specific registry
 checkout paths belong in the private local layer.
 
