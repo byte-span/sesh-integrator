@@ -30,7 +30,7 @@ Lifecycle and maintenance commands:
 seshx init
 seshx disable [repo-path]
 seshx enable [repo-path]
-seshx register [repo-path] [--auto-config] [--setup-command '<json-array>']...
+seshx register [repo-path] [--auto-config] [--setup-command '<json-array>']... [--moved-from <old-path>]
 seshx begin --summary "Implement feature" [--create-worktree] [--no-auto-branch] [--depends-on <session-id>]... [--policy-file <path>] [--sync-target] [--json]
 seshx commit --message "Implement feature" [--session <session-id>]
 seshx validate [--session <session-id>]

@@ -25,9 +25,16 @@ import {
   readTaskRegister,
 } from "./follow-up-tracking.js";
 import { access, mkdir, readFile } from "node:fs/promises";
-import { constants } from "node:fs";
+import { constants, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { detectAutoConfig } from "./auto-config.js";
+import {
+  adoptMovedRegistrationLocked,
+  followMovedRegistration,
+  followMovedRegistrationLocked,
+  missingRegistrationsHint,
+  relocateMovedIntegrationWorktree,
+} from "./moved-repository.js";
 import {
   recordValidationCache,
   runSetupWithCache,
@@ -161,6 +168,7 @@ export async function registerCommand(
   pathArgument?: string,
   autoConfig = false,
   setupCommands: Command[] = [],
+  movedFrom?: string,
 ): Promise<RepositoryConfig> {
   const registrationCwd = pathArgument ?? process.cwd();
   if (
@@ -171,7 +179,7 @@ export async function registerCommand(
   )
     await requireCapabilities(registrationCwd, true);
   return withConfigLock(() =>
-    registerRepository(pathArgument, autoConfig, setupCommands),
+    registerRepository(pathArgument, autoConfig, setupCommands, movedFrom),
   );
 }
 
@@ -179,6 +187,7 @@ async function registerRepository(
   pathArgument: string | undefined,
   autoConfig: boolean,
   setupCommands: Command[],
+  movedFrom: string | undefined,
 ): Promise<RepositoryConfig> {
   const registrationPath = pathArgument ?? process.cwd();
   let context;
@@ -205,6 +214,9 @@ async function registerRepository(
     throw error;
   }
   const config = await readConfig();
+  // A moved checkout keeps its registration: adopt it before looking it up.
+  if (movedFrom) await adoptMovedRegistrationLocked(config, context, movedFrom);
+  else await followMovedRegistrationLocked(config, context);
   if (isRepositoryDisabled(config, context.gitCommonDir))
     process.stdout.write(
       "Repository remains disabled; registration does not enable it. Run seshx enable to re-enable it.\n",
@@ -390,6 +402,7 @@ export async function beginCommand(
       `New ${harness} enrollment is stopped by uninstall. Existing sessions can finish; run seshx setup --harness ${harness} --yes to enroll new work.`,
     );
   if (!summary.trim()) throw new Error('begin requires --summary "..."');
+  await followMovedRegistration();
   if (createWorktree && !autoBranch) {
     throw new Error(
       "--create-worktree cannot be combined with --no-auto-branch",
@@ -676,6 +689,7 @@ async function resolveRegisteredSourceSession(
   repository: RepositoryConfig;
   session: Session;
 }> {
+  await followMovedRegistration();
   const config = await readConfig(true);
   if (requireEnabled)
     assertRepositoryEnabled(config, await repositoryCommonDir(process.cwd()));
@@ -685,7 +699,7 @@ async function resolveRegisteredSourceSession(
     const session = await readSession(sessionId);
     if (!session) throw new Error(`Unknown session: ${sessionId}`);
     if (session.repositoryId !== repoId(repository.gitCommonDir)) {
-      throw new Error(`Session ${sessionId} belongs to a different repository`);
+      throw new Error(differentRepositoryMessage(session, repository));
     }
     if (!statuses.includes(session.status)) {
       if (session.status === "abandoned")
@@ -1356,6 +1370,7 @@ export async function resumeCommand(
   acceptStagedResolution = false,
 ): Promise<Session> {
   await requireCapabilities();
+  await followMovedRegistration();
   const config = await readConfig();
   assertRepositoryEnabled(config, await repositoryCommonDir(process.cwd()));
   const current = await inspectGit(process.cwd());
@@ -1369,7 +1384,7 @@ export async function resumeCommand(
       ]);
   if (sessionId && !session) throw new Error(`Unknown session: ${sessionId}`);
   if (session && session.repositoryId !== repoId(registered.gitCommonDir))
-    throw new Error(`Session ${session.id} belongs to a different repository`);
+    throw new Error(differentRepositoryMessage(session, registered));
   if (
     sessionId &&
     session &&
@@ -1706,6 +1721,8 @@ async function prepareIntegrationWorktree(
   session: Session,
   path: string,
 ): Promise<void> {
+  if (!session.integrationWorktreeDetached && !(await pathExists(path)))
+    await relocateMovedIntegrationWorktree(repository, session, path);
   if (await pathExists(path)) {
     const context = await inspectGit(path);
     if (context.gitCommonDir !== repository.gitCommonDir) {
@@ -2454,6 +2471,8 @@ async function recoverMovedRemoteTarget(
     (await worktreePaths(repository.path)).worktrees,
     session.repositoryId,
   );
+  if (!(await pathExists(worktree)))
+    await relocateMovedIntegrationWorktree(repository, session, worktree);
   if (!(await pathExists(worktree))) {
     await git(
       ["worktree", "add", worktree, repository.integrationBranch],
@@ -2843,10 +2862,23 @@ function findRepository(
     throw new Error(
       failed
         ? `Repository is not registered, and ${failed}. Fix that include (see seshx status); seshx register refuses new local registrations until it loads.`
-        : "Repository is not registered. Run seshx register first.",
+        : `Repository is not registered. Run seshx register first.${missingRegistrationsHint(config)}`,
     );
   }
   return repository;
+}
+
+/** A session from another repository, or from this one before it moved. */
+function differentRepositoryMessage(
+  session: Session,
+  repository: RepositoryConfig,
+): string {
+  if (
+    session.repositoryPath !== repository.path &&
+    !existsSync(session.repositoryPath)
+  )
+    return `Session ${session.id} was recorded for ${session.repositoryPath}, which no longer exists; seshx does not move sessions to a moved checkout, so it was left unchanged. Inspect it with seshx status --session ${session.id}; if its work is no longer needed, close it with seshx abandon --session ${session.id} --reason "...".`;
+  return `Session ${session.id} belongs to a different repository`;
 }
 
 async function pathExists(path: string): Promise<boolean> {

@@ -5,6 +5,7 @@
 Commands below run from the repository root unless stated otherwise.
 
 - [`register`](#register)
+- [Moved checkouts](#moved-checkouts)
 - [Integration batching](#integration-batching)
 - [Optional pull-request promotion](#optional-pull-request-promotion)
 - [Stable default branch with a development target](#stable-default-branch-with-a-development-target)
@@ -127,6 +128,38 @@ their staging meaning. An explicit `targetBranch` equal to `integrationBranch`
 is supported as a legacy-style opt-in, but then there is no separate final ref
 and that branch cannot already be checked out in another worktree. No branch is
 pushed unless pull-request promotion is explicitly configured.
+
+### Moved checkouts
+
+Registrations and integration worktrees follow the repository's Git folder
+path. After you move a registered checkout (for example
+`mv ~/code/fleet-repairs ~/code/fleet-scripts`), run
+`git -C <new path> worktree repair`, then use seshx at the new path as usual:
+
+- `register`, `begin`, `commit`, `validate`, `integrate` and `resume` update a
+  local registration whose folder is gone when worktrees seshx created for it
+  now belong to this repository. Settings and an opt-out are kept, and the
+  previous `config.json` stays in `config-history/`. If the new path is already
+  registered (for example by an include), the old entry is removed instead.
+- `integrate` moves the integration worktree left under the old folder's ID
+  (`worktrees/<old id>`) to this repository's ID when it is clean, unlocked and
+  not needed by an unfinished session or a held integration lock. Otherwise it
+  stops, names the reason and changes nothing; fix that and rerun `integrate`.
+- `status` shows `Moved registration` or `Stale registration` lines before
+  anything changes.
+
+When several old registrations match, or no worktree proves the move, adopt one
+explicitly from the new checkout:
+
+```bash
+seshx register --moved-from ~/code/fleet-repairs
+```
+
+It refuses when the old folder still exists, the new path is already
+registered, or none of the commits the old sessions recorded exist here.
+Unfinished sessions that began at the old path are never moved or edited;
+inspect them with `seshx status --session <id>` and close any you no longer need
+with `seshx abandon --session <id> --reason "..."`.
 
 ### Integration batching
 
