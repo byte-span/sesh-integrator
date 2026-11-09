@@ -145,6 +145,10 @@ checkout's commit, so the installed CLI is at `<commit>` exactly when
 after checking out another commit, rebuild and reinstall. Then configure the
 machine with [`seshx config apply`](configuration.md#layered-configuration).
 
+Install from a checkout as shown. Do not install a Git URL with `npm install -g`
+(such as `git+https://...#<commit>`): npm can leave the global command linked
+to a deleted temporary clone.
+
 ### Renaming an existing installation
 
 The project is now `sesh-integrator`, with `seshx` as its preferred command.

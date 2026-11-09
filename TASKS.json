@@ -452,6 +452,18 @@
       "device_requirement": [],
       "doc": "docs/configuration.md",
       "evidence": []
+    },
+    {
+      "id": "SI-024",
+      "title": "Let begin work in a repository without a GitHub remote while a delivery policy is set",
+      "status": "ready",
+      "order": 240,
+      "blocked_by": [],
+      "acceptance": "With a global deliveryPolicyFile set, seshx begin in a local-only repository (no origin, or a non-GitHub fetch URL) no longer fails with repository_unidentified when the policy's applicable rule needs no remote: it applies the policy defaults (or a documented local-only rule) and records that the repository had no GitHub identity. When the resolved rule needs a remote, such as pull-request promotion or production-merged landing, begin still fails before changing anything with an exact message. A disposable-repository test covers a repository without a remote under a policy with local promotion, and one with pull-request promotion.",
+      "executor": "automated",
+      "device_requirement": [],
+      "doc": "docs/configuration.md",
+      "evidence": []
     }
   ]
 }
