@@ -424,6 +424,22 @@
         "test/moved-repository.test.ts: moves a real checkout from code/fleet-repairs to code/fleet-scripts, runs git worktree repair and integrates at the new path (stale local registration removed when an include registers the new path; old registration adopted when unregistered; dirty old integration worktree preserved, then moved once clean). Both tests passed on 2026-11-08 and fail against the previously installed coordinator release.xmy8rT0D, which reproduced \"sesh-integrator/integration is already used by worktree\".",
         "byte-span/script-yard session_mw8v35c1_cb21bbe646 source commit 3f95a76182d96cf704e6acb7ccf3d8ae43ca2a3f: repos/fig-sync/README.md says seshx with SI-021 handles moved checkouts, so the FS-029 script is only for older seshx."
       ]
+    },
+    {
+      "id": "SI-022",
+      "title": "Stop Windows-held loopback ports from blocking build queue admission under WSL mirrored networking",
+      "status": "completed",
+      "order": 220,
+      "blocked_by": [],
+      "acceptance": "Under WSL mirrored networking, a build queue or validation-reuse root whose legacy mutex port is held on the Windows side (a Windows listener such as AsusSoftwareManager.exe on 127.0.0.1:24830, a Hyper-V excluded range such as 51340-51840, or a Windows client socket) is admitted promptly instead of failing with \"Build queue admission mutex busy\" after its deadline, while a Linux listener on that port (an older pinned coordinator mutex) still blocks admission. A regression test reproduces the out-of-namespace holder deterministically, existing legacy-port tests keep passing unchanged, and repeated runs of test/validation-reuse.test.ts pass on the WSL2 machine where it failed intermittently.",
+      "executor": "automated",
+      "device_requirement": [],
+      "doc": "docs/build-queue.md",
+      "evidence": [
+        "2026-11-08 WSL2 (mirrored networking, Linux ephemeral 56905-61000): NETSTAT.EXE shows AsusSoftwareManager.exe (PID 6896) listening on 127.0.0.1:24830, the legacy port named in the failed validation log for session_mw8ujt0o_babbaab145. Ports held on the Windows side (that listener, Hyper-V excluded ranges 51340-51840 and 52911-53010, Windows client sockets) return EADDRINUSE to Linux bind, do not appear in ss or /proc/net/tcp, and the connect probe either connects or hangs for 3s, so gate() reported busy until its deadline. Linux TIME_WAIT/outbound sockets were already refused fast and skipped. Before the fix, gate() on roots whose legacy port was 24830, 51400 or 52950 failed after its wait with \"Build queue admission mutex busy\"; after it, each was admitted in about 20 ms.",
+        "test/build-queue.test.ts \"admits while a socket outside this network namespace holds the legacy mutex port\" fails against the previous src/build-queue.ts with \"Build queue admission mutex busy on 127.0.0.1:<legacyPort>\" and passes with the fix; existing legacy-port tests (Linux listener blocks admission until its owner dies, established/TIME_WAIT sockets skipped) pass unchanged.",
+        "corepack pnpm exec vitest run test/validation-reuse.test.ts on the WSL2 machine: 2 of 6 runs failed before the fix (fixture timeout), 15 of 15 passed after it."
+      ]
     }
   ]
 }

@@ -192,7 +192,11 @@ Its port, derived from the queue path, lies in 10000–19999, below the Linux an
 IANA ephemeral ranges where outbound and `TIME_WAIT` loopback sockets would
 otherwise block it. The mutex also holds the port used by coordinators pinned
 before this change, so they stay excluded. It skips that port only while a
-non-listening socket occupies it, which rejects their listeners too.
+non-listening socket occupies it, which rejects their listeners too. On Linux,
+the socket table decides: a port held outside this network namespace, such as
+a Windows listener, client socket or excluded port range under WSL mirrored
+networking, is skipped as well, because older coordinators cannot bind it
+either. Any listener in the namespace is still waited for.
 
 Dead local waiting owners are safely removed on the next admission. A dead
 **running** owner may have surviving children, so its slot stays occupied and

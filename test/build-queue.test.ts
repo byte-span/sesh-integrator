@@ -1,5 +1,6 @@
 import { spawn, execFileSync, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
+import * as fs from "node:fs/promises";
 import { mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { connect, createServer, type AddressInfo, type Socket } from "node:net";
 import { availableParallelism, hostname, totalmem } from "node:os";
@@ -22,8 +23,13 @@ import {
 } from "../src/build-queue.js";
 import { commandFingerprint, runValidation } from "../src/process.js";
 
+vi.mock("node:fs/promises", async (original) => ({
+  ...(await original<typeof import("node:fs/promises")>()),
+}));
+
 const children: ChildProcess[] = [];
 afterEach(() => {
+  vi.restoreAllMocks();
   for (const child of children.splice(0))
     if (child.exitCode === null && child.signalCode === null)
       child.kill("SIGKILL");
@@ -635,6 +641,51 @@ it.each(["established", "TIME_WAIT"])(
     } finally {
       for (const client of clients) client.destroy();
       peer.close();
+    }
+  },
+);
+it.runIf(process.platform === "linux")(
+  "admits while a socket outside this network namespace holds the legacy mutex port",
+  async () => {
+    // Under WSL mirrored networking a Windows listener (seen on 127.0.0.1:24830)
+    // or excluded port range only rejects Linux binds: the socket table lists
+    // nothing, and a probe connects or hangs. Stand in with a listener hidden
+    // from the table; older coordinators cannot bind its port either.
+    const root = queueRoot();
+    const { port, legacyPort } = admissionPorts(await realpath(root));
+    const holder = createServer(() => undefined);
+    await new Promise<void>((resolve) =>
+      holder.listen(
+        { host: "127.0.0.1", port: legacyPort, exclusive: true },
+        resolve,
+      ),
+    );
+    const local = `:${legacyPort.toString(16).toUpperCase().padStart(4, "0")}`;
+    const actual = fs.readFile;
+    vi.spyOn(fs, "readFile").mockImplementation((async (
+      path: string,
+      options: BufferEncoding,
+    ) =>
+      String(path).startsWith("/proc/net/tcp")
+        ? String(await actual(path, options))
+            .split("\n")
+            .filter((line) => !line.trim().split(/\s+/)[1]?.endsWith(local))
+            .join("\n")
+        : actual(path, options)) as typeof fs.readFile);
+    try {
+      await gate(
+        root,
+        async () => {
+          // The current-port mutex still admits only one holder.
+          await expect(
+            gate(root, async () => undefined, undefined, 200),
+          ).rejects.toThrow(`admission mutex busy on 127.0.0.1:${port};`);
+        },
+        undefined,
+        1000,
+      );
+    } finally {
+      holder.close();
     }
   },
 );
