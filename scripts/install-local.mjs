@@ -202,6 +202,13 @@ async function prepareBuild(cwd, session, releaseRoot) {
       () => unlink(link),
       "Build dependency link cleanup",
     );
+    // The copy has no Git metadata; record the exact promoted commit for
+    // `seshx version`, as the build step does in a checkout.
+    await writeFile(
+      join(root, "dist", "build-info.json"),
+      `${JSON.stringify({ commit: session.promotedCommit, dirty: false }, null, 2)}\n`,
+      { flag: "wx" },
+    );
     return root;
   } catch (error) {
     throw new Error(

@@ -167,6 +167,10 @@ it("installs the exact promoted tree, excludes ignored build contamination, refr
   expect(
     await readFile(join(release, "dist/local-install-fixture.js"), "utf8"),
   ).toContain("installedFixture = true");
+  // seshx version reports the promoted commit, though the copy has no Git.
+  expect(
+    JSON.parse(await readFile(join(release, "dist/build-info.json"), "utf8")),
+  ).toEqual({ commit: first.promotedCommit, dirty: false });
   expect(f.install()).toContain("Reusing verified installed snapshot");
   expect((await f.receipt()).cliPath).toBe(first.cliPath);
   expect(await readFile(pinned)).toEqual(pinnedBytes);
