@@ -47,7 +47,7 @@ export function checkTrackedFollowUps(
   if (register === undefined) {
     throw new Error(
       `This repository has no ${TASK_REGISTER} at the source commit, so a manual follow-up cannot be tracked. ` +
-        `Ask the user where to track the action (for example, add ${TASK_REGISTER} with qtask and a task for it in this session), then reference that task.`,
+        `Ask the user where to track the action (for example, add ${TASK_REGISTER} with a task for it in this session), then reference that task.`,
     );
   }
   const tasks = parseTaskRegister(register);

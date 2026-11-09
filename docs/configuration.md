@@ -11,6 +11,7 @@ Commands below run from the repository root unless stated otherwise.
 - [Stable default branch with a development target](#stable-default-branch-with-a-development-target)
 - [Reusing source validation when the target moves](#reusing-source-validation-when-the-target-moves)
 - [Shared settings and registrations (`include`)](#shared-settings-and-registrations-include)
+- [Layered configuration (`config apply`)](#layered-configuration)
 - [Central delivery policy](#central-delivery-policy)
 
 ### `register`
@@ -133,7 +134,7 @@ pushed unless pull-request promotion is explicitly configured.
 
 Registrations and integration worktrees follow the repository's Git folder
 path. After you move a registered checkout (for example
-`mv ~/code/fleet-repairs ~/code/fleet-scripts`), run
+`mv ~/code/old-name ~/code/new-name`), run
 `git -C <new path> worktree repair`, then use seshx at the new path as usual:
 
 - `register`, `begin`, `commit`, `validate`, `integrate` and `resume` update a
@@ -152,7 +153,7 @@ When several old registrations match, or no worktree proves the move, adopt one
 explicitly from the new checkout:
 
 ```bash
-seshx register --moved-from ~/code/fleet-repairs
+seshx register --moved-from ~/code/old-name
 ```
 
 It refuses when the old folder still exists, the new path is already
@@ -521,8 +522,8 @@ repository's `setupBypassBuildQueue` to `true`; it covers every
     {
       "name": "task-register",
       "paths": ["TASKS.json"],
-      "sourceValidationCommands": [["qtask", "validate", "."]],
-      "integrationValidationCommands": [["qtask", "validate", "."]],
+      "sourceValidationCommands": [["node", "scripts/check-tasks.mjs"]],
+      "integrationValidationCommands": [["node", "scripts/check-tasks.mjs"]],
       "bypassBuildQueue": true
     }
   ]
@@ -556,9 +557,9 @@ case:
 {
   "name": "task-register",
   "paths": ["TASKS.json"],
-  "sourceValidationCommands": [["qtask", "validate", "."]],
+  "sourceValidationCommands": [["node", "scripts/check-tasks.mjs"]],
   "integrationValidationCommands": [
-    ["qtask", "validate", "."],
+    ["node", "scripts/check-tasks.mjs"],
     ["pnpm", "exec", "prettier", "--check", "TASKS.json"]
   ],
   "reuseSourceValidationOnTargetMove": true
@@ -614,14 +615,15 @@ plan. [Integration batches](#batches-and-validation-reuse) never use it.
 ## Shared settings and registrations (`include`)
 
 Machines that share settings can load them from files kept elsewhere, such as
-a synced or generated configuration checkout, instead of copying them into
-every `config.json`. List the files under the global `include` key:
+a synced configuration checkout, instead of copying them into every
+`config.json`. List the files under the global `include` key, or let
+[`seshx config apply`](#layered-configuration) set it:
 
 ```json
 {
   "include": [
     {
-      "path": "/home/you/code/fig-sync/dist/sesh/base-worker.linux.json",
+      "path": "/home/you/code/team-config/sesh/shared.json",
       "vars": {
         "codeRoot": "/home/you/code",
         "fnmBin": "/home/you/.local/bin/fnm"
@@ -649,7 +651,7 @@ the same format as `config.json`'s:
 {
   "defaultTargetBranch": "dev",
   "defaultPromotion": { "reviewers": ["you"], "assignees": ["you"] },
-  "deliveryPolicyFile": "{{figSyncRoot}}/delivery-policy.json",
+  "deliveryPolicyFile": "{{codeRoot}}/team-config/delivery-policy.json",
   "repositories": [
     {
       "path": "{{codeRoot}}/my-app",
@@ -664,16 +666,16 @@ the same format as `config.json`'s:
 }
 ```
 
-| Rule             | Behavior                                                                                                                                                                                                                                                                                         |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Placeholders     | `{{name}}` in a string value becomes `vars.name` (case-sensitive, no spaces). Keys and raw text are never changed. A placeholder without a value, or a malformed one such as `{{ name }}`, fails that include.                                                                                   |
-| Setting merging  | Per top-level key, the value comes from `config.json` if it sets the key, else from the last include that sets it. Values are replaced whole, never merged: a local `defaultPromotion` replaces the included one, reviewers and assignees together.                                              |
-| Registrations    | Local registrations win: one with the same `path` or `gitCommonDir` replaces the included one whole. A later include replaces an earlier one the same way. One file registering a repository twice fails.                                                                                        |
-| Paths            | After filling, `path` and `gitCommonDir` must be absolute. They are normalized with the platform's path rules and resolved to real paths when they exist. A relative `deliveryPolicyFile` resolves against the runtime directory, as in `config.json`; prefer an absolute path or a placeholder. |
-| Missing checkout | A registration whose `path` or `gitCommonDir` does not exist yet is skipped and reported. It loads once the checkout exists.                                                                                                                                                                     |
-| Rereading        | Every command rereads the files. Changes reach the next command, including running sessions' commands, as edits to `config.json` do.                                                                                                                                                             |
-| Local-only keys  | `include` and `disabledRepositories` describe one machine; either one in an included file fails that include.                                                                                                                                                                                    |
-| Other keys       | Keys starting with `$` (such as `$schema`) are ignored silently. Any other unknown top-level key is ignored and reported by `status` and `doctor`.                                                                                                                                               |
+| Rule             | Behavior                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Placeholders     | `{{name}}` in a string value becomes `vars.name` (case-sensitive, no spaces). Keys and raw text are never changed. A placeholder without a value, or a malformed one such as `{{ name }}`, fails that include.                                                                                                                                                                                                                                     |
+| Setting merging  | Per top-level key, the value comes from `config.json` if it sets the key, else from the last include that sets it. Values are replaced whole, never merged: a local `defaultPromotion` replaces the included one, reviewers and assignees together. `null` in an include removes the value earlier includes set.                                                                                                                                   |
+| Registrations    | Local registrations win: one with the same `path` or `gitCommonDir` replaces the included one whole. A later include's entry for the same repository is laid over the earlier include's: each key it sets replaces that key whole and `null` removes it, so a later file can change one field. Every entry names `path` and `gitCommonDir`; one that no earlier include registers must be complete. One file registering a repository twice fails. |
+| Paths            | After filling, `path` and `gitCommonDir` must be absolute. They are normalized with the platform's path rules and resolved to real paths when they exist. A relative `deliveryPolicyFile` resolves against the runtime directory, as in `config.json`; prefer an absolute path or a placeholder.                                                                                                                                                   |
+| Missing checkout | A registration whose `path` or `gitCommonDir` does not exist yet is skipped and reported. It loads once the checkout exists.                                                                                                                                                                                                                                                                                                                       |
+| Rereading        | Every command rereads the files. Changes reach the next command, including running sessions' commands, as edits to `config.json` do.                                                                                                                                                                                                                                                                                                               |
+| Local-only keys  | `include` and `disabledRepositories` describe one machine; either one in an included file fails that include.                                                                                                                                                                                                                                                                                                                                      |
+| Other keys       | Keys starting with `$` (such as `$schema`) are ignored silently. Any other unknown top-level key is ignored and reported by `status` and `doctor`.                                                                                                                                                                                                                                                                                                 |
 
 `lockWaitSeconds` defaults to 900 when neither `config.json` nor an include
 sets it, so `config.json` can be as small as its `include` list plus deliberate
@@ -708,6 +710,7 @@ it does not supply:
 | `setting KEY: config.json sets the same value (redundant, safe to remove)`      | A local copy of an included setting.      |
 | `setting KEY: config.json sets it (local override)`                             | A deliberate local difference.            |
 | `setting KEY: replaced by include N`                                            | A later include sets it.                  |
+| `setting KEY: removed (null); no included value`                                | The last include to set it sets `null`.   |
 | `PATH: replaced by an identical local registration (redundant, safe to remove)` | A local copy of an included registration. |
 | `PATH: replaced by a local registration (local override)`                       | A local registration that differs.        |
 
@@ -717,31 +720,53 @@ and counts redundant local values. Neither command edits configuration.
 **Older coordinators** read settings only from `config.json`. Coordinators
 that predate included settings also fail without `lockWaitSeconds` in
 `config.json` and reject an included file without a `repositories` list;
-coordinators older than `include` ignore included registrations too. Keep
-`"repositories": []` in a settings-only include, and before removing a local
-value in favor of an included one, finish the sessions pinned to older
-coordinators.
+coordinators older than `include` ignore included registrations too.
+Coordinators older than layering replace an included registration whole and
+fail an include that sets `null` or has an incomplete entry. Keep
+`"repositories": []` in a settings-only include; use complete entries and no
+`null`, and before removing a local value in favor of an included one, finish
+the sessions pinned to older coordinators.
 
-### Recommended layout for generated configuration
+### Layered configuration
 
-Generate one file per machine profile and keep only true one-offs local:
+Keep shared configuration as plain layer files, ordered from general to
+specific, and let each machine include the ones that apply to it:
 
 ```text
-~/.config/fig-sync/sesh.json       generated: shared settings + registrations
-~/.sesh-integrator/config.json     include + local overrides only
+team-config/sesh/shared.json         settings and registrations for every machine
+team-config/sesh/os/linux.json       changes for one operating system
+team-config/sesh/roles/worker.json   registrations for one kind of machine
 ```
 
-```json
-{
-  "include": [
-    {
-      "path": "~/.config/fig-sync/sesh.json",
-      "vars": { "codeRoot": "/home/you/code" }
-    }
-  ],
-  "repositories": []
-}
+Each layer is one include, so the [rules above](#shared-settings-and-registrations-include)
+compose them: later layers win, and `null` removes. Set the layers, their vars
+and the repositories to register with one idempotent command; it is safe to run
+unattended and repeatedly:
+
+```bash
+seshx config apply \
+  --layer ~/code/team-config/sesh/shared.json \
+  --layer ~/code/team-config/sesh/os/linux.json \
+  --layer ~/code/team-config/sesh/roles/worker.json \
+  --var codeRoot=/home/you/code \
+  --drop-include ~/code/team-config/sesh \
+  --register ~/code/my-tool
 ```
+
+| Option                | Effect                                                                                                                                                                                                    |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--layer FILE`        | Include FILE. Repeat in order. The layers form one block in `include` that keeps the place of the entries it replaces; otherwise it goes last. A `~/` path is kept as given; other paths become absolute. |
+| `--var NAME=VALUE`    | Vars for every layer. An empty value is left out, so a layer that uses it fails.                                                                                                                          |
+| `--drop-include PATH` | Remove other include entries at PATH or inside folder PATH, such as a layer no longer passed or an older generated file. Other includes are kept.                                                         |
+| `--register DIR`      | Register DIR with `register --auto-config` unless a local or included registration exists. A folder that is not a Git checkout yet is skipped with a note.                                                |
+| `--check`             | Change nothing. Exit 0 when done, 1 when something is pending (the first line lists it), 2 on any error.                                                                                                  |
+
+Without `--check` it exits 0 when done and 2 on any error. Before writing, it
+loads every layer with the given vars, so a missing file, invalid JSON, an
+unknown placeholder or an invalid registration stops it with nothing changed.
+Registrations whose checkout does not exist yet are noted and load once it
+does. A new `config.json` holds only `include` and `repositories`, so no local
+default shadows a layer's setting; other keys of an existing one are kept.
 
 Add a local value only for a deliberate difference on this machine; `status`
 labels it `local override`. Remove values `status` labels `redundant` once no
@@ -769,11 +794,10 @@ is missing or unreadable (`policy_missing`) or invalid (`policy_invalid`).
 [Error documents →](commands.md#machine-readable-output)
 
 To share one policy across machines, point `deliveryPolicyFile` at a file in
-a synced checkout, such as fig-sync's
-`delivery-policy.json`. Use an absolute path; `~` is not expanded:
+a synced checkout. Use an absolute path; `~` is not expanded:
 
 ```json
-{ "deliveryPolicyFile": "/home/you/code/fig-sync/delivery-policy.json" }
+{ "deliveryPolicyFile": "/home/you/code/team-config/delivery-policy.json" }
 ```
 
 `begin` reads the file for each new session, so pulled changes apply to the

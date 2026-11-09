@@ -116,11 +116,11 @@ holding a slot:
   "name": "task-register",
   "paths": ["TASKS.json"],
   "sourceValidationCommands": [
-    ["qtask", "validate", "."],
+    ["node", "scripts/check-tasks.mjs"],
     ["corepack", "pnpm", "exec", "prettier", "--check", "TASKS.json"]
   ],
   "integrationValidationCommands": [
-    ["qtask", "validate", "."],
+    ["node", "scripts/check-tasks.mjs"],
     ["corepack", "pnpm", "exec", "prettier", "--check", "TASKS.json"]
   ],
   "bypassBuildQueue": true

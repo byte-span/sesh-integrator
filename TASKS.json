@@ -424,6 +424,34 @@
         "test/moved-repository.test.ts: moves a real checkout from code/fleet-repairs to code/fleet-scripts, runs git worktree repair and integrates at the new path (stale local registration removed when an include registers the new path; old registration adopted when unregistered; dirty old integration worktree preserved, then moved once clean). Both tests passed on 2026-11-08 and fail against the previously installed coordinator release.xmy8rT0D, which reproduced \"sesh-integrator/integration is already used by worktree\".",
         "byte-span/script-yard session_mw8v35c1_cb21bbe646 source commit 3f95a76182d96cf704e6acb7ccf3d8ae43ca2a3f: repos/fig-sync/README.md says seshx with SI-021 handles moved checkouts, so the FS-029 script is only for older seshx."
       ]
+    },
+    {
+      "id": "SI-022",
+      "title": "Compose layered include files with seshx config apply, report folder use with sessions idle, and report the built commit",
+      "status": "completed",
+      "order": 220,
+      "blocked_by": [],
+      "acceptance": "A configuration repository can hand seshx plain ordered layer files with vars and no generated output: each layer is an ordinary include entry, a later include's registration entry for the same repository is laid over the earlier one key by key and null removes a setting or key. seshx config apply --layer FILE... --var NAME=VALUE... --drop-include PATH... --register DIR... [--check] sets those includes in order (keeping the place of the entries they replace), drops stale include entries, registers listed checkouts with --auto-config, validates every layer before writing and is idempotent; --check changes nothing and exits 0 when done, 1 with a first line listing what is pending, and 2 on any error. seshx sessions idle --repo DIR exits 0 when no unfinished session uses the folder, 75 when one or more do and 1 when it cannot tell. seshx version --json reports the Git commit the build was made from. Code, docs and CLI name no other tool.",
+      "executor": "automated",
+      "device_requirement": [],
+      "doc": "docs/configuration.md",
+      "evidence": [
+        "test/config-apply.test.ts: fresh --check exits 1 and creates nothing; apply sets three layers with vars, notes a missing checkout and a non-checkout, registers an unregistered repository, a later layer changes one registration field and removes a setting with null, reruns are byte-identical, a role change drops the old layer and an older include in place, and a broken layer exits 2 in both modes with config.json unchanged.",
+        "test/session-audit.test.ts: sessions idle exits 0 without a runtime and for other repositories, 75 for a real session and for a record matched by its launch path, 0 after it finishes and 1 when a session record cannot be read.",
+        "test/package-smoke.test.ts: the packed and installed CLI's version --json commit equals the checkout's HEAD."
+      ]
+    },
+    {
+      "id": "SI-023",
+      "title": "Stop register and other config writes from adding defaults that shadow included settings",
+      "status": "ready",
+      "order": 230,
+      "blocked_by": [],
+      "acceptance": "register, enable/disable and dashboard Settings no longer write a default (such as conflictResolutionMode or lockWaitSeconds) into config.json that no command or person set, so a layer added or changed later is not silently overridden by a local default; values older coordinators require in config.json are kept or migrated deliberately. A disposable-repository test registers a repository after config apply, then changes a layer's conflictResolutionMode and sees status use it.",
+      "executor": "automated",
+      "device_requirement": [],
+      "doc": "docs/configuration.md",
+      "evidence": []
     }
   ]
 }

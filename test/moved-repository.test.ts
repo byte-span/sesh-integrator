@@ -14,8 +14,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
-// A registered checkout moved to a new folder (as Sink's renamedFrom moved
-// ~/code/fleet-repairs to ~/code/fleet-scripts), followed by
+// A registered checkout moved to a new folder (as a tool that renames
+// checkouts moves ~/code/old-name to ~/code/new-name), followed by
 // `git worktree repair`, must keep integrating at its new path.
 
 interface Fixture {
@@ -66,7 +66,7 @@ describe.sequential("a registered repository whose checkout moved", () => {
       const unfinishedBefore = await sessionFor(f, unfinished);
 
       await moveCheckout(f);
-      // Like fig-sync, an include file registers the new path; the local
+      // Shared configuration registers the new path in an include file; the local
       // registration of the old path is left behind.
       const old = JSON.parse(
         await readFile(join(f.runtime, "config.json"), "utf8"),
@@ -207,8 +207,8 @@ async function createFixture(): Promise<Fixture> {
     code,
     runtime: join(root, "runtime"),
     home: join(root, "home"),
-    oldPath: join(code, "fleet-repairs"),
-    newPath: join(code, "fleet-scripts"),
+    oldPath: join(code, "old-name"),
+    newPath: join(code, "new-name"),
   };
   await mkdir(f.oldPath, { recursive: true });
   await mkdir(f.home, { recursive: true });
@@ -216,13 +216,13 @@ async function createFixture(): Promise<Fixture> {
   git(f.oldPath, "config", "user.name", "Test User");
   git(f.oldPath, "config", "user.email", "test@example.com");
   git(f.oldPath, "config", "commit.gpgSign", "false");
-  commitFile(f.oldPath, "README.md", "fleet\n", "base");
+  commitFile(f.oldPath, "README.md", "readme\n", "base");
   await cliOk(f, f.oldPath, ["init"]);
   await cliOk(f, f.oldPath, ["register"]);
   return f;
 }
 
-/** Move the checkout like Sink's renamedFrom does, then repair worktrees. */
+/** Move the checkout as a rename tool would, then repair worktrees. */
 async function moveCheckout(f: Fixture): Promise<void> {
   await rename(f.oldPath, f.newPath);
   git(f.newPath, "worktree", "repair");

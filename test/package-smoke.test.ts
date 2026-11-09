@@ -35,6 +35,10 @@ it("installs the packed release and completes an isolated CLI workflow", async (
     installed = await smokeFixture(join(prefix, "bin/seshx"));
     const f = installed;
     expect((await f.run(f.repo, ["--help"])).stdout).toContain("seshx");
+    // The packed build reports the commit it was built from.
+    expect(
+      JSON.parse((await f.run(f.repo, ["version", "--json"])).stdout).commit,
+    ).toBe(await f.git(process.cwd(), "rev-parse", "HEAD"));
     await f.run(f.repo, ["setup", "--harness", "codex", "--yes"]);
     await registerSmoke(f);
     const fake = join(f.root, "codex-version");

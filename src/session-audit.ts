@@ -1,5 +1,5 @@
 import { lstat, realpath, stat } from "node:fs/promises";
-import { isAbsolute, join, resolve } from "node:path";
+import { isAbsolute, join, resolve, sep } from "node:path";
 import { stripVTControlCharacters } from "node:util";
 import {
   coordinatorHealth,
@@ -719,10 +719,74 @@ async function realpathOrNull(path: string): Promise<string | null> {
 }
 
 const usage =
-  "Usage: seshx sessions audit [--repo <path>] [--idle-days <n>] [--json]";
+  "Usage: seshx sessions audit [--repo <path>] [--idle-days <n>] [--json]\n       seshx sessions idle --repo <path>";
+
+/** `sessions idle` exit code while an unfinished session uses the folder. */
+export const BUSY_EXIT_CODE = 75;
+
+/**
+ * Unfinished sessions that would lose their repository or worktree if the
+ * folder at `path` moved: sessions of the Git repository there, and sessions
+ * whose recorded repository, worktree or launch checkout is in the folder.
+ * Read-only; throws when the session records cannot be read.
+ */
+export async function sessionsUsing(path: string): Promise<Session[]> {
+  const absolute = resolve(path);
+  const real = await realpathOrNull(absolute);
+  const commonDir = await gitCommonDir(absolute);
+  const id = commonDir ? repoId(commonDir) : undefined;
+  const key = (value: string) =>
+    process.platform === "win32" ? value.toLowerCase() : value;
+  const bases = [...new Set([absolute, ...(real ? [real] : [])])].map(key);
+  const within = (value: unknown) => {
+    if (typeof value !== "string" || !value) return false;
+    const candidate = key(resolve(value));
+    return bases.some(
+      (base) =>
+        candidate === base ||
+        candidate.startsWith(base.endsWith(sep) ? base : base + sep),
+    );
+  };
+  return (await readSessions(true)).filter(
+    (session) =>
+      unfinished(session) &&
+      ((id !== undefined && session.repositoryId === id) ||
+        within(session.repositoryPath) ||
+        within(session.worktreePath) ||
+        within(session.launchWorktreePath)),
+  );
+}
+
+/** Exit 0 when idle, `BUSY_EXIT_CODE` when in use; errors exit 1. */
+async function idleCommand(args: string[]): Promise<void> {
+  if (args.length !== 2 || args[0] !== "--repo" || !args[1])
+    throw new Error(usage);
+  const folder = resolve(args[1]);
+  let sessions: Session[];
+  try {
+    sessions = await sessionsUsing(folder);
+  } catch (error) {
+    throw new Error(
+      `Cannot tell whether a session uses ${folder}: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
+    );
+  }
+  if (!sessions.length) {
+    process.stdout.write(`Idle: no unfinished session uses ${folder}.\n`);
+    return;
+  }
+  process.stdout.write(
+    terminalLines([
+      `Busy: ${sessions.length} unfinished session(s) use ${folder}: ${sessions.map((session) => `${session.id} (${session.status})`).join(", ")}.`,
+      'Finish each one (seshx status --session <id>), or abandon it (seshx abandon --session <id> --reason "...").',
+    ]),
+  );
+  process.exitCode = BUSY_EXIT_CODE;
+}
 
 export async function sessionsCommand(args: string[]): Promise<void> {
   const [action, ...rest] = args;
+  if (action === "idle") return idleCommand(rest);
   if (action !== "audit") throw new Error(usage);
   const options: SessionAuditOptions = {};
   let json = false;

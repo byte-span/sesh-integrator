@@ -16,18 +16,23 @@ Commands below run from the repository root unless stated otherwise.
 - [`status`](#status)
 - [Machine-readable output](#machine-readable-output)
 - [`sessions audit`](#sessions-audit)
+- [`sessions idle`](#sessions-idle)
+- [`version`](#version)
 - [`abandon` / `restore`](#abandon--restore)
 - [Failure incidents](#failure-incidents)
 - [`reconcile`](#reconcile)
 - [`doctor`](#doctor)
 
 For setup and uninstall, see [installation](installation.md). For `register`,
-validation settings, and target branches, see [configuration](configuration.md).
+`config apply`, validation settings, and target branches, see
+[configuration](configuration.md).
 
 Lifecycle and maintenance commands:
 
 ```bash
+seshx version [--json]
 seshx init
+seshx config apply [--layer <file>]... [--var <name>=<value>]... [--drop-include <path>]... [--register <repo-path>]... [--check]
 seshx disable [repo-path]
 seshx enable [repo-path]
 seshx register [repo-path] [--auto-config] [--setup-command '<json-array>']... [--moved-from <old-path>]
@@ -47,6 +52,7 @@ seshx tasks add --title "..." [--title "..."]... [--description "..."] [--sessio
 seshx tasks update <task-id> [--title "..."] [--description "..."] [--status pending|in_progress|completed|blocked|skipped] [--reason "..."] [--session <session-id>]
 seshx tasks move <task-id> --position <n> [--session <session-id>]
 seshx sessions audit [--repo <path>] [--idle-days <n>] [--json]
+seshx sessions idle --repo <path>
 seshx abandon --session <session-id> --reason "..." [--include-unsaved]
 seshx abandon --all [--repo <path>] [--idle-days <n>] [--bucket <list>] [--include-unsaved] [--apply --reason "..."]
 seshx restore --session <session-id>
@@ -544,7 +550,7 @@ Integration reads `TASKS.json` at the source commit and refuses a follow-up
 without a task ID, with an ID it does not list, or with a completed task. Add or
 update the task in the same session when none covers the action. A repository
 without `TASKS.json` cannot record manual follow-ups: ask the user where to track
-the action (for example, add `TASKS.json` with qtask). The pull request's own
+the action (for example, add a `TASKS.json` task register). The pull request's own
 review and merge is listed automatically and needs no task. Retries keep the
 originally recorded follow-ups, so earlier sessions stay recoverable.
 
@@ -880,6 +886,37 @@ Older coordinators read session records without validating fields and rewrite
 the whole record, so they keep the heartbeat. They do not refresh it, but their
 checklist edits still update `tasksUpdatedAt`, which is why idle time uses the
 later of the two.
+
+### `sessions idle`
+
+Check whether a folder can be moved or deleted without stranding a session:
+
+```bash
+seshx sessions idle --repo ~/code/project
+```
+
+| Exit | Meaning                                                                                                   |
+| ---- | --------------------------------------------------------------------------------------------------------- |
+| 0    | No unfinished session uses the folder, including when this machine has no runtime yet.                    |
+| 75   | One or more do. The output lists each `<id> (<status>)`: finish it, or [`abandon`](#abandon--restore) it. |
+| 1    | It cannot tell, for example because a session record cannot be read. Do not move the folder.              |
+
+A session uses the folder when it belongs to the Git repository there, or its
+recorded repository, worktree or launch checkout is inside the folder. It reads
+the runtime chosen as for every command (`SESH_INTEGRATOR_HOME`, then
+`PARALLEL_INTEGRATOR_HOME`, `CODEX_HANDOFF_HOME`, `~/.codex-handoff`,
+`~/.parallel-integrator`, `~/.sesh-integrator`) and changes nothing.
+
+### `version`
+
+```bash
+seshx version          # sesh-integrator 0.1.0, then Commit: <sha>
+seshx version --json   # { "name", "version", "commit", "dirty" }
+```
+
+`commit` is the Git commit the build was made from (`null` when built outside a
+Git checkout); `dirty` is `true` when that checkout had uncommitted changes.
+To install a pinned commit, see [installation](installation.md#install-a-pinned-commit).
 
 ### `abandon` / `restore`
 

@@ -40,7 +40,7 @@
   ],
   "scripts": {
     "postinstall": "node scripts/postinstall.mjs",
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && node scripts/build-info.mjs",
     "pretest": "pnpm build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --testTimeout=30000 --hookTimeout=30000",
