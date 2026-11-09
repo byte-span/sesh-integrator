@@ -12,6 +12,7 @@ Commands below run from the repository root unless stated otherwise.
 - [Reusing source validation when the target moves](#reusing-source-validation-when-the-target-moves)
 - [Shared settings and registrations (`include`)](#shared-settings-and-registrations-include)
 - [Layered configuration (`config apply`)](#layered-configuration)
+  - [Checking layer files (`config check`)](#checking-layer-files)
 - [Central delivery policy](#central-delivery-policy)
 
 ### `register`
@@ -771,6 +772,40 @@ default shadows a layer's setting; other keys of an existing one are kept.
 Add a local value only for a deliberate difference on this machine; `status`
 labels it `local override`. Remove values `status` labels `redundant` once no
 older coordinator needs them.
+
+#### Checking layer files
+
+Check layer files where they are kept, for example as a validation command of
+the repository that holds them. The check is offline: it reads only the layer
+files, touches no runtime directory or session state, and changes nothing.
+
+```bash
+seshx config check \
+  --layer sesh/shared.json \
+  --layer sesh/roles/worker.json \
+  --var codeRoot=/code \
+  --portable --older-coordinators
+```
+
+It loads the layers in order as `config apply` would with only the vars given,
+then prints one line per problem as `FILE: [REGISTRATION: ]RULE: message`,
+where REGISTRATION is the entry's `path` as written. Use any absolute sample
+values for vars that hold paths; checkouts need not exist.
+
+| Rule                 | When                   | Reports                                                                                                                                                                                                                                                                                                     |
+| -------------------- | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `load`               | always                 | A missing file, invalid JSON, a placeholder no `--var` fills, an invalid setting or registration, and unknown top-level keys (which `config apply` ignores).                                                                                                                                                |
+| `token`              | always                 | A value or key that looks like a GitHub token (`ghp_`, `gho_`, `ghu_`, `ghs_`, `ghr_` with 20 or more letters and digits, or `github_pat_`). The token itself is never printed.                                                                                                                             |
+| `portable`           | `--portable`           | Machine-specific paths in values: home folders (`/home/...`, `/Users/...`), Windows drive paths (`C:\...`) and Node version-manager installs (`node-versions`, `.nvm/versions`). Use a placeholder instead.                                                                                                 |
+| `older-coordinators` | `--older-coordinators` | What [coordinators older than layering](#shared-settings-and-registrations-include) cannot read: a file without a `repositories` list, a registration without `path`, `gitCommonDir`, `defaultBranch`, `integrationBranch`, `sourceValidationCommands` and `integrationValidationCommands`, and any `null`. |
+
+`portable` and `older-coordinators` are opt-in because the format allows what
+they report: `null` and partial registrations are layering features, and a
+layer kept on one machine may name its paths. Turn them on for layers that
+are shared across machines or still read by older coordinators.
+
+It exits 0 when every check passes, 1 when any problem is found (the last line
+counts them and names the rules checked), and 2 on a usage error.
 
 ## Central delivery policy
 

@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { isDeepStrictEqual } from "node:util";
+import { checkLayers } from "./config-check.js";
 import { resolveIncludePath } from "./config-include.js";
 import { preflightRuntimeCompatibility } from "./coordinator.js";
 import { repositoryCommonDir } from "./enablement.js";
@@ -16,10 +17,15 @@ import {
 } from "./runtime.js";
 import type { Config } from "./types.js";
 
-export const configUsage =
-  "Usage: seshx config apply [--layer <file>]... [--var <name>=<value>]... [--drop-include <path>]... [--register <repo-path>]... [--check]";
+export const configUsage = [
+  "Usage: seshx config apply [--layer <file>]... [--var <name>=<value>]... [--drop-include <path>]... [--register <repo-path>]... [--check]",
+  "       seshx config check --layer <file>... [--var <name>=<value>]... [--portable] [--older-coordinators]",
+].join("\n");
 
-/** `--check` exits 1 for pending work; every error exits with this code. */
+/**
+ * `apply --check` exits 1 for pending work and `check` for problems found;
+ * every error exits with this code.
+ */
 const ERROR_EXIT = 2;
 const VAR_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -44,8 +50,9 @@ interface Plan {
 export async function configCommand(args: string[]): Promise<void> {
   try {
     const [action, ...rest] = args;
-    if (action !== "apply") throw new Error(configUsage);
-    await apply(parseApplyOptions(rest));
+    if (action === "apply") await apply(parseApplyOptions(rest));
+    else if (action === "check") await check(rest);
+    else throw new Error(configUsage);
   } catch (error) {
     // Keep the original error so capability failures are still recognized.
     throw Object.assign(
@@ -56,25 +63,52 @@ export async function configCommand(args: string[]): Promise<void> {
 }
 
 function parseApplyOptions(args: string[]): ApplyOptions {
-  const options: ApplyOptions = {
+  const parsed = parseOptions(
+    args,
+    ["--drop-include", "--register"],
+    ["--check"],
+  );
+  return {
+    layers: parsed.layers.map(({ path }) => path),
+    vars: parsed.vars,
+    drops: (parsed.values.get("--drop-include") ?? []).map(includePath),
+    register: (parsed.values.get("--register") ?? []).map((value) =>
+      resolve(value),
+    ),
+    check: parsed.flags.has("--check"),
+  };
+}
+
+interface ParsedOptions {
+  /** Include paths in order, with each as given. */
+  layers: { path: string; label: string }[];
+  vars: Record<string, string>;
+  values: Map<string, string[]>;
+  flags: Set<string>;
+}
+
+/** `--layer` and `--var` for every action, plus that action's own options. */
+function parseOptions(
+  args: string[],
+  valueOptions: string[],
+  flagOptions: string[],
+): ParsedOptions {
+  const options: ParsedOptions = {
     layers: [],
     vars: {},
-    drops: [],
-    register: [],
-    check: false,
+    values: new Map(),
+    flags: new Set(),
   };
   const given = new Map<string, string>();
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index]!;
-    if (argument === "--check") {
-      options.check = true;
+    if (flagOptions.includes(argument)) {
+      options.flags.add(argument);
       continue;
     }
     const value = args[index + 1];
     if (
-      !["--layer", "--var", "--drop-include", "--register"].includes(
-        argument,
-      ) ||
+      !["--layer", "--var", ...valueOptions].includes(argument) ||
       value === undefined ||
       value === "" ||
       value.startsWith("--")
@@ -85,12 +119,14 @@ function parseApplyOptions(args: string[]): ApplyOptions {
     index += 1;
     if (argument === "--layer") {
       const path = includePath(value);
-      if (options.layers.includes(path))
+      if (options.layers.some((layer) => layer.path === path))
         throw new Error(`--layer ${value} is given twice`);
-      options.layers.push(path);
-    } else if (argument === "--drop-include")
-      options.drops.push(includePath(value));
-    else if (argument === "--register") options.register.push(resolve(value));
+      options.layers.push({ path, label: value });
+    } else if (argument !== "--var")
+      options.values.set(argument, [
+        ...(options.values.get(argument) ?? []),
+        value,
+      ]);
     else {
       const at = value.indexOf("=");
       const name = value.slice(0, at);
@@ -115,6 +151,38 @@ function parseApplyOptions(args: string[]): ApplyOptions {
 /** `~` stays as given (seshx expands it); anything else becomes absolute. */
 function includePath(value: string): string {
   return value === "~" || /^~[\\/]/.test(value) ? value : resolve(value);
+}
+
+/** Check layer files offline; exits 1 when a check fails. */
+async function check(args: string[]): Promise<void> {
+  const parsed = parseOptions(args, [], ["--portable", "--older-coordinators"]);
+  if (!parsed.layers.length)
+    throw new Error(`config check needs at least one --layer\n${configUsage}`);
+  const options = {
+    layers: parsed.layers,
+    vars: parsed.vars,
+    portable: parsed.flags.has("--portable"),
+    olderCoordinators: parsed.flags.has("--older-coordinators"),
+  };
+  const problems = await checkLayers(options);
+  const rules = [
+    "load",
+    "token",
+    ...(options.portable ? ["portable"] : []),
+    ...(options.olderCoordinators ? ["older-coordinators"] : []),
+  ].join(", ");
+  const layers = `${options.layers.length} layer(s)`;
+  if (problems.length) {
+    process.stdout.write(
+      `${problems.join("\n")}\n${problems.length} problem(s) in ${layers} (checked ${rules})\n`,
+    );
+    process.exitCode = 1;
+    return;
+  }
+  const vars = Object.keys(options.vars);
+  process.stdout.write(
+    `OK: ${layers}${vars.length ? ` with vars ${vars.join(", ")}` : ""} (checked ${rules})\n`,
+  );
 }
 
 async function apply(options: ApplyOptions): Promise<void> {
