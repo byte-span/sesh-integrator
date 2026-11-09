@@ -227,6 +227,7 @@ async function dispatch(
             options.path,
             options.autoConfig,
             options.setupCommands,
+            options.movedFrom,
           );
         }
         break;
@@ -518,8 +519,10 @@ function parseRegisterOptions(args: string[]): {
   path: string | undefined;
   autoConfig: boolean;
   setupCommands: [string, ...string[]][];
+  movedFrom: string | undefined;
 } {
   let path: string | undefined;
+  let movedFrom: string | undefined;
   let autoConfig = false;
   const setupCommands: [string, ...string[]][] = [];
   for (let index = 0; index < args.length; index += 1) {
@@ -531,13 +534,19 @@ function parseRegisterOptions(args: string[]): {
       if (value === undefined) throw registerUsageError();
       setupCommands.push(parseCommand(value));
       index += 1;
+    } else if (argument === "--moved-from" && movedFrom === undefined) {
+      const value = args[index + 1];
+      if (value === undefined || value.startsWith("--"))
+        throw registerUsageError();
+      movedFrom = value;
+      index += 1;
     } else if (!argument.startsWith("--") && path === undefined) {
       path = argument;
     } else {
       throw registerUsageError();
     }
   }
-  return { path, autoConfig, setupCommands };
+  return { path, autoConfig, setupCommands, movedFrom };
 }
 
 function parseCommand(value: string): [string, ...string[]] {
@@ -561,7 +570,7 @@ function parseCommand(value: string): [string, ...string[]] {
 
 function registerUsageError(): Error {
   return new Error(
-    "Usage: seshx register [repo-path] [--auto-config] [--setup-command '<json-array>']...",
+    "Usage: seshx register [repo-path] [--auto-config] [--setup-command '<json-array>']... [--moved-from <old-path>]",
   );
 }
 
@@ -593,7 +602,7 @@ Usage:
   seshx init
   seshx disable [repo-path]
   seshx enable [repo-path]
-  seshx register [repo-path] [--auto-config] [--setup-command '<json-array>']...
+  seshx register [repo-path] [--auto-config] [--setup-command '<json-array>']... [--moved-from <old-path>]
   seshx begin --summary "..." [--harness codex|claude|antigravity|grok] [--create-worktree] [--no-auto-branch] [--depends-on <session-id>]... [--policy-file <path>] [--sync-target] [--json]
   seshx commit --message "..." [--session <session-id>]
   seshx validate [--session <session-id>]

@@ -19,6 +19,8 @@ export interface GitWorktree {
   path: string;
   head: string | null;
   branch: string | null;
+  /** Set when Git marks the worktree locked: the lock reason, or "". */
+  locked?: string;
 }
 
 export async function git(args: string[], cwd: string): Promise<string> {
@@ -325,6 +327,8 @@ export async function listWorktrees(cwd: string): Promise<GitWorktree[]> {
       current.head = line.slice(5);
     } else if (current && line.startsWith("branch ")) {
       current.branch = line.slice(7);
+    } else if (current && (line === "locked" || line.startsWith("locked "))) {
+      current.locked = line.slice(7);
     } else if (!line && current) {
       result.push(current);
       current = undefined;

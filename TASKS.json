@@ -409,6 +409,21 @@
       "device_requirement": [],
       "doc": "docs/commands.md",
       "evidence": []
+    },
+    {
+      "id": "SI-021",
+      "title": "Handle a registered repository whose checkout folder was moved",
+      "status": "completed",
+      "order": 210,
+      "blocked_by": [],
+      "acceptance": "After a checkout folder moves (for example Sink renamedFrom moving ~/code/fleet-repairs to ~/code/fleet-scripts, then git worktree repair), seshx integrate at the new path moves a clean, idle integration worktree left under the old path hash instead of failing with \"already used by worktree\", and refuses with an exact reason when it is dirty, locked, held by an integration lock or still needed by an unfinished session. A local registration whose folder no longer exists but whose tool-owned worktrees now belong to the current repository is adopted (or removed when the new path is already registered) with a clear message; ambiguous cases print the seshx register --moved-from command to run. Unfinished sessions of the old path stay untouched. An integration test moves a real checkout, runs git worktree repair and integrates at the new path. The script-yard fleet-scripts-after-rename README says newer seshx handles this.",
+      "executor": "automated",
+      "device_requirement": [],
+      "doc": "docs/configuration.md",
+      "evidence": [
+        "test/moved-repository.test.ts: moves a real checkout from code/fleet-repairs to code/fleet-scripts, runs git worktree repair and integrates at the new path (stale local registration removed when an include registers the new path; old registration adopted when unregistered; dirty old integration worktree preserved, then moved once clean). Both tests passed on 2026-11-08 and fail against the previously installed coordinator release.xmy8rT0D, which reproduced \"sesh-integrator/integration is already used by worktree\".",
+        "byte-span/script-yard session_mw8v35c1_cb21bbe646 source commit 3f95a76182d96cf704e6acb7ccf3d8ae43ca2a3f: repos/fig-sync/README.md says seshx with SI-021 handles moved checkouts, so the FS-029 script is only for older seshx."
+      ]
     }
   ]
 }
