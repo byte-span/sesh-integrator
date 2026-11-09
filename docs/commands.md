@@ -24,7 +24,7 @@ Commands below run from the repository root unless stated otherwise.
 - [`doctor`](#doctor)
 
 For setup and uninstall, see [installation](installation.md). For `register`,
-`config apply`, validation settings, and target branches, see
+`config apply`, `config check`, validation settings, and target branches, see
 [configuration](configuration.md).
 
 Lifecycle and maintenance commands:
@@ -33,6 +33,7 @@ Lifecycle and maintenance commands:
 seshx version [--json]
 seshx init
 seshx config apply [--layer <file>]... [--var <name>=<value>]... [--drop-include <path>]... [--register <repo-path>]... [--check]
+seshx config check --layer <file>... [--var <name>=<value>]... [--portable] [--older-coordinators]
 seshx disable [repo-path]
 seshx enable [repo-path]
 seshx register [repo-path] [--auto-config] [--setup-command '<json-array>']... [--moved-from <old-path>]

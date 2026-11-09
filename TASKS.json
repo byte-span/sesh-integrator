@@ -480,6 +480,20 @@
       "device_requirement": [],
       "doc": "docs/configuration.md",
       "evidence": []
+    },
+    {
+      "id": "SI-026",
+      "title": "Check layer files offline with seshx config check",
+      "status": "completed",
+      "order": 260,
+      "blocked_by": [],
+      "acceptance": "seshx config check --layer FILE... [--var NAME=VALUE]... [--portable] [--older-coordinators] runs as a plain argv in the repository that keeps the layers: it reads only the layer files, touches no runtime directory or session state and changes nothing. It always loads the layers in order as config apply would with only the vars given (missing file, invalid JSON, unfilled placeholder, invalid setting or registration, unknown top-level key) and reports GitHub token-like strings without printing them; --portable adds machine-specific paths (home folders, Windows drive paths, Node version-manager installs) and --older-coordinators adds a file without a repositories list, a registration missing path, gitCommonDir, defaultBranch, integrationBranch, sourceValidationCommands or integrationValidationCommands, and any null. It prints one line per problem as FILE: [REGISTRATION: ]RULE: message and exits 0 when all pass, 1 on problems and 2 on a usage error. Code, docs and CLI name no other tool.",
+      "executor": "automated",
+      "device_requirement": [],
+      "doc": "docs/configuration.md",
+      "evidence": [
+        "test/config-check.test.ts: with SESH_INTEGRATOR_HOME pointing at a missing folder, valid shared and role layers pass every rule; an empty --var leaves its placeholder unfilled and each registration using it gets one load line; a settings-only file, a partial registration over an earlier one and a null load and pass the always-on rules while a token is reported without its value; --portable and --older-coordinators report each home or drive path, the missing repositories list, the null and the incomplete registration; a missing file and an invalid setting are load problems; usage errors exit 2; the runtime folder is never created."
+      ]
     }
   ]
 }

@@ -186,6 +186,12 @@ repository, fast-forward the target before a task starts with
 `begin --sync-target`, and read [JSON status documents](docs/commands.md#machine-readable-output)
 from `begin --json` and `status --session <id> --json`.
 
+Teams can share settings and registrations as
+[layer files](docs/configuration.md#layered-configuration) that each machine
+includes with `seshx config apply`. In the layers' own repository, a validation
+command such as `seshx config check --layer sesh/shared.json --var codeRoot=/code --portable`
+checks them offline, without a runtime directory.
+
 ## Track progress and recover
 
 ```bash
