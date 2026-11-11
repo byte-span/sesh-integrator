@@ -532,14 +532,35 @@
     {
       "id": "SI-029",
       "title": "Install the build with seshx adopt on landing workers after promotion",
-      "status": "ready",
+      "status": "completed",
       "order": 290,
       "blocked_by": [],
       "acceptance": "After the session adding seshx adopt is promoted to local dev, a separate session runs node scripts/install-local.mjs --session <that session id> on this machine once no unfinished session needs the current coordinator replaced, and each other Agent Delly landing worker installs the same promoted commit through its normal box-up or fleet update. On each machine, seshx adopt --help-style usage (seshx adopt with no arguments exits 2 and prints the adopt usage), seshx guidance cloud-sandbox prints the sesh-integrator-cloud block, and seshx installation-check passes; the install receipt or fleet rollout result is recorded as evidence.",
       "executor": "automated",
       "device_requirement": ["Agent Delly landing workers"],
       "doc": "docs/development.md",
-      "evidence": []
+      "evidence": [
+        "Superseded, not performed (owner decision 2026-11-11): Sink installs sesh-integrator from main on each machine (fig-sync repos.json sesh-integrator-install)."
+      ]
+    },
+    {
+      "id": "SI-030",
+      "title": "Flag adopted changes that can alter what validation runs",
+      "status": "completed",
+      "order": 300,
+      "blocked_by": [],
+      "acceptance": "seshx adopt flags, never refuses, net-diff files that can change what validation runs: built-in patterns for package manifests and lockfiles of common ecosystems, workspace files, test/build/lint/format/typecheck configuration, commit hooks, .claude/settings*.json, root CI workflows and toolchain pins (.node-version, .nvmrc, ...); files named by the registration's setupCommands, sourceValidationCommands and integrationValidationCommands or by the root package.json scripts they run at the adopted head; and the optional registration field validationFilePaths (tier paths syntax), which seshx config check and every command reject unless it is a list of non-empty strings. The sorted, deduplicated list is adopt.validationFiles in adopt --json and session.adoption.validationFiles in the session record and status document ([] when none), is shown by adopt's human output, seshx status and the completion summary, and the adopted commit carries Adopted-Validation-Files: <count> plus one Adopted-Validation-File: <path> trailer per file when there are 10 or fewer. Validation and integration are otherwise unchanged.",
+      "executor": "automated",
+      "device_requirement": [],
+      "doc": "docs/commands.md",
+      "evidence": [
+        "src/validation-files.ts",
+        "test/adopt.test.ts \"flags adopted changes that can alter validation, lists only those, and still adopts\": a real-Git sandbox branch that rewrites a package.json script and edits app.txt is promoted with adopt.validationFiles and session.adoption.validationFiles both [\"package.json\"], the adopted commit has Adopted-Validation-Files: 1 and Adopted-Validation-File: package.json, and status --session shows the completion summary line; the earlier adopt tests report validationFiles [] for branches without such files.",
+        "Manual check against dist/validation-files.js: with commands corepack pnpm run test, bash -c \"node tools/lint.mjs\", fnm exec --using=.node-version bash scripts/check.sh and vitest --config=vitest.ci.ts test/, scripts pretest -> pnpm build -> node scripts/build-info.mjs and postinstall, and validationFilePaths [\"ci/**\"], the flag listed .claude/settings.local.json, .github/workflows/ci.yml, .nvmrc, ci/env.sh, packages/web/package.json, scripts/build-info.mjs, scripts/check.sh, scripts/postinstall.mjs, src/tsconfig.json, tools/lint.mjs and vitest.ci.ts, and not src/app.ts, test/app.test.ts, docs/x.md, scripts/other.mjs or TASKS.json; seshx config check on a layer with validationFilePaths [\"ok/**\", 3] exited 1 with an Invalid validationFilePaths load problem.",
+        "docs/commands.md",
+        "docs/configuration.md",
+        "SPEC.md"
+      ]
     }
   ]
 }

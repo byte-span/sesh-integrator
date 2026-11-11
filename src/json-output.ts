@@ -77,6 +77,7 @@ export function sessionStatusDocument(
             commitCount: session.adoption.commitCount,
             adoptedCommit: session.adoption.adoptedCommit ?? null,
             fetchedAt: session.adoption.fetchedAt,
+            validationFiles: [...(session.adoption.validationFiles ?? [])],
           }
         : null,
     },

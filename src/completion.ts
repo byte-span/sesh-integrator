@@ -1,4 +1,5 @@
 import type { RolloutDisposition, Session } from "./types.js";
+import { describeValidationFiles } from "./validation-files.js";
 
 // Follow-ups are declarations, not inferred from error messages or task summaries.
 // Recovery clears blockers; it does not prove external setup was performed.
@@ -32,6 +33,9 @@ export function writeCompletionSummary(session: Session): void {
       `  Source integration: ${session.status}\n` +
       `  Pull request: ${session.pullRequestUrl ?? "None"}\n` +
       `  External rollout: ${formatRolloutDisposition(session.rolloutDisposition)}\n` +
+      (session.adoption
+        ? `  Adopted validation files: ${describeValidationFiles(session.adoption.validationFiles ?? [])}\n`
+        : "") +
       (!succeeded
         ? `  Outstanding integration prerequisite: ${session.latestError ?? "Complete integration and its configured checks."}\n`
         : "") +

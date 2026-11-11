@@ -71,6 +71,12 @@ export interface RepositoryConfig {
   sourceValidationCommands: ValidationStep[];
   integrationValidationCommands: ValidationStep[];
   validationTiers?: ValidationTier[];
+  /**
+   * Extra path patterns (validation tier `paths` syntax) whose change can
+   * alter validation; `seshx adopt` flags them in `adopt.validationFiles`
+   * beside its built-in patterns.
+   */
+  validationFilePaths?: string[];
   postIntegrationCommands: Command[];
   conflictInstructions: string;
   validationCache?: "off" | "session" | "repository";
@@ -266,6 +272,11 @@ export interface SessionAdoption {
   fetchedAt: string;
   /** The single local commit carrying the net diff, once created. */
   adoptedCommit?: string;
+  /**
+   * Net-diff paths that can alter what validation runs, sorted; empty when
+   * none. Flagged only: adoption still validates and integrates.
+   */
+  validationFiles?: string[];
 }
 
 /**
