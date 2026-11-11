@@ -83,6 +83,20 @@ export function queueBypassConfigError(
   return undefined;
 }
 
+/** Why `validationFilePaths` is invalid for this registration, or undefined. */
+export function validationFilePathsConfigError(
+  repository: Pick<RepositoryConfig, "path" | "validationFilePaths">,
+): string | undefined {
+  const value: unknown = repository.validationFilePaths;
+  if (
+    value === undefined ||
+    (Array.isArray(value) &&
+      value.every((item) => typeof item === "string" && item.trim()))
+  )
+    return undefined;
+  return `Invalid validationFilePaths for ${repository.path}: use a list of path patterns such as ["tools/ci/**"]`;
+}
+
 export function isValidationStepList(value: unknown): boolean {
   return (
     Array.isArray(value) &&
@@ -150,7 +164,8 @@ function selectedTier(
   };
 }
 
-function matchesPath(pattern: string, path: string): boolean {
+/** Whether a repository-relative path matches a tier-style path pattern. */
+export function matchesPath(pattern: string, path: string): boolean {
   const normalizedPattern = pattern.replaceAll("\\", "/");
   const normalizedPath = path.replaceAll("\\", "/");
   let expression = "^";

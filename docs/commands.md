@@ -724,8 +724,9 @@ service can call it without a person. It:
    merge base with the target. It stages the branch's exact head tree and
    creates one commit through `seshx commit`, so signing policy applies. The
    session records `adoption` provenance; the commit carries the trailers
-   `Adopted-Remote`, `Adopted-Branch`, `Adopted-Head` and, for a pull request,
-   `Adopted-Pull-Request`.
+   `Adopted-Remote`, `Adopted-Branch`, `Adopted-Head`, for a pull request
+   `Adopted-Pull-Request`, and the
+   [validation files](#adopted-validation-files) trailers.
 4. Reruns setup for the adopted tree, runs `seshx validate`, then
    `seshx integrate` with the given summary and rollout. Conflicts, failed
    checks, recovery, `resume` and the completion summary behave as for any
@@ -736,6 +737,43 @@ service can call it without a person. It:
 `integrate`; `--harness` and `--policy-file` what they mean for `begin`.
 `--summary` defaults to `Adopt <remote>/<branch> at <sha>`. `adopt` never
 pushes, deletes or prunes branches; the remote branch stays.
+
+#### Adopted validation files
+
+An adopted branch can change the checks that then judge it, such as a
+`package.json` script. `adopt` flags these files; it never refuses them, and
+validation and integration run as usual with the adopted versions. Review
+flagged files before relying on the result.
+
+A file in the adopted net diff (added, changed or deleted) is flagged when it
+matches:
+
+- a built-in pattern, at any depth unless noted: package manifests and
+  lockfiles (npm, pnpm, Yarn, Bun, Deno, Python, Cargo, Go, Bundler, Composer,
+  Mix, Maven, Gradle, .NET, Swift, Dart, Nix), workspace files, test, build,
+  lint, format and typecheck configuration (`tsconfig*.json`,
+  `vitest.config.*`, `eslint.config.*`, `Makefile`, …), commit hooks
+  (`.husky/**`, `.pre-commit-config.yaml`), `.claude/settings*.json`, root CI
+  workflows (`.github/workflows/**`, `.gitlab-ci.yml`, …) and toolchain pins
+  (`.node-version`, `.nvmrc`, `.tool-versions`, `rust-toolchain*`, …). The
+  full list is `BUILT_IN_VALIDATION_FILE_PATHS` in `src/validation-files.ts`;
+- a file named by the registration's `setupCommands`,
+  `sourceValidationCommands` or `integrationValidationCommands`, or by the root
+  `package.json` scripts they run (with their `pre`/`post` scripts, and the
+  install lifecycle scripts for `install`/`ci`) at the adopted head. Shell
+  text such as `bash -c "..."` is read one level deep. Directories, globs,
+  flags and absolute paths are not followed, and validation tier commands are
+  not read;
+- a pattern in the registration's optional
+  [`validationFilePaths`](configuration.md#register).
+
+The result, sorted and deduplicated, is `adopt.validationFiles` and
+`session.adoption.validationFiles` in [JSON output](#machine-readable-output)
+(`[]` when none; treat a missing field as `[]`). Human output, `status` and
+the completion summary show `Adopted validation files: none` or the count and
+first paths. The adopted commit always carries
+`Adopted-Validation-Files: <count>` and, for 10 or fewer paths, one
+`Adopted-Validation-File: <path>` trailer per file.
 
 **Reruns are safe.** The adopted head commit identifies the work. Rerunning
 for a head that already has a session reports that session, or continues it:
@@ -764,13 +802,16 @@ whenever a session exists, plus:
   "adopt": {
     "outcome": "promoted",
     "reusedSession": false,
-    "error": null
+    "error": null,
+    "validationFiles": ["package.json"]
   }
 }
 ```
 
 `outcome` is `promoted`, `already-promoted` or `incomplete`; `reusedSession`
-is `true` when an existing session was reported or continued; `error` is
+is `true` when an existing session was reported or continued;
+`validationFiles` lists the [adopted validation files](#adopted-validation-files);
+`error` is
 `null` or `{ "code", "message" }` with code `validation_failed`,
 `integration_failed`, `needs_attention`, `adoption_interrupted` or
 `adopt_failed`. Refusals print `sesh-integrator/error@1` with code `usage`,
@@ -899,9 +940,9 @@ Status document, `sesh-integrator/session-status@1`:
 | `session.rolloutDisposition`, `rolloutFollowUps`        | `none`, `applied`, `automated`, `manual` or `null`; recorded follow-up actions.                                                                                                                                                        |
 | `session.integrationBatch`                              | [Batch](configuration.md#integration-batching) the session led or joined: `id`, `role`, `leaderSessionId`, `members`, `outcome` (`batched`, `isolated`, `excluded`, `released` or `null`), `stagingCommit`; else `null`.               |
 | `session.delivery`                                      | [Recorded delivery rule](configuration.md#what-a-session-records-and-uses), or `null` without a policy.                                                                                                                                |
-| `session.adoption`                                      | [`adopt`](#adopt) provenance: `remote`, `branch`, `headSha`, `pullRequestUrl` (or `null`), `baseCommit`, `commitCount`, `adoptedCommit` (or `null` before its commit), `fetchedAt`; `null` for other sessions.                         |
+| `session.adoption`                                      | [`adopt`](#adopt) provenance: `remote`, `branch`, `headSha`, `pullRequestUrl` (or `null`), `baseCommit`, `commitCount`, `adoptedCommit` (or `null` before its commit), `fetchedAt`, `validationFiles`; `null` for other sessions.      |
 | `resumeCommand`                                         | Argument array such as `["seshx", "resume", "--session", "<id>"]` for `needs_review`, `validation_pending` and `promotion_pending` sessions; otherwise `null`. Run it from the session worktree or another checkout of the repository. |
-| `adopt`                                                 | `adopt --json` only: `outcome`, `reusedSession` and `error`; see [`adopt`](#adopt).                                                                                                                                                    |
+| `adopt`                                                 | `adopt --json` only: `outcome`, `reusedSession`, `error` and `validationFiles`; see [`adopt`](#adopt).                                                                                                                                 |
 | `sync`                                                  | `begin --sync-target --json` only: `remote` (or `null`), `result`, `branch`, and the local target commits `before` and `after` (`null` when absent).                                                                                   |
 
 Error document, `sesh-integrator/error@1`, printed with a non-zero exit status:

@@ -1175,6 +1175,16 @@ session. Canonical description: [docs/commands.md](docs/commands.md#adopt).
   optional pull request, base, commit count, adopted commit). The head tree
   becomes one commit through the normal commit path with `Adopted-*`
   trailers.
+- Net-diff files that can change what validation runs are flagged, never
+  refused: built-in manifest, lockfile, workspace, test/build/lint/typecheck
+  configuration, `.claude/settings*.json`, CI workflow and toolchain-pin
+  patterns; files named by the registration's setup, source and integration
+  validation commands or the root package scripts they run; and the
+  registration's optional `validationFilePaths` patterns. The sorted list is
+  `adoption.validationFiles` and `adopt.validationFiles` (`[]` when none), is
+  shown by human output, `status` and the completion summary, and is counted
+  (and, for 10 or fewer, listed) in `Adopted-Validation-Files` and
+  `Adopted-Validation-File` trailers.
 - Setup, `validate` and `integrate` then run locally as for any session.
   Source validation may narrow or reuse integration checks only when this
   runtime's `validate` passed the exact ready commit; for adopted sessions that
@@ -1184,7 +1194,8 @@ session. Canonical description: [docs/commands.md](docs/commands.md#adopt).
   or continued, never duplicated, and a newer head of a branch with an
   unfinished adoption is refused. Exit 0 means promoted, 1 refused before a
   session, 2 usage, 3 a session that is not promoted. `--json` prints the
-  session status document with `adopt` (`outcome`, `reusedSession`, `error`),
+  session status document with `adopt` (`outcome`, `reusedSession`, `error`,
+  `validationFiles`),
   or the error document when no session exists.
 
 sesh-integrator owns the cloud-sandbox agent guidance in

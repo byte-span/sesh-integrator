@@ -177,6 +177,7 @@ it("adopts a sandbox branch as one locally validated commit and reports it again
     outcome: "promoted",
     reusedSession: false,
     error: null,
+    validationFiles: [],
   });
   expect(doc.session.status).toBe("succeeded");
   expect(doc.session.harness).toBe("claude");
@@ -234,6 +235,7 @@ it("adopts a sandbox branch as one locally validated commit and reports it again
     outcome: "already-promoted",
     reusedSession: true,
     error: null,
+    validationFiles: [],
   });
   expect(again.document.session.id).toBe(doc.session.id);
   expect((await f.sessions()).filter((s) => s.adoption)).toHaveLength(1);
@@ -286,6 +288,57 @@ it("stops on a failing local check whatever the sandbox reported, then continues
   expect(retried.document.session.id).toBe(failed.document.session.id);
   expect(f.git(["show", "main:feature.txt"])).toBe("feature");
   expect(f.git(["ls-tree", "--name-only", "main"])).not.toContain("bad.txt");
+}, 120_000);
+
+it("flags adopted changes that can alter validation, lists only those, and still adopts", async () => {
+  const f = await fixture();
+  const manifest = (scripts: Record<string, string>) =>
+    `${JSON.stringify({ name: "app", scripts }, null, 2)}\n`;
+  f.commit(
+    f.repo,
+    "package.json",
+    manifest({ test: "node -e 0" }),
+    "add package.json",
+  );
+  f.git(["push", "origin", "main"]);
+  // The sandbox rewrites what `test` runs and changes ordinary source.
+  f.pushBranch("claude/scripts", {
+    "package.json": manifest({ test: "node -e 'process.exit(0)'" }),
+    "app.txt": "base\nfeature\n",
+  });
+
+  const adopted = f.adopt(["claude/scripts", "--rollout", "none"]);
+  expect(adopted.code, adopted.output).toBe(0);
+  const doc = adopted.document;
+  expect(doc.adopt).toMatchObject({
+    outcome: "promoted",
+    validationFiles: ["package.json"],
+  });
+  expect(doc.session.adoption.validationFiles).toEqual(["package.json"]);
+  expect(adopted.output).toContain(
+    "Adopted validation files: 1 (package.json)",
+  );
+  // Flagged, not refused: the new scripts landed after local checks passed.
+  expect(doc.session.status).toBe("succeeded");
+  expect(f.git(["show", "main:package.json"])).toContain("process.exit(0)");
+  expect(f.git(["show", "main:app.txt"])).toBe("base\nfeature");
+  const trailer = (key: string) =>
+    f.git([
+      "log",
+      "-1",
+      `--format=%(trailers:key=${key},valueonly)`,
+      doc.session.adoption.adoptedCommit,
+    ]);
+  expect(trailer("Adopted-Validation-Files")).toBe("1");
+  expect(trailer("Adopted-Validation-File")).toBe("package.json");
+
+  const id = doc.session.id;
+  const status = f.cli(["status", "--session", id]);
+  expect(status.output).toContain(
+    "  Adopted validation files: 1 (package.json)\n",
+  );
+  const json = JSON.parse(f.cli(["status", "--session", id, "--json"]).stdout);
+  expect(json.session.adoption.validationFiles).toEqual(["package.json"]);
 }, 120_000);
 
 it("refuses missing, protected, merged-in and out-of-date branches before creating a session", async () => {

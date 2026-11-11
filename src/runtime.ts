@@ -35,7 +35,11 @@ import type {
   SessionIndexEntry,
   SessionTask,
 } from "./types.js";
-import { isValidationStepList, queueBypassConfigError } from "./validation.js";
+import {
+  isValidationStepList,
+  queueBypassConfigError,
+  validationFilePathsConfigError,
+} from "./validation.js";
 import { isIntegrationBatchingConfig } from "./batch-settings.js";
 
 export const DEFAULT_INTEGRATION_BRANCH = "sesh-integrator/integration";
@@ -277,6 +281,8 @@ export function validateRepositoryConfig(
   }
   const queueBypassError = queueBypassConfigError(repository);
   if (queueBypassError) throw new Error(queueBypassError);
+  const validationFilePathsError = validationFilePathsConfigError(repository);
+  if (validationFilePathsError) throw new Error(validationFilePathsError);
   // targetBranch intentionally remains optional for backward compatibility.
   // Its effective value inherits the optional global policy, then falls back
   // to the registered defaultBranch.

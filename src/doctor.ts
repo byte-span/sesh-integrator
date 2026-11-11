@@ -31,7 +31,11 @@ import {
   redundantLocalEntries,
 } from "./config-include.js";
 import type { Config, RepositoryConfig } from "./types.js";
-import { isValidationStepList, queueBypassConfigError } from "./validation.js";
+import {
+  isValidationStepList,
+  queueBypassConfigError,
+  validationFilePathsConfigError,
+} from "./validation.js";
 
 type CheckState = "PASS" | "SKIP" | "WARN" | "FAIL";
 
@@ -584,6 +588,8 @@ function validateConfig(config: Config): void {
     }
     const queueBypassError = queueBypassConfigError(repository);
     if (queueBypassError) throw new Error(queueBypassError);
+    const validationFilePathsError = validationFilePathsConfigError(repository);
+    if (validationFilePathsError) throw new Error(validationFilePathsError);
     if (
       repository.targetBranch === undefined &&
       (repository.integrationBranch === repository.defaultBranch ||

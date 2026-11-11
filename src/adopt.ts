@@ -39,6 +39,10 @@ import {
   updateSessionRecord,
 } from "./runtime.js";
 import { syncTargetBranch, type TargetSync } from "./sync-target.js";
+import {
+  adoptedValidationFiles,
+  describeValidationFiles,
+} from "./validation-files.js";
 import type {
   RepositoryConfig,
   RolloutDisposition,
@@ -273,6 +277,14 @@ export async function adoptCommand(
     target,
     [target, ...(production && production !== target ? [production] : [])],
   );
+  // Flagged, never refused: local checks still decide, but they run the
+  // adopted versions of these files.
+  const validationFiles = await adoptedValidationFiles(
+    repository.path,
+    repository,
+    inspection.baseCommit,
+    headSha,
+  );
   const record: SessionAdoption = {
     remote,
     branch,
@@ -281,9 +293,14 @@ export async function adoptCommand(
     baseCommit: inspection.baseCommit,
     commitCount: inspection.commitCount,
     fetchedAt: new Date().toISOString(),
+    validationFiles,
   };
   process.stdout.write(
-    `Adopting ${remote}/${branch} at ${headSha}: ${inspection.commitCount} commit(s) since ${target} at ${inspection.baseCommit}\n`,
+    `Adopting ${remote}/${branch} at ${headSha}: ${inspection.commitCount} commit(s) since ${target} at ${inspection.baseCommit}\n` +
+      `Adopted validation files: ${describeValidationFiles(validationFiles)}\n` +
+      (validationFiles.length
+        ? "These can change what validation runs, and local checks run the adopted versions; review them before relying on the result.\n"
+        : ""),
   );
   const begun = await beginCommand(
     options.summary ?? `Adopt ${remote}/${branch} at ${headSha.slice(0, 12)}`,
@@ -464,7 +481,16 @@ async function refreshSetup(session: Session): Promise<void> {
   }
 }
 
+/** Trailers list validation files only when there are this few. */
+const TRAILER_FILE_LIMIT = 10;
+
 function adoptionMessage(summary: string, adoption: SessionAdoption): string {
+  const files = adoption.validationFiles ?? [];
+  const listed =
+    files.length <= TRAILER_FILE_LIMIT &&
+    files.every(
+      (path) => /^\S(?:.*\S)?$/.test(path) && !/[\x00-\x1f\x7f]/.test(path),
+    );
   return [
     summary.trim(),
     "",
@@ -476,6 +502,8 @@ function adoptionMessage(summary: string, adoption: SessionAdoption): string {
     ...(adoption.pullRequestUrl
       ? [`Adopted-Pull-Request: ${adoption.pullRequestUrl}`]
       : []),
+    `Adopted-Validation-Files: ${files.length}`,
+    ...(listed ? files.map((path) => `Adopted-Validation-File: ${path}`) : []),
   ].join("\n");
 }
 
@@ -486,13 +514,19 @@ function report(
   outcome: AdoptOutcome,
   error?: { code: string; message: string },
 ): Record<string, unknown> {
+  const validationFiles = [...(session.adoption?.validationFiles ?? [])];
   if (outcome !== "incomplete")
     process.stdout.write(
-      `Adopted ${context.remote}/${context.branch} at ${session.adoption?.headSha} as ${session.id}: ${outcome}, ${session.targetBranch ?? "target"} at ${session.promotedCommit}\n`,
+      `Adopted ${context.remote}/${context.branch} at ${session.adoption?.headSha} as ${session.id}: ${outcome}, ${session.targetBranch ?? "target"} at ${session.promotedCommit}; adopted validation files: ${describeValidationFiles(validationFiles)}\n`,
     );
   return {
     ...sessionStatusDocument(session, context.sync),
-    adopt: { outcome, reusedSession: reused, error: error ?? null },
+    adopt: {
+      outcome,
+      reusedSession: reused,
+      error: error ?? null,
+      validationFiles,
+    },
   };
 }
 
