@@ -131,6 +131,7 @@ it("keeps a pinned coordinator working after source rebuilds and later installs"
       "package.json",
       "harnesses.json",
       "GLOBAL_AGENTS_SNIPPET.md",
+      "CLOUD_SANDBOX_SNIPPET.md",
     ]) {
       await cp(join(process.cwd(), entry), join(project, entry), {
         recursive: true,

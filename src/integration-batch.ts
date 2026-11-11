@@ -55,6 +55,7 @@ import type {
 } from "./types.js";
 import {
   selectValidation,
+  sourceValidatedLocally,
   validationQueueBypass,
   type SelectedValidation,
 } from "./validation.js";
@@ -503,8 +504,7 @@ export function batchValidation(
     selectValidation(
       repository,
       session.changedPaths ?? [],
-      session.validationTier !== "full" &&
-        session.sourceValidatedCommit === session.readyCommit,
+      session.validationTier !== "full" && sourceValidatedLocally(session),
     ),
   );
   const name = selected[0]?.name;

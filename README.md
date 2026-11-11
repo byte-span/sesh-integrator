@@ -185,6 +185,10 @@ Automation that drives many repositories can apply a
 repository, fast-forward the target before a task starts with
 `begin --sync-target`, and read [JSON status documents](docs/commands.md#machine-readable-output)
 from `begin --json` and `status --session <id> --json`.
+[`seshx adopt <branch | PR-url>`](docs/commands.md#adopt) brings a branch
+written elsewhere, such as in a cloud sandbox, into a normal session as one
+commit that is validated and integrated locally; agents writing such branches
+follow the [cloud-sandbox guidance](CLOUD_SANDBOX_SNIPPET.md).
 
 Teams can share settings and registrations as
 [layer files](docs/configuration.md#layered-configuration) that each machine

@@ -29,6 +29,7 @@
     "scripts/codex-gpg-agent",
     "scripts/com.codex.gpg-agent.plist",
     "GLOBAL_AGENTS_SNIPPET.md",
+    "CLOUD_SANDBOX_SNIPPET.md",
     "scripts/parallel-integrator-health-check",
     "scripts/update-macos.sh",
     "harnesses.json",

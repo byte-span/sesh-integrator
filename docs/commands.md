@@ -13,6 +13,7 @@ Commands below run from the repository root unless stated otherwise.
 - [Explicit session selection](#explicit-session-selection)
 - [`integrate`](#integrate)
 - [`resume`](#resume)
+- [`adopt`](#adopt)
 - [`status`](#status)
 - [Machine-readable output](#machine-readable-output)
 - [`sessions audit`](#sessions-audit)
@@ -42,6 +43,8 @@ seshx commit --message "Implement feature" [--session <session-id>]
 seshx validate [--session <session-id>]
 seshx integrate --summary "Implemented feature and tests" --rollout <none|applied|automated|manual> [--follow-up "<TASK-ID>: ..."]... [--session <session-id>]
 seshx resume [--session <session-id>]
+seshx adopt <branch | pull-request-url> --rollout <none|applied|automated|manual> [--follow-up "<TASK-ID>: ..."]... [--summary "..."] [--harness <name>] [--policy-file <path>] [--sync-target] [--json]
+seshx guidance cloud-sandbox
 seshx incident <ticket-id>
 seshx status [--session <session-id>]
 seshx status --session <session-id> --json
@@ -691,6 +694,110 @@ failing test names or first error line, and build queue load
 ([failure evidence](build-queue.md#failure-evidence)). After the agent assesses the preserved evidence, `resume` verifies
 the clean merge, reacquires its resources, and retries validation.
 
+### `adopt`
+
+Bring a branch that was written elsewhere, such as by a coding agent in a
+hosted cloud sandbox, into a normal session. Nothing that ran where the branch
+was written counts as validation.
+
+```bash
+seshx adopt claude/fix-login --rollout none --harness claude --summary "PC-7: Fix login" --json
+seshx adopt https://github.com/owner/name/pull/42 --rollout none
+```
+
+Run it from any checkout of a registered repository. It never prompts, so a
+service can call it without a person. It:
+
+1. Fetches the branch from the repository's remote (the pull-request
+   promotion `remote`, else `origin`) into `refs/remotes/<remote>/<branch>`
+   and pins its head commit. A pull-request URL must name an open pull request
+   in the same GitHub repository as that remote, not a fork; `gh` resolves its
+   head branch.
+2. Refuses, before creating anything, a branch that is missing, is the
+   target, staging, default or production branch, shares no history with the
+   target, contains a merge of history the target lacks, builds on
+   `<remote>/<target>` or `<remote>/<production>` commits the local target
+   lacks (use `--sync-target` to fast-forward the target first), or changes
+   nothing.
+3. Starts a normal session and source worktree (like
+   `begin --create-worktree`, including the delivery policy) at the branch's
+   merge base with the target. It stages the branch's exact head tree and
+   creates one commit through `seshx commit`, so signing policy applies. The
+   session records `adoption` provenance; the commit carries the trailers
+   `Adopted-Remote`, `Adopted-Branch`, `Adopted-Head` and, for a pull request,
+   `Adopted-Pull-Request`.
+4. Reruns setup for the adopted tree, runs `seshx validate`, then
+   `seshx integrate` with the given summary and rollout. Conflicts, failed
+   checks, recovery, `resume` and the completion summary behave as for any
+   session. Only this machine's own validation of the adopted commit can
+   narrow or reuse integration checks.
+
+`--rollout`, `--follow-up` and `--summary` mean what they mean for
+`integrate`; `--harness` and `--policy-file` what they mean for `begin`.
+`--summary` defaults to `Adopt <remote>/<branch> at <sha>`. `adopt` never
+pushes, deletes or prunes branches; the remote branch stays.
+
+**Reruns are safe.** The adopted head commit identifies the work. Rerunning
+for a head that already has a session reports that session, or continues it:
+an `active` session gets its missing commit, validation and integration, and a
+`ready` one retries integration. After a failed source check, fix it in the
+session worktree with `seshx commit --session <id>`, then rerun the same
+`adopt` command. Sessions in `needs_review`, `validation_pending` or
+`promotion_pending` need `seshx resume --session <id>` instead. A newer head of
+a branch whose earlier head is still unfinished is refused with
+`adoption_in_progress`. Abandoned sessions are ignored. Run one `adopt` per
+branch at a time: a concurrent rerun reuses the session but may repeat its
+checks.
+
+| Exit | Meaning                                                                                                       |
+| ---- | ------------------------------------------------------------------------------------------------------------- |
+| 0    | Promoted now (`adopt.outcome` `promoted`) or earlier (`already-promoted`).                                    |
+| 1    | Refused or failed before a session existed; prints an [error document](#machine-readable-output).             |
+| 2    | Usage error (`usage`).                                                                                        |
+| 3    | A session exists but is not promoted (`incomplete`); see `adopt.error`, `session.status` and `resumeCommand`. |
+
+With `--json`, stdout carries one [status document](#machine-readable-output)
+whenever a session exists, plus:
+
+```json
+{
+  "adopt": {
+    "outcome": "promoted",
+    "reusedSession": false,
+    "error": null
+  }
+}
+```
+
+`outcome` is `promoted`, `already-promoted` or `incomplete`; `reusedSession`
+is `true` when an existing session was reported or continued; `error` is
+`null` or `{ "code", "message" }` with code `validation_failed`,
+`integration_failed`, `needs_attention`, `adoption_interrupted` or
+`adopt_failed`. Refusals print `sesh-integrator/error@1` with code `usage`,
+`branch_not_found`, `branch_not_adoptable`, `fetch_failed`,
+`pull_request_invalid`, `pull_request_unavailable`, `unrelated_history`,
+`base_not_in_target`, `no_changes`, `adoption_in_progress`, `adopt_failed` or
+one of the `begin` policy codes.
+
+#### Cloud-sandbox guidance
+
+Agents that write branches for `adopt` in a cloud sandbox follow
+[CLOUD_SANDBOX_SNIPPET.md](../CLOUD_SANDBOX_SNIPPET.md): no `seshx`, the
+repository's own checks, commits pushed only to a `claude/*` branch, no
+integration, merges, `dev`/`main` pushes or pull requests to `main`, and a
+short report. Print it from the installed package with:
+
+```bash
+seshx guidance cloud-sandbox
+```
+
+The file is exactly one managed block owned by `sesh-integrator-cloud`
+(`<!-- sesh-integrator-cloud:managed:start -->` …
+`<!-- sesh-integrator-cloud:managed:end -->`), ready to pass to a prompt
+renderer as is. The owner differs from the local workflow block
+(`codex-handoff`), so `setup`, `doctor` and `cleanup-guidance` never mistake one
+for the other. It is not installed into any harness's global instructions.
+
 ### `status`
 
 ```bash
@@ -716,8 +823,8 @@ evidence recorded when it was abandoned and any earlier restores.
 
 ### Machine-readable output
 
-`begin --json`, `status --session <id> --json` and `policy check` print exactly
-one JSON document on stdout. Human output goes to stderr. This section is the
+`begin --json`, `status --session <id> --json`, `adopt --json` and
+`policy check` print exactly one JSON document on stdout. Human output goes to stderr. This section is the
 canonical description of these formats. Within a schema version, fields may be
 added but never removed or retyped; consumers should ignore unknown fields.
 
@@ -762,7 +869,8 @@ Status document, `sesh-integrator/session-status@1`:
       },
       "completion": "production-merged",
       "source": "defaults"
-    }
+    },
+    "adoption": null
   },
   "resumeCommand": null,
   "sync": {
@@ -791,7 +899,9 @@ Status document, `sesh-integrator/session-status@1`:
 | `session.rolloutDisposition`, `rolloutFollowUps`        | `none`, `applied`, `automated`, `manual` or `null`; recorded follow-up actions.                                                                                                                                                        |
 | `session.integrationBatch`                              | [Batch](configuration.md#integration-batching) the session led or joined: `id`, `role`, `leaderSessionId`, `members`, `outcome` (`batched`, `isolated`, `excluded`, `released` or `null`), `stagingCommit`; else `null`.               |
 | `session.delivery`                                      | [Recorded delivery rule](configuration.md#what-a-session-records-and-uses), or `null` without a policy.                                                                                                                                |
+| `session.adoption`                                      | [`adopt`](#adopt) provenance: `remote`, `branch`, `headSha`, `pullRequestUrl` (or `null`), `baseCommit`, `commitCount`, `adoptedCommit` (or `null` before its commit), `fetchedAt`; `null` for other sessions.                         |
 | `resumeCommand`                                         | Argument array such as `["seshx", "resume", "--session", "<id>"]` for `needs_review`, `validation_pending` and `promotion_pending` sessions; otherwise `null`. Run it from the session worktree or another checkout of the repository. |
+| `adopt`                                                 | `adopt --json` only: `outcome`, `reusedSession` and `error`; see [`adopt`](#adopt).                                                                                                                                                    |
 | `sync`                                                  | `begin --sync-target --json` only: `remote` (or `null`), `result`, `branch`, and the local target commits `before` and `after` (`null` when absent).                                                                                   |
 
 Error document, `sesh-integrator/error@1`, printed with a non-zero exit status:

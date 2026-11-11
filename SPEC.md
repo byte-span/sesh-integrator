@@ -1155,6 +1155,44 @@ a non-zero exit. `seshx policy check --file <path> [--repository owner/name]`
 prints the normalized policy or resolved rule with the same error document.
 Within `@1`, fields may be added but never removed or retyped.
 
+## Adopting externally written branches
+
+`seshx adopt <branch | pull-request-url>` turns a branch pushed by an agent
+that does not run seshx, such as one in a hosted cloud sandbox, into a normal
+session. Canonical description: [docs/commands.md](docs/commands.md#adopt).
+
+- It fetches the branch from the effective pull-request remote, else `origin`,
+  pins the head commit, and never pushes, deletes or prunes branches. A
+  pull-request URL must name an open, same-repository (not fork) pull request
+  on that remote's GitHub repository.
+- Before creating anything it refuses a missing or protected (target,
+  staging, default, production) branch, no shared history, a root commit or a
+  merge whose non-first parent the local target lacks, a merge base with
+  `<remote>/<target>` or `<remote>/<production>` that the local target lacks,
+  and an empty net diff.
+- The session starts at the merge base with the target in a new managed
+  source worktree and records `adoption` provenance (remote, branch, head,
+  optional pull request, base, commit count, adopted commit). The head tree
+  becomes one commit through the normal commit path with `Adopted-*`
+  trailers.
+- Setup, `validate` and `integrate` then run locally as for any session.
+  Source validation may narrow or reuse integration checks only when this
+  runtime's `validate` passed the exact ready commit; for adopted sessions that
+  commit is never the remote head. External validation evidence is never
+  read.
+- Reruns key on the head commit: an existing non-abandoned session is reported
+  or continued, never duplicated, and a newer head of a branch with an
+  unfinished adoption is refused. Exit 0 means promoted, 1 refused before a
+  session, 2 usage, 3 a session that is not promoted. `--json` prints the
+  session status document with `adopt` (`outcome`, `reusedSession`, `error`),
+  or the error document when no session exists.
+
+sesh-integrator owns the cloud-sandbox agent guidance in
+`CLOUD_SANDBOX_SNIPPET.md`, one `sesh-integrator-cloud` managed block printed by
+`seshx guidance cloud-sandbox`. It is packaged but never installed into local
+harness instructions, and it is not a coordinator snapshot asset, so existing
+snapshot digests stay valid.
+
 ## Coding harness support
 
 `begin --harness codex|claude|antigravity|grok` records the originating harness. Omitted

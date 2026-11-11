@@ -32,7 +32,7 @@ case "${1:-}" in
       "$project_dir/"*) printf '%s\n' "Stable releases must be outside the source checkout." >&2; exit 1 ;;
     esac
     release_dir=$(mktemp -d "$release_root/release.XXXXXXXX")
-    for entry in dist skill scripts systemd package.json harnesses.json GLOBAL_AGENTS_SNIPPET.md; do
+    for entry in dist skill scripts systemd package.json harnesses.json GLOBAL_AGENTS_SNIPPET.md CLOUD_SANDBOX_SNIPPET.md; do
       cp -R "$project_dir/$entry" "$release_dir/$entry"
     done
     source_file="$release_dir/dist/cli.js"

@@ -24,6 +24,8 @@ import {
   validateCommand,
 } from "./handoff.js";
 import { queueCommand } from "./build-queue.js";
+import { adoptCommand, parseAdoptOptions } from "./adopt.js";
+import { readFile } from "node:fs/promises";
 import { statusCommand } from "./status.js";
 import { reconcileCommand } from "./reconcile.js";
 import { benchmarkCommand } from "./benchmark.js";
@@ -52,7 +54,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   // including relayed child output, goes to stderr.
   const json =
     command === "policy" ||
-    ((command === "begin" || command === "status") &&
+    ((command === "begin" || command === "status" || command === "adopt") &&
       rawArgs.includes("--json"));
   if (!json) {
     await dispatch(command, rawArgs, false);
@@ -68,8 +70,11 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     );
   } catch (error) {
     output.restore();
+    // A failure that still has a session to report (adopt) carries its
+    // status document; anything else prints the error document.
+    const failure = (error as { document?: unknown } | undefined)?.document;
     output.write(
-      `${JSON.stringify(errorDocument(error, `${command}_failed`), null, 2)}\n`,
+      `${JSON.stringify(failure ?? errorDocument(error, `${command}_failed`), null, 2)}\n`,
     );
     throw error;
   }
@@ -85,6 +90,7 @@ async function dispatch(
 ): Promise<unknown> {
   let document: unknown;
   const instrument = new Set([
+    "adopt",
     "begin",
     "commit",
     "validate",
@@ -100,6 +106,7 @@ async function dispatch(
         "register",
         "enable",
         "disable",
+        "adopt",
         "begin",
         "commit",
         "validate",
@@ -115,6 +122,7 @@ async function dispatch(
       const sessionIndex = args.indexOf("--session");
       const sessionId = sessionIndex >= 0 ? args[sessionIndex + 1] : undefined;
       const scoped = [
+        "adopt",
         "begin",
         "commit",
         "validate",
@@ -257,6 +265,19 @@ async function dispatch(
       }
       case "policy":
         document = await policyCommand(args);
+        break;
+      case "adopt":
+        document = await adoptCommand(parseAdoptOptions(args));
+        break;
+      case "guidance":
+        if (args.length !== 1 || args[0] !== "cloud-sandbox")
+          throw new CodedError("usage", "Usage: seshx guidance cloud-sandbox");
+        process.stdout.write(
+          await readFile(
+            new URL("../CLOUD_SANDBOX_SNIPPET.md", import.meta.url),
+            "utf8",
+          ),
+        );
         break;
       case "integrate": {
         const options = parseOptions(args, false);
@@ -619,6 +640,8 @@ Usage:
   seshx validate [--session <session-id>]
   seshx integrate --summary "..." --rollout <none|applied|automated|manual> [--follow-up "<TASK-ID>: <action, destination, exact configuration names; no secret values>"]... [--session <session-id>]
   seshx resume [--session <session-id>] [--accept-staged-resolution]
+  seshx adopt <branch | pull-request-url> --rollout <none|applied|automated|manual> [--follow-up "<TASK-ID>: ..."]... [--summary "..."] [--harness codex|claude|antigravity|grok] [--policy-file <path>] [--sync-target] [--json]
+  seshx guidance cloud-sandbox
   seshx queue [status | configure --concurrency <unlimited|auto|1-64> | configure --wait-seconds <1-86400> | recover <entry-id> --confirmed-stopped]
   seshx status [--session <session-id>]
   seshx status --session <session-id> --json

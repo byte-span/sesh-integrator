@@ -8,7 +8,11 @@ import type {
   Session,
   ValidationStep,
 } from "./types.js";
-import { findValidationTier, validationCommandValue } from "./validation.js";
+import {
+  findValidationTier,
+  sourceValidatedLocally,
+  validationCommandValue,
+} from "./validation.js";
 
 /**
  * How integration validation may reuse a session's source validation results
@@ -76,11 +80,7 @@ export async function planSourceReuse(input: {
   if (repository.validationCache === "off")
     return keep("skipped", "validationCache is off");
   const sourceTree = session.sourceValidatedTree;
-  if (
-    !session.readyCommit ||
-    session.sourceValidatedCommit !== session.readyCommit ||
-    !sourceTree
-  )
+  if (!session.readyCommit || !sourceValidatedLocally(session) || !sourceTree)
     return keep(
       "skipped",
       "the ready commit was not validated by seshx validate",

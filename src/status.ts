@@ -127,6 +127,10 @@ export async function statusCommand(sessionId?: string): Promise<void> {
       );
     }
     process.stdout.write(`  branch: ${session.branch}\n`);
+    if (session.adoption)
+      process.stdout.write(
+        `  adopted from: ${session.adoption.remote}/${session.adoption.branch} at ${session.adoption.headSha}${session.adoption.pullRequestUrl ? ` (${session.adoption.pullRequestUrl})` : ""}; local commit ${session.adoption.adoptedCommit ?? "not yet created"}\n`,
+      );
     for (const line of [
       ...abandonmentLines(session, !!selected),
       `tasks: ${taskProgress(session)}`,
