@@ -1,10 +1,35 @@
 import type {
   Command,
   RepositoryConfig,
+  Session,
   ValidationCommand,
   ValidationStep,
   ValidationTier,
 } from "./types.js";
+
+/**
+ * Whether this runtime's `seshx validate` passed the source checks on the
+ * exact ready commit. Only that local result may narrow integration to a
+ * tier, bypass the integration worktree, or reuse source results.
+ *
+ * Adopted sessions follow the same rule: checks that ran where the branch was
+ * written, such as a cloud sandbox, never count. Their evidence must be a local
+ * validation of a local commit (adopt creates one), never of the remote head.
+ */
+export function sourceValidatedLocally(
+  session: Pick<
+    Session,
+    "readyCommit" | "sourceValidatedCommit" | "sourceValidatedTree" | "adoption"
+  >,
+): boolean {
+  if (!session.readyCommit) return false;
+  if (session.sourceValidatedCommit !== session.readyCommit) return false;
+  if (!session.adoption) return true;
+  return (
+    !!session.sourceValidatedTree &&
+    session.readyCommit !== session.adoption.headSha
+  );
+}
 
 export interface SelectedValidation {
   name: string;

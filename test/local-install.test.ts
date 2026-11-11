@@ -40,6 +40,7 @@ async function fixture() {
     "package.json",
     "harnesses.json",
     "GLOBAL_AGENTS_SNIPPET.md",
+    "CLOUD_SANDBOX_SNIPPET.md",
     "tsconfig.json",
     "tsconfig.build.json",
   ])

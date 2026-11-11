@@ -35,6 +35,7 @@ async function fixture() {
     "package.json",
     "harnesses.json",
     "GLOBAL_AGENTS_SNIPPET.md",
+    "CLOUD_SANDBOX_SNIPPET.md",
   ])
     await cp(join(process.cwd(), name), join(pkg, name), { recursive: true });
   const env = {
