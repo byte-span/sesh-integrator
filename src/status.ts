@@ -19,6 +19,7 @@ import { targetBranch, targetBranchSource } from "./promotion.js";
 import { pullRequestPromotion } from "./pull-request.js";
 import type { Session } from "./types.js";
 import { validationFailureEvidence } from "./validation-output.js";
+import { describeValidationFiles } from "./validation-files.js";
 import {
   readConfig,
   readSession,
@@ -127,6 +128,11 @@ export async function statusCommand(sessionId?: string): Promise<void> {
       );
     }
     process.stdout.write(`  branch: ${session.branch}\n`);
+    if (session.adoption)
+      process.stdout.write(
+        `  adopted from: ${session.adoption.remote}/${session.adoption.branch} at ${session.adoption.headSha}${session.adoption.pullRequestUrl ? ` (${session.adoption.pullRequestUrl})` : ""}; local commit ${session.adoption.adoptedCommit ?? "not yet created"}\n` +
+          `  adopted validation files: ${describeValidationFiles(session.adoption.validationFiles ?? [])}\n`,
+      );
     for (const line of [
       ...abandonmentLines(session, !!selected),
       `tasks: ${taskProgress(session)}`,

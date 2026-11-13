@@ -1,10 +1,35 @@
 import type {
   Command,
   RepositoryConfig,
+  Session,
   ValidationCommand,
   ValidationStep,
   ValidationTier,
 } from "./types.js";
+
+/**
+ * Whether this runtime's `seshx validate` passed the source checks on the
+ * exact ready commit. Only that local result may narrow integration to a
+ * tier, bypass the integration worktree, or reuse source results.
+ *
+ * Adopted sessions follow the same rule: checks that ran where the branch was
+ * written, such as a cloud sandbox, never count. Their evidence must be a local
+ * validation of a local commit (adopt creates one), never of the remote head.
+ */
+export function sourceValidatedLocally(
+  session: Pick<
+    Session,
+    "readyCommit" | "sourceValidatedCommit" | "sourceValidatedTree" | "adoption"
+  >,
+): boolean {
+  if (!session.readyCommit) return false;
+  if (session.sourceValidatedCommit !== session.readyCommit) return false;
+  if (!session.adoption) return true;
+  return (
+    !!session.sourceValidatedTree &&
+    session.readyCommit !== session.adoption.headSha
+  );
+}
 
 export interface SelectedValidation {
   name: string;
@@ -56,6 +81,20 @@ export function queueBypassConfigError(
     )
       return `Invalid bypassBuildQueue in validation tier ${tier.name} for ${repository.path}: use true or false`;
   return undefined;
+}
+
+/** Why `validationFilePaths` is invalid for this registration, or undefined. */
+export function validationFilePathsConfigError(
+  repository: Pick<RepositoryConfig, "path" | "validationFilePaths">,
+): string | undefined {
+  const value: unknown = repository.validationFilePaths;
+  if (
+    value === undefined ||
+    (Array.isArray(value) &&
+      value.every((item) => typeof item === "string" && item.trim()))
+  )
+    return undefined;
+  return `Invalid validationFilePaths for ${repository.path}: use a list of path patterns such as ["tools/ci/**"]`;
 }
 
 export function isValidationStepList(value: unknown): boolean {
@@ -125,7 +164,8 @@ function selectedTier(
   };
 }
 
-function matchesPath(pattern: string, path: string): boolean {
+/** Whether a repository-relative path matches a tier-style path pattern. */
+export function matchesPath(pattern: string, path: string): boolean {
   const normalizedPattern = pattern.replaceAll("\\", "/");
   const normalizedPath = path.replaceAll("\\", "/");
   let expression = "^";

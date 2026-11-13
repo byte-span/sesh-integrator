@@ -494,6 +494,73 @@
       "evidence": [
         "test/config-check.test.ts: with SESH_INTEGRATOR_HOME pointing at a missing folder, valid shared and role layers pass every rule; an empty --var leaves its placeholder unfilled and each registration using it gets one load line; a settings-only file, a partial registration over an earlier one and a null load and pass the always-on rules while a token is reported without its value; --portable and --older-coordinators report each home or drive path, the missing repositories list, the null and the incomplete registration; a missing file and an invalid setting are load problems; usage errors exit 2; the runtime folder is never created."
       ]
+    },
+    {
+      "id": "SI-027",
+      "title": "Adopt a branch written elsewhere, such as in a cloud sandbox, as a locally validated session",
+      "status": "completed",
+      "order": 270,
+      "blocked_by": [],
+      "acceptance": "seshx adopt <branch | pull-request-url> --rollout ... [--follow-up ...] [--summary ...] [--harness ...] [--policy-file ...] [--sync-target] [--json] fetches the branch from the repository's configured remote and pins its head; refuses before creating anything a missing or protected branch, unrelated history or a merge of history the target lacks, a base the local target lacks, an empty diff, a fork or closed pull request, and a newer head of a branch whose earlier adoption is unfinished; creates a normal managed session and source worktree with adoption provenance, commits the branch's net diff as one commit through the normal commit path with Adopted-* trailers, runs setup, local source validation and the normal integrate path, and never pushes or deletes branches. Reruns for an adopted head report or continue the same session. Exit codes 0/1/2/3 and --json documents (session-status@1 plus adopt, or error@1) are documented. Source-validation reuse requires this runtime's own validation of the ready commit. Disposable-repository tests cover promotion, reruns, a failing local check, refusals and pull-request URLs.",
+      "executor": "automated",
+      "device_requirement": [],
+      "doc": "docs/commands.md",
+      "evidence": [
+        "src/adopt.ts",
+        "src/validation.ts",
+        "test/adopt.test.ts: a two-commit sandbox branch becomes one commit with the head tree and Adopted-Head/Adopted-Branch trailers, source checks run in the session worktree and integration checks run, the remote branch remains, and a rerun reports already-promoted for the same session; a failing local check exits 3 with validation_failed and leaves the target unchanged, then a local fix plus the same adopt command promotes that session; missing, protected, empty, merged-in and out-of-date branches and a missing --rollout are refused before any session exists; a same-repository pull-request URL is adopted with its URL recorded and a fork or other-repository URL is refused.",
+        "docs/commands.md",
+        "SPEC.md"
+      ]
+    },
+    {
+      "id": "SI-028",
+      "title": "Own the cloud-sandbox agent workflow guidance",
+      "status": "completed",
+      "order": 280,
+      "blocked_by": [],
+      "acceptance": "CLOUD_SANDBOX_SNIPPET.md is one compact sesh-integrator-cloud managed block telling a cloud-sandbox agent not to run seshx, to run the repository's own checks, commit, push only a claude/* branch, never integrate, merge, push dev/main or open pull requests to main, and to report results. It is packaged with the CLI (npm files, install-cli.sh, install-local.mjs) without changing coordinator snapshot digests, printed by seshx guidance cloud-sandbox, and never installed into local harness instructions.",
+      "executor": "automated",
+      "device_requirement": [],
+      "doc": "docs/commands.md",
+      "evidence": [
+        "CLOUD_SANDBOX_SNIPPET.md",
+        "test/adopt.test.ts: seshx guidance cloud-sandbox prints exactly the packaged file, one managed block with sesh-integrator-cloud start and end markers.",
+        "docs/commands.md"
+      ]
+    },
+    {
+      "id": "SI-029",
+      "title": "Install the build with seshx adopt on landing workers after promotion",
+      "status": "completed",
+      "order": 290,
+      "blocked_by": [],
+      "acceptance": "After the session adding seshx adopt is promoted to local dev, a separate session runs node scripts/install-local.mjs --session <that session id> on this machine once no unfinished session needs the current coordinator replaced, and each other Agent Delly landing worker installs the same promoted commit through its normal box-up or fleet update. On each machine, seshx adopt --help-style usage (seshx adopt with no arguments exits 2 and prints the adopt usage), seshx guidance cloud-sandbox prints the sesh-integrator-cloud block, and seshx installation-check passes; the install receipt or fleet rollout result is recorded as evidence.",
+      "executor": "automated",
+      "device_requirement": ["Agent Delly landing workers"],
+      "doc": "docs/development.md",
+      "evidence": [
+        "Superseded, not performed (owner decision 2026-11-11): Sink installs sesh-integrator from main on each machine (fig-sync repos.json sesh-integrator-install)."
+      ]
+    },
+    {
+      "id": "SI-030",
+      "title": "Flag adopted changes that can alter what validation runs",
+      "status": "completed",
+      "order": 300,
+      "blocked_by": [],
+      "acceptance": "seshx adopt flags, never refuses, net-diff files that can change what validation runs: built-in patterns for package manifests and lockfiles of common ecosystems, workspace files, test/build/lint/format/typecheck configuration, commit hooks, .claude/settings*.json, root CI workflows and toolchain pins (.node-version, .nvmrc, ...); files named by the registration's setupCommands, sourceValidationCommands and integrationValidationCommands or by the root package.json scripts they run at the adopted head; and the optional registration field validationFilePaths (tier paths syntax), which seshx config check and every command reject unless it is a list of non-empty strings. The sorted, deduplicated list is adopt.validationFiles in adopt --json and session.adoption.validationFiles in the session record and status document ([] when none), is shown by adopt's human output, seshx status and the completion summary, and the adopted commit carries Adopted-Validation-Files: <count> plus one Adopted-Validation-File: <path> trailer per file when there are 10 or fewer. Validation and integration are otherwise unchanged.",
+      "executor": "automated",
+      "device_requirement": [],
+      "doc": "docs/commands.md",
+      "evidence": [
+        "src/validation-files.ts",
+        "test/adopt.test.ts \"flags adopted changes that can alter validation, lists only those, and still adopts\": a real-Git sandbox branch that rewrites a package.json script and edits app.txt is promoted with adopt.validationFiles and session.adoption.validationFiles both [\"package.json\"], the adopted commit has Adopted-Validation-Files: 1 and Adopted-Validation-File: package.json, and status --session shows the completion summary line; the earlier adopt tests report validationFiles [] for branches without such files.",
+        "Manual check against dist/validation-files.js: with commands corepack pnpm run test, bash -c \"node tools/lint.mjs\", fnm exec --using=.node-version bash scripts/check.sh and vitest --config=vitest.ci.ts test/, scripts pretest -> pnpm build -> node scripts/build-info.mjs and postinstall, and validationFilePaths [\"ci/**\"], the flag listed .claude/settings.local.json, .github/workflows/ci.yml, .nvmrc, ci/env.sh, packages/web/package.json, scripts/build-info.mjs, scripts/check.sh, scripts/postinstall.mjs, src/tsconfig.json, tools/lint.mjs and vitest.ci.ts, and not src/app.ts, test/app.test.ts, docs/x.md, scripts/other.mjs or TASKS.json; seshx config check on a layer with validationFilePaths [\"ok/**\", 3] exited 1 with an Invalid validationFilePaths load problem.",
+        "docs/commands.md",
+        "docs/configuration.md",
+        "SPEC.md"
+      ]
     }
   ]
 }

@@ -28,6 +28,9 @@ const SUPPORTED_STATE_CONTRACTS: readonly number[] = [
   STATE_CONTRACT,
   DELIVERY_STATE_CONTRACT,
 ];
+// The build digest covers exactly these assets, so a new top-level entry
+// would make every retained snapshot without it read as missing. Files that
+// lifecycle commands never read, such as CLOUD_SANDBOX_SNIPPET.md, stay out.
 const assets = [
   "dist",
   "skill",

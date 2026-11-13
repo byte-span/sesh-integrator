@@ -131,6 +131,13 @@ is supported as a legacy-style opt-in, but then there is no separate final ref
 and that branch cannot already be checked out in another worktree. No branch is
 pushed unless pull-request promotion is explicitly configured.
 
+`validationFilePaths` is an optional list of extra path patterns (the
+validation tier `paths` syntax) for files that can change what validation
+runs, such as `["tools/ci/**", "config/test.env"]`. [`seshx adopt`](commands.md#adopted-validation-files)
+flags adopted changes to them beside its built-in patterns; nothing else reads
+it. `seshx config check` and every command reject a value that is not a list
+of non-empty strings.
+
 ### Moved checkouts
 
 Registrations and integration worktrees follow the repository's Git folder

@@ -67,6 +67,19 @@ export function sessionStatusDocument(
             source: delivery.source,
           }
         : null,
+      adoption: session.adoption
+        ? {
+            remote: session.adoption.remote,
+            branch: session.adoption.branch,
+            headSha: session.adoption.headSha,
+            pullRequestUrl: session.adoption.pullRequestUrl ?? null,
+            baseCommit: session.adoption.baseCommit,
+            commitCount: session.adoption.commitCount,
+            adoptedCommit: session.adoption.adoptedCommit ?? null,
+            fetchedAt: session.adoption.fetchedAt,
+            validationFiles: [...(session.adoption.validationFiles ?? [])],
+          }
+        : null,
     },
     resumeCommand: RESUMABLE.includes(session.status)
       ? ["seshx", "resume", "--session", session.id]

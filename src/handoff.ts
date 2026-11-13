@@ -109,11 +109,13 @@ import type {
   RepositoryConfig,
   RolloutDisposition,
   Session,
+  SessionAdoption,
   SessionDelivery,
   SessionIndexEntry,
 } from "./types.js";
 import {
   selectValidation,
+  sourceValidatedLocally,
   validationQueueBypass,
   type SelectedValidation,
 } from "./validation.js";
@@ -379,12 +381,29 @@ export interface BeginOptions {
   policyFile?: string;
   /** Fast-forward the local target from its remote before branching. */
   syncTarget?: boolean;
+  /** `seshx adopt`: provenance, start point and duplicate check. */
+  adoption?: BeginAdoption;
+}
+
+/** How `seshx adopt` asks `begin` to create its session. */
+export interface BeginAdoption {
+  record: SessionAdoption;
+  /** Commit the new managed source worktree starts from. */
+  startPoint: string;
+  /**
+   * Runs under the configuration lock before a session is created. A
+   * returned session is reported instead, so concurrent reruns never
+   * create two sessions for one adopted head.
+   */
+  findExisting: () => Promise<Session | undefined>;
 }
 
 export interface BeginResult {
   session: Session;
   /** Present only with `--sync-target`. */
   sync?: TargetSync;
+  /** Set when `adoption.findExisting` returned a session instead. */
+  existing?: boolean;
 }
 
 export async function beginCommand(
@@ -408,6 +427,8 @@ export async function beginCommand(
       "--create-worktree cannot be combined with --no-auto-branch",
     );
   }
+  if (options.adoption && !createWorktree)
+    throw new Error("An adopted session always uses a new source worktree");
   const sessionId = makeSessionId();
   const config = await readConfig();
   const policyPath = deliveryPolicyPath(
@@ -445,18 +466,29 @@ export async function beginCommand(
       );
     }
   }
-  const session = await withConfigLock(() =>
-    beginUnlocked(
-      summary,
-      dependsOn,
-      autoBranch,
-      createWorktree,
-      harness,
-      sessionId,
-      delivery,
-    ),
-  );
-  return { session, ...(sync ? { sync } : {}) };
+  const adoption = options.adoption;
+  const { session, existing } = await withConfigLock(async () => {
+    const found = await adoption?.findExisting();
+    if (found) return { session: found, existing: true };
+    return {
+      session: await beginUnlocked(
+        summary,
+        dependsOn,
+        autoBranch,
+        createWorktree,
+        harness,
+        sessionId,
+        delivery,
+        adoption,
+      ),
+      existing: false,
+    };
+  });
+  return {
+    session,
+    ...(sync ? { sync } : {}),
+    ...(existing ? { existing } : {}),
+  };
 }
 
 function describePromotion(delivery: SessionDelivery): string {
@@ -474,6 +506,7 @@ async function beginUnlocked(
   harness: Harness,
   sessionId: string,
   delivery: SessionDelivery | undefined,
+  adoption?: BeginAdoption,
 ): Promise<Session> {
   const config = await readConfig();
   assertRepositoryEnabled(config, await repositoryCommonDir(process.cwd()));
@@ -520,7 +553,8 @@ async function beginUnlocked(
   let context = launchContext;
   let managedSourceWorktree = false;
   let branch = context.branch;
-  if (createWorktree && !launchContext.linkedWorktree) {
+  // An adopted branch never reuses the caller's worktree.
+  if (createWorktree && (adoption || !launchContext.linkedWorktree)) {
     await ensureRuntime();
     const worktree = join(
       (await worktreePaths(repository.path)).sourceWorktrees,
@@ -529,12 +563,15 @@ async function beginUnlocked(
     );
     branch = `codex/${sessionId.replaceAll("_", "-")}`;
     const effectiveTarget = targetBranch(repository);
-    const sourceBase = await refCommit(
-      repository.path,
-      `refs/heads/${effectiveTarget}`,
-    );
+    const sourceBase = adoption
+      ? await refCommit(repository.path, adoption.startPoint)
+      : await refCommit(repository.path, `refs/heads/${effectiveTarget}`);
     if (!sourceBase) {
-      throw new Error(`Target branch not found: ${effectiveTarget}`);
+      throw new Error(
+        adoption
+          ? `Adoption start point not found: ${adoption.startPoint}`
+          : `Target branch not found: ${effectiveTarget}`,
+      );
     }
     await mkdir(dirname(worktree), { recursive: true });
     await git(
@@ -627,6 +664,7 @@ async function beginUnlocked(
       coordinator,
       dependsOn: [...new Set(dependsOn)],
       ...(delivery ? { delivery, targetBranch: delivery.targetBranch } : {}),
+      ...(adoption ? { adoption: { ...adoption.record } } : {}),
       gitBaseline: baseline,
     };
     await writeSession(session);
@@ -920,7 +958,7 @@ export async function integrateCommand(
   const validation = selectValidation(
     repository,
     committedPaths,
-    session.sourceValidatedCommit === source.head,
+    session.readyCommit === source.head && sourceValidatedLocally(session),
   );
   recordPerformanceMetric("validationTier", validation.name);
   recordPerformanceMetric("changedPathCount", validation.changedPaths.length);
@@ -1994,8 +2032,7 @@ async function validateCommitAndFinish(
               session.startCommit,
               session.readyCommit,
             )),
-          session.validationTier !== "full" &&
-            session.sourceValidatedCommit === session.readyCommit,
+          session.validationTier !== "full" && sourceValidatedLocally(session),
         );
   const queueBypass = validationQueueBypass(validation);
   const setup = await measurePhase("integration_setup", async () =>
@@ -2165,7 +2202,7 @@ async function tryDirectIntegration(
   integrationWorktree: string,
 ): Promise<boolean> {
   if (!validation.bypassIntegrationWorktree) return false;
-  if (session.sourceValidatedCommit !== session.readyCommit) {
+  if (!sourceValidatedLocally(session)) {
     process.stdout.write(
       "Direct integration bypass skipped: ready commit was not validated by seshx validate.\n",
     );
@@ -2849,7 +2886,7 @@ function formatLaterIntegrations(sessions: SessionIndexEntry[]): string {
     .join("\n");
 }
 
-function findRepository(
+export function findRepository(
   config: Config,
   gitCommonDir: string,
 ): RepositoryConfig {

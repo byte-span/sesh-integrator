@@ -50,11 +50,12 @@ const assets = [
   "package.json",
   "harnesses.json",
   "GLOBAL_AGENTS_SNIPPET.md",
+  "CLOUD_SANDBOX_SNIPPET.md",
 ];
 const buildInputs = [...assets, "src", "tsconfig.json", "tsconfig.build.json"];
 
 export function installationRelevant(path) {
-  return /^(src\/|scripts\/|skill\/|systemd\/|package\.json$|pnpm-lock\.yaml$|tsconfig[^/]*\.json$|harnesses\.json$|GLOBAL_AGENTS_SNIPPET\.md$)/.test(
+  return /^(src\/|scripts\/|skill\/|systemd\/|package\.json$|pnpm-lock\.yaml$|tsconfig[^/]*\.json$|harnesses\.json$|GLOBAL_AGENTS_SNIPPET\.md$|CLOUD_SANDBOX_SNIPPET\.md$)/.test(
     path,
   );
 }

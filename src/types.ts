@@ -71,6 +71,12 @@ export interface RepositoryConfig {
   sourceValidationCommands: ValidationStep[];
   integrationValidationCommands: ValidationStep[];
   validationTiers?: ValidationTier[];
+  /**
+   * Extra path patterns (validation tier `paths` syntax) whose change can
+   * alter validation; `seshx adopt` flags them in `adopt.validationFiles`
+   * beside its built-in patterns.
+   */
+  validationFilePaths?: string[];
   postIntegrationCommands: Command[];
   conflictInstructions: string;
   validationCache?: "off" | "session" | "repository";
@@ -247,6 +253,33 @@ export interface LocalTargetRecovery {
 }
 
 /**
+ * Where an adopted session's work came from: a remote branch written
+ * elsewhere, such as in a cloud sandbox, and brought in by `seshx adopt`.
+ * Validation that ran there is never trusted; the session's own local
+ * `validate` and integration checks decide.
+ */
+export interface SessionAdoption {
+  remote: string;
+  branch: string;
+  /** Remote branch head commit whose net diff was adopted. */
+  headSha: string;
+  /** The pull request adopt was given, when it was given one. */
+  pullRequestUrl?: string;
+  /** Merge base of the head and the target; the session starts here. */
+  baseCommit: string;
+  /** Commits on the branch that were not in the target. */
+  commitCount: number;
+  fetchedAt: string;
+  /** The single local commit carrying the net diff, once created. */
+  adoptedCommit?: string;
+  /**
+   * Net-diff paths that can alter what validation runs, sorted; empty when
+   * none. Flagged only: adoption still validates and integrates.
+   */
+  validationFiles?: string[];
+}
+
+/**
  * Why and when a session was abandoned. Abandoning changes only the session
  * record; branches, worktrees, commits and recovery evidence stay in place.
  */
@@ -301,6 +334,8 @@ export interface Session {
   dependsOn: string[];
   /** Delivery rule recorded by `begin` from a delivery policy; absent without one. */
   delivery?: SessionDelivery;
+  /** Provenance recorded by `seshx adopt`; absent for ordinary sessions. */
+  adoption?: SessionAdoption;
   readyCommit?: string;
   readyAt?: string;
   completionSummary?: string;
