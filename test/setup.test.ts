@@ -1,3 +1,4 @@
+import { harnessHomeEnv } from "./harness-env.js";
 import { execFileSync, spawnSync } from "node:child_process";
 import {
   mkdir,
@@ -28,12 +29,10 @@ async function fixture() {
     .find((path) => existsSync(path));
   if (!gitPath) throw new Error("Git is required for setup capability tests");
   await symlink(gitPath, join(bin, "git"));
-  const env = {
-    ...process.env,
-    HOME: home,
+  const env = harnessHomeEnv(home, {
     PATH: bin,
     SESH_INTEGRATOR_HOME: join(home, "runtime"),
-  };
+  });
   const cli = (args: string[]) =>
     spawnSync(process.execPath, [join(process.cwd(), "dist/cli.js"), ...args], {
       env,

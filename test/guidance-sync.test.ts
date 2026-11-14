@@ -1,3 +1,4 @@
+import { harnessHomeEnv } from "./harness-env.js";
 import { execFileSync } from "node:child_process";
 import {
   mkdir,
@@ -10,6 +11,23 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
+import { readStamp, skillTargets, unstamp } from "../src/skill-contract.mjs";
+
+const bundledSkill = () =>
+  readFile(
+    join(process.cwd(), "skill/sesh-integrator-workflow/SKILL.md"),
+    "utf8",
+  );
+async function expectInstalledSkill(skillDir: string): Promise<void> {
+  // Installed copies are the bundled files plus stamped managed metadata.
+  expect(unstamp(await readFile(join(skillDir, "SKILL.md"), "utf8"))).toBe(
+    await bundledSkill(),
+  );
+  expect(readStamp(skillDir)).toMatchObject({
+    by: "sesh-integrator",
+    command: "seshx",
+  });
+}
 
 it.each([false, true])(
   "syncs only global guidance (runtime configured: %s)",
@@ -108,7 +126,7 @@ it.each([
             "--harness",
             harness!,
           ],
-          { env: { ...process.env, HOME: home }, encoding: "utf8" },
+          { env: harnessHomeEnv(home), encoding: "utf8" },
         );
       install();
       const first = await readFile(instructions, "utf8");
@@ -116,16 +134,13 @@ it.each([
       expect(first).toContain("seshx");
       install();
       expect(await readFile(instructions, "utf8")).toBe(first);
-      expect(
-        await readFile(
-          join(
-            home,
-            harness === "antigravity" ? ".gemini/antigravity-cli" : directory!,
-            "skills/sesh-integrator-workflow/SKILL.md",
-          ),
-          "utf8",
+      await expectInstalledSkill(
+        join(
+          home,
+          harness === "antigravity" ? ".gemini/antigravity-cli" : directory!,
+          "skills/sesh-integrator-workflow",
         ),
-      ).toBe(await readFile("skill/sesh-integrator-workflow/SKILL.md", "utf8"));
+      );
       expect(await readdir(home)).toEqual(
         expect.arrayContaining([directory, ".sesh-integrator"]),
       );
@@ -140,25 +155,24 @@ it("refreshes installed harnesses and refuses customized content without changin
   try {
     const manifest = JSON.parse(await readFile("harnesses.json", "utf8"));
     delete manifest.gemini;
+    const targets = skillTargets({ home, env: {} });
+    const skillFile = (info: { skillTarget: string }) =>
+      join(
+        targets.find((target) => target.id === info.skillTarget)!.dir,
+        "sesh-integrator-workflow/SKILL.md",
+      );
     const install = (...args: string[]) =>
       execFileSync(
         "sh",
         [join(process.cwd(), "scripts/install-skill.sh"), ...args],
-        { env: { ...process.env, HOME: home }, encoding: "utf8" },
+        { env: harnessHomeEnv(home), encoding: "utf8" },
       );
     expect(install("--installed")).toContain("No installed harness");
     expect(await readdir(home)).toEqual([]);
     for (const harness of Object.keys(manifest)) install("--harness", harness);
     install("--installed");
     for (const info of Object.values(manifest) as any[]) {
-      await writeFile(
-        join(
-          home,
-          info.skillDirectory,
-          "skills/sesh-integrator-workflow/SKILL.md",
-        ),
-        "stale",
-      );
+      await writeFile(skillFile(info), "stale");
       await writeFile(
         join(home, info.directory, info.instructions),
         "Personal text\n<!-- codex-handoff:managed:start -->\nStale\n<!-- codex-handoff:managed:end -->\n",
@@ -166,16 +180,7 @@ it("refreshes installed harnesses and refuses customized content without changin
     }
     expect(() => install("--installed")).toThrow();
     for (const info of Object.values(manifest) as any[]) {
-      expect(
-        await readFile(
-          join(
-            home,
-            info.skillDirectory,
-            "skills/sesh-integrator-workflow/SKILL.md",
-          ),
-          "utf8",
-        ),
-      ).toBe("stale");
+      expect(await readFile(skillFile(info), "utf8")).toBe("stale");
       const guidance = await readFile(
         join(home, info.directory, info.instructions),
         "utf8",
@@ -202,21 +207,29 @@ it("installs the canonical skill without refreshing a customized legacy duplicat
     execFileSync(
       process.execPath,
       [join(process.cwd(), "scripts/install-harnesses.mjs")],
-      { env: { ...process.env, HOME: home }, stdio: "pipe" },
+      { env: harnessHomeEnv(home), stdio: "pipe" },
     );
-    expect(
-      await readFile(
-        join(home, ".agents", "skills", "sesh-integrator-workflow", "SKILL.md"),
-        "utf8",
-      ),
-    ).toBe(
-      await readFile(
-        join(process.cwd(), "skill/sesh-integrator-workflow/SKILL.md"),
-        "utf8",
-      ),
+    await expectInstalledSkill(
+      join(home, ".agents", "skills", "sesh-integrator-workflow"),
     );
     expect(await readFile(join(legacy, "SKILL.md"), "utf8")).toBe(
       "Personal legacy content\n",
+    );
+    // The positional custom-folder form installs the same stamped copy, and
+    // never overwrites a folder it did not install.
+    const custom = join(home, "custom", "workflow");
+    const installAt = () =>
+      execFileSync(
+        "sh",
+        [join(process.cwd(), "scripts/install-skill.sh"), custom],
+        { env: harnessHomeEnv(home), stdio: "pipe" },
+      );
+    installAt();
+    await expectInstalledSkill(custom);
+    await writeFile(join(custom, "SKILL.md"), "Hand-made\n");
+    expect(installAt).toThrow();
+    expect(await readFile(join(custom, "SKILL.md"), "utf8")).toBe(
+      "Hand-made\n",
     );
   } finally {
     await rm(home, { recursive: true, force: true });

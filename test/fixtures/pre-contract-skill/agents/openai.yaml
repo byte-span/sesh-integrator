@@ -1,0 +1,7 @@
+interface:
+  display_name: "Sesh Integrator Workflow"
+  short_description: "Record coding sessions and integrate completed commits one-shot"
+  default_prompt: "Use $sesh-integrator-workflow for this code-changing task from session start through one-shot integration."
+
+policy:
+  allow_implicit_invocation: true

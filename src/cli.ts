@@ -7,6 +7,7 @@ import {
 } from "./capabilities.js";
 import { preflightRuntimeCompatibility } from "./coordinator.js";
 import { setupCommand } from "./setup.js";
+import { healWorkflowSkill, skillCommand } from "./skill.js";
 import { parseHarness, type Harness } from "./harness.js";
 import { enablementCommand } from "./enablement.js";
 import { realpathSync } from "node:fs";
@@ -172,6 +173,9 @@ async function dispatch(
       case "setup":
       case "uninstall":
         await setupCommand(args, command === "uninstall");
+        break;
+      case "skill":
+        await skillCommand(args);
         break;
       case "finish": {
         if (
@@ -622,8 +626,12 @@ const helpText = `seshx - one-shot Git integration (sesh-integrator)
 Compatibility commands: sesh-integrator, pintx, parallel-integrator, codex-handoff
 
 Usage:
-  seshx setup [--detected | --harness <name>...] [--yes]
+  seshx setup [--detected | --harness <name>...] [--yes] [--replace-unmanaged] [--replace-edited] [--allow-downgrade]
   seshx uninstall [--harness <name>...] [--yes]
+  seshx skill install [--replace-unmanaged] [--replace-edited] [--allow-downgrade]
+  seshx skill status [--json]
+  seshx skill remove
+  seshx skill path
   seshx installation-check
   seshx installation-readiness
   seshx worktree-location [--directory <absolute-path> | --repo-local]
@@ -665,7 +673,11 @@ Usage:
   seshx benchmark [--runs <n>] [--json] [--check]
 `;
 
+// Commands that manage the skill themselves, or promise to be read-only.
+const noSkillHeal = new Set(["skill", "setup", "uninstall", "doctor"]);
+
 if (isMainModule()) {
+  if (!noSkillHeal.has(process.argv[2] ?? "")) healWorkflowSkill();
   main().catch((error: unknown) => {
     process.stderr.write(
       `seshx: ${error instanceof Error ? error.message : String(error)}\n`,

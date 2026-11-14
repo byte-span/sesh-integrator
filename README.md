@@ -101,6 +101,28 @@ seshx setup
 Versioned packages are available from [GitHub Releases](https://github.com/byte-span/sesh-integrator/releases)
 once published. Maintainers can [publish a release with one workflow run](docs/releases.md).
 
+### The workflow skill
+
+`seshx setup` installs the `sesh-integrator-workflow` skill into every detected
+harness skill directory, such as `~/.agents/skills` and `~/.claude/skills`
+([full list](docs/harnesses.md#skill-directories)). Manage it directly:
+
+```bash
+seshx skill status [--json]  # each directory: harnesses, state, installed version
+seshx skill install          # install or update it everywhere
+seshx skill remove           # remove the copies seshx installed
+seshx skill path             # print the bundled skill folder
+```
+
+Other `seshx` commands quietly update copies that an older seshx installed.
+They never add a copy you removed or downgrade a newer one. Set
+`AGENT_SKILL_HEAL=0` to turn this off.
+
+`install` leaves copies you edited or seshx did not install. To replace them,
+add `--replace-edited` or `--replace-unmanaged`; the old copy first moves to
+`skill-backups/` in the runtime directory (`~/.sesh-integrator` by default). Add `--allow-downgrade` to replace a
+newer copy.
+
 ### Connect a repository
 
 From the project you want agents to work on:

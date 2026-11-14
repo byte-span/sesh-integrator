@@ -561,6 +561,18 @@
         "docs/configuration.md",
         "SPEC.md"
       ]
+    },
+    {
+      "id": "SI-031",
+      "title": "Roll out the contract-managed workflow skill to every machine",
+      "status": "ready",
+      "order": 310,
+      "blocked_by": [],
+      "acceptance": "After the session adopting agent skill install contract v1 (seshx skill install|status|remove|path and heal on normal runs) reaches main, the separate machine migration installs that seshx on every machine that has seshx. On each machine: seshx skill path prints the bundled skill folder; seshx skill status shows every detected harness skill directory as current at the installed version (pre-contract copies are adopted by the first normal seshx run or by seshx skill install); and seshx doctor --installed reports no Workflow skill failure. Copies reported unmanaged, edited or other-owner are listed for an owner decision and never replaced without --replace-unmanaged or --replace-edited. The per-machine migration result is recorded as evidence.",
+      "executor": "automated",
+      "device_requirement": ["every machine with seshx installed"],
+      "doc": "docs/harnesses.md#skill-directories",
+      "evidence": []
     }
   ]
 }

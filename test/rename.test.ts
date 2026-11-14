@@ -1,3 +1,4 @@
+import { harnessHomeEnv } from "./harness-env.js";
 import { execFileSync } from "node:child_process";
 import {
   cp,
@@ -180,11 +181,11 @@ it("keeps a pinned coordinator working after source rebuilds and later installs"
       "sh",
       [join(snapshot, "scripts/install-machine-safeguards.sh"), "--repo", repo],
       {
-        env: {
-          ...env,
-          HOME: join(root, "home"),
+        env: harnessHomeEnv(join(root, "home"), {
+          SESH_INTEGRATOR_BIN_DIR: bin,
+          SESH_INTEGRATOR_RELEASE_DIR: join(root, "releases"),
           PATH: `${bin}:${process.env.PATH}`,
-        },
+        }),
       },
     );
     expect(await realpath(join(repo, ".git/hooks/post-merge"))).toBe(
@@ -199,11 +200,11 @@ it("keeps a pinned coordinator working after source rebuilds and later installs"
       ).toContain("seshx - one-shot Git integration");
       expect(
         execFileSync("node", [cli, "setup", "--harness", "codex", "--yes"], {
-          env: {
-            ...env,
-            HOME: join(root, "home"),
+          env: harnessHomeEnv(join(root, "home"), {
+            SESH_INTEGRATOR_BIN_DIR: bin,
+            SESH_INTEGRATOR_RELEASE_DIR: join(root, "releases"),
             SESH_INTEGRATOR_HOME: join(root, "runtime"),
-          },
+          }),
           encoding: "utf8",
         }),
       ).toContain("codex");

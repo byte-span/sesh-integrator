@@ -1,3 +1,4 @@
+import { harnessHomeEnv } from "./harness-env.js";
 import { harnesses } from "../src/harness.js";
 import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -55,7 +56,7 @@ describe.sequential("sesh-integrator repository workflow", () => {
       execFileSync(
         "sh",
         [join(process.cwd(), "scripts/install-skill.sh"), "--harness", harness],
-        { env: { ...process.env, HOME: home } },
+        { env: harnessHomeEnv(home) },
       );
       const bin = join(fixture.root, "bin");
       await mkdir(bin);
@@ -4053,34 +4054,13 @@ process.stdout.write(JSON.stringify({status:"SUCCESS",response:"resolved",text:"
         [process.execPath, "--version"],
       ];
     });
-    const skillRoot = join(
-      fixture.auditHome,
-      ".agents",
-      "skills",
-      "sesh-integrator-workflow",
-    );
-    await mkdir(join(skillRoot, "agents"), { recursive: true });
-    await writeFile(
-      join(skillRoot, "SKILL.md"),
-      await readFile(
-        join(process.cwd(), "skill", "sesh-integrator-workflow", "SKILL.md"),
-        "utf8",
-      ),
-    );
-    await writeFile(
-      join(skillRoot, "agents", "openai.yaml"),
-      await readFile(
-        join(
-          process.cwd(),
-          "skill",
-          "sesh-integrator-workflow",
-          "agents",
-          "openai.yaml",
-        ),
-        "utf8",
-      ),
-    );
     await mkdir(join(fixture.auditHome, ".codex"), { recursive: true });
+    execFileSync(process.execPath, [cli, "skill", "install"], {
+      env: harnessHomeEnv(fixture.auditHome, {
+        SESH_INTEGRATOR_HOME: fixture.runtime,
+      }),
+      stdio: "pipe",
+    });
     await writeFile(
       join(fixture.auditHome, ".codex", "AGENTS.md"),
       managedBlock(
