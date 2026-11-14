@@ -313,6 +313,10 @@ Before saying the task is complete:
    - do not commit in the integration worktree
    - run `seshx resume` from the original source worktree
    - continue autonomously unless the conflict is genuinely ambiguous or validation fails
+   - if another successful session already delivered the same work (for
+     example a re-land), do not resume: confirm it delivered everything, then
+     run `seshx abandon --session <session-id> --superseded-by <that-session-id>`
+     and keep any follow-up the output lists as tracked elsewhere
 9. If a clean merge was preserved after validation or commit creation failed,
    run `seshx resume` from the original source worktree. The CLI must
    verify that its exact staged merge tree is unchanged before retrying.

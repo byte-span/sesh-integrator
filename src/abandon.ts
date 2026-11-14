@@ -5,6 +5,7 @@ import {
   terminalStatuses,
   unfinished,
 } from "./coordinator.js";
+import { run } from "./process.js";
 import {
   abandonSessionRecord,
   readSession,
@@ -26,13 +27,22 @@ import {
   type AuditedSession,
   type SessionAudit,
 } from "./session-audit.js";
-import type { Session, SessionAbandonment } from "./types.js";
+import type { Session, SessionAbandonment, SessionStatus } from "./types.js";
 
 /**
  * Abandoning closes a session record without touching Git: its branch,
  * worktree, commits and recovery evidence stay where they are, and
- * `seshx restore` returns it to `active`.
+ * `seshx restore` returns it to the status it was abandoned from. Only
+ * `active` sessions are abandoned, except that `--superseded-by` also closes
+ * a recovery session whose work another promoted session delivered.
  */
+
+/** Statuses `--superseded-by` accepts. */
+export const SUPERSEDABLE_STATUSES: readonly SessionStatus[] = [
+  "active",
+  "needs_review",
+  "validation_pending",
+];
 
 export const ABANDON_REASON_MAX_LENGTH = 500;
 
@@ -66,6 +76,14 @@ export interface AbandonOptions {
    * when the session changed since. Computed here when omitted.
    */
   preview?: AbandonPreview;
+  /**
+   * A successfully promoted session in the same repository that delivered
+   * this session's work, for example by re-landing it. Its promoted commit
+   * must be on the target. Allows `needs_review` and `validation_pending`
+   * sessions and unintegrated commits; uncommitted work still needs
+   * `includeUnsaved`.
+   */
+  supersededBy?: string;
 }
 
 export interface AbandonResult {
@@ -130,7 +148,7 @@ export function abandonRefusal(
   if (terminalStatuses.includes(session.status))
     return `it is already finished (${session.status})`;
   if (session.status !== "active")
-    return `its status is ${session.status}; finish or resume its lifecycle with its pinned coordinator instead`;
+    return `its status is ${session.status}; finish or resume its lifecycle with its pinned coordinator instead${SUPERSEDABLE_STATUSES.includes(session.status) ? ", or, if another promoted session already delivered its work, close it with --superseded-by <session-id>" : ""}`;
   const state = recordedLifecycleState(session);
   if (state.length)
     return `it has integration or recovery state (${state.join("; ")}); finish or resume its lifecycle instead`;
@@ -141,6 +159,112 @@ export function abandonRefusal(
   if (!includeUnsaved && incompleteInspection(audit))
     return `its state could not be fully inspected, so unsaved work cannot be ruled out (${audit.evidence.join("; ")}). To abandon anyway, rerun with --include-unsaved`;
   return undefined;
+}
+
+/**
+ * Why a session must not be closed as superseded, or undefined when it may
+ * be. Recovery statuses and unintegrated commits are accepted because the
+ * superseding session delivered that work. Anything later integrations may
+ * build on (a staging or promoted commit, a recovery phase, local target
+ * recovery) or that shows the session in use is refused.
+ */
+export function supersededRefusal(
+  session: Session,
+  audit: SessionAudit,
+  includeUnsaved = false,
+): string | undefined {
+  if (session.status === "abandoned")
+    return `it was already abandoned at ${session.abandonment?.abandonedAt ?? "an unknown time"}`;
+  if (terminalStatuses.includes(session.status))
+    return `it is already finished (${session.status})`;
+  if (!SUPERSEDABLE_STATUSES.includes(session.status))
+    return `its status is ${session.status}; only ${SUPERSEDABLE_STATUSES.join(", ")} sessions can be closed as superseded. Finish or resume its lifecycle with its pinned coordinator instead`;
+  const blocking: string[] = [];
+  if (session.integratedCommit)
+    blocking.push(`staging commit ${session.integratedCommit}`);
+  if (session.promotedCommit)
+    blocking.push(`promoted commit ${session.promotedCommit}`);
+  if (session.recoveryPhase)
+    blocking.push(`recovery phase ${session.recoveryPhase}`);
+  if (session.localTargetRecovery) blocking.push("local target recovery");
+  if (blocking.length)
+    return `it has staging or promotion state (${blocking.join("; ")}); finish or resume its lifecycle with its pinned coordinator instead`;
+  if (session.waitingForLock)
+    return "it is recorded as waiting for the repository lock; an integration may still be running";
+  if (audit.facts.holdsRepositoryLock)
+    return "it holds the repository lock; an integration may still be running";
+  if (audit.facts.recordLockPresent)
+    return "its session record lock is present; another command may be using it";
+  if (!includeUnsaved && audit.facts.uncommittedPaths?.length)
+    return `its worktree has ${audit.facts.uncommittedPaths.length} uncommitted path(s) (${audit.facts.uncommittedPaths.slice(0, 5).join(", ")}) that the superseding session did not deliver. Review them; to close it anyway, rerun with --include-unsaved. They stay in the worktree either way`;
+  if (!includeUnsaved && incompleteInspection(audit))
+    return `its state could not be fully inspected, so unsaved work cannot be ruled out (${audit.evidence.join("; ")}). To close it anyway, rerun with --include-unsaved`;
+  return undefined;
+}
+
+type SupersedingCheck =
+  | { refusal: string }
+  | { superseding: NonNullable<SessionAbandonment["supersededBy"]> };
+
+/**
+ * Verify that `supersedingId` is a successfully promoted session in the same
+ * repository and target whose promoted commit is reachable from the target
+ * head observed by `audit`.
+ */
+export async function checkSuperseding(
+  session: Session,
+  audit: SessionAudit,
+  supersedingId: string,
+): Promise<SupersedingCheck> {
+  if (supersedingId === session.id)
+    return { refusal: "a session cannot supersede itself" };
+  const other = await readSession(supersedingId);
+  if (!other)
+    return { refusal: `superseding session ${supersedingId} does not exist` };
+  if (other.repositoryId !== session.repositoryId)
+    return {
+      refusal: `superseding session ${supersedingId} belongs to a different repository (${other.repositoryPath})`,
+    };
+  if (other.status !== "succeeded" || !other.promotedCommit)
+    return {
+      refusal: `superseding session ${supersedingId} is ${other.status}${other.promotedCommit ? "" : " without a promoted commit"}; name a successfully promoted session`,
+    };
+  const target = session.targetBranch ?? audit.facts.targetBranch;
+  if (!target)
+    return {
+      refusal:
+        "this session's target branch is unknown, so the superseding promotion cannot be verified",
+    };
+  if (other.targetBranch !== target)
+    return {
+      refusal: `superseding session ${supersedingId} was promoted to ${other.targetBranch ?? "an unknown branch"}, not this session's target ${target}`,
+    };
+  const targetHead = audit.facts.targetHead;
+  if (!targetHead)
+    return {
+      refusal: `target ${target} could not be read, so the superseding promotion cannot be verified`,
+    };
+  const reachable = await run(
+    "git",
+    ["merge-base", "--is-ancestor", other.promotedCommit, targetHead],
+    { cwd: session.repositoryPath },
+  );
+  if (reachable.code === 1)
+    return {
+      refusal: `superseding session ${supersedingId}'s promoted commit ${other.promotedCommit} is not reachable from target ${target} (${targetHead})`,
+    };
+  if (reachable.code !== 0)
+    return {
+      refusal: `could not verify superseding session ${supersedingId}'s promoted commit on target ${target}: ${(reachable.stderr || reachable.stdout).trim()}`,
+    };
+  return {
+    superseding: {
+      sessionId: other.id,
+      promotedCommit: other.promotedCommit,
+      targetBranch: target,
+      targetHead,
+    },
+  };
 }
 
 /**
@@ -200,43 +324,67 @@ export async function abandonSession(
       `Refusing to abandon ${sessionId}: ${why}. Nothing was changed.`,
       audit,
     );
-  const initial = abandonRefusal(
-    preview.session,
-    preview.audit,
-    includeUnsaved,
-  );
+  const supersededBy = options.supersededBy;
+  const refusalFor = (session: Session, audit: SessionAudit) =>
+    supersededBy
+      ? supersededRefusal(session, audit, includeUnsaved)
+      : abandonRefusal(session, audit, includeUnsaved);
+  const initial = refusalFor(preview.session, preview.audit);
   if (initial) throw refuse(initial, preview.audit);
+  if (supersededBy) {
+    const check = await checkSuperseding(
+      preview.session,
+      preview.audit,
+      supersededBy,
+    );
+    if ("refusal" in check) throw refuse(check.refusal, preview.audit);
+  }
 
   let recheck: SessionAudit | undefined;
-  const session = await abandonSessionRecord(sessionId, async (latest) => {
-    assertCompatible(latest);
-    // Fresh lock observations; this command holds the record lock itself.
-    recheck = await classifySession(latest, {
-      ...context,
-      now: new Date(),
-      repositoryLockCache: new Map(),
-      heldRecordLocks: new Set([sessionId]),
-    });
-    const refusal = abandonRefusal(latest, recheck, includeUnsaved);
-    if (refusal) throw refuse(refusal, recheck);
-    if (
-      auditFingerprint(preview.session, preview.audit) !==
-      auditFingerprint(latest, recheck)
-    )
-      throw refuse(
-        "it changed after it was inspected; review the new audit and retry",
-        recheck,
-      );
-    const abandonment: SessionAbandonment = {
-      abandonedAt: new Date().toISOString(),
-      reason,
-      previousStatus: latest.status,
-      bucket: recheck.bucket,
-      evidence: [...recheck.evidence],
-      ...(needsIncludeUnsaved(recheck) ? { includedUnsaved: true } : {}),
-    };
-    return abandonment;
-  });
+  const session = await abandonSessionRecord(
+    sessionId,
+    async (latest) => {
+      assertCompatible(latest);
+      // Fresh lock observations; this command holds the record lock itself.
+      recheck = await classifySession(latest, {
+        ...context,
+        now: new Date(),
+        repositoryLockCache: new Map(),
+        heldRecordLocks: new Set([sessionId]),
+      });
+      const refusal = refusalFor(latest, recheck);
+      if (refusal) throw refuse(refusal, recheck);
+      if (
+        auditFingerprint(preview.session, preview.audit) !==
+        auditFingerprint(latest, recheck)
+      )
+        throw refuse(
+          "it changed after it was inspected; review the new audit and retry",
+          recheck,
+        );
+      let superseding: SessionAbandonment["supersededBy"];
+      if (supersededBy) {
+        const check = await checkSuperseding(latest, recheck, supersededBy);
+        if ("refusal" in check) throw refuse(check.refusal, recheck);
+        superseding = check.superseding;
+      }
+      const includedUnsaved = supersededBy
+        ? !!recheck.facts.uncommittedPaths?.length ||
+          incompleteInspection(recheck)
+        : needsIncludeUnsaved(recheck);
+      const abandonment: SessionAbandonment = {
+        abandonedAt: new Date().toISOString(),
+        reason,
+        previousStatus: latest.status,
+        bucket: recheck.bucket,
+        evidence: [...recheck.evidence],
+        ...(includedUnsaved ? { includedUnsaved: true } : {}),
+        ...(superseding ? { supersededBy: superseding } : {}),
+      };
+      return abandonment;
+    },
+    supersededBy ? SUPERSEDABLE_STATUSES : ["active"],
+  );
   return { session, audit: recheck! };
 }
 
@@ -516,6 +664,7 @@ async function pathExists(path: string): Promise<boolean> {
 
 const abandonUsage = [
   'Usage: seshx abandon --session <session-id> --reason "..." [--include-unsaved]',
+  '       seshx abandon --session <session-id> --superseded-by <session-id> [--reason "..."] [--include-unsaved]',
   '       seshx abandon --all [--repo <path>] [--idle-days <n>] [--bucket <list>] [--include-unsaved] [--apply --reason "..."]',
 ].join("\n");
 const restoreUsage = "Usage: seshx restore --session <session-id>";
@@ -535,6 +684,7 @@ interface AbandonArguments {
   repo?: string;
   idleDays?: number;
   buckets?: string[];
+  supersededBy?: string;
 }
 
 function parseAbandonArguments(args: string[]): AbandonArguments {
@@ -573,12 +723,24 @@ function parseAbandonArguments(args: string[]): AbandonArguments {
       if (!hasValue) throw new Error(abandonUsage);
       parsed.buckets = value.split(",").map((bucket) => bucket.trim());
       index += 1;
+    } else if (
+      argument === "--superseded-by" &&
+      parsed.supersededBy === undefined
+    ) {
+      parsed.supersededBy = sessionIdOption(value, abandonUsage);
+      index += 1;
     } else throw new Error(abandonUsage);
   }
   if (parsed.all && parsed.sessionId !== undefined)
     throw new Error(
       `Use either --session <session-id> or --all, not both\n${abandonUsage}`,
     );
+  if (parsed.all && parsed.supersededBy !== undefined)
+    throw new Error(
+      `--superseded-by closes one session; use it with --session <session-id>, not --all\n${abandonUsage}`,
+    );
+  if (parsed.supersededBy !== undefined && parsed.reason === undefined)
+    parsed.reason = `Superseded by ${parsed.supersededBy}`;
   if (
     !parsed.all &&
     (parsed.apply ||
@@ -632,6 +794,7 @@ export async function abandonCommand(args: string[]): Promise<void> {
       includeUnsaved,
       context,
       preview: { session, audit },
+      ...(parsed.supersededBy ? { supersededBy: parsed.supersededBy } : {}),
     });
   } catch (error) {
     if (error instanceof AbandonRefusal && error.audit && error.audit !== audit)
@@ -645,14 +808,53 @@ export async function abandonCommand(args: string[]): Promise<void> {
     throw error;
   }
   const saved = result.session;
+  const abandonment = saved.abandonment!;
   process.stdout.write(
     terminalLines([
-      `Abandoned ${saved.id} at ${saved.abandonment!.abandonedAt} (was ${saved.abandonment!.previousStatus}, bucket ${saved.abandonment!.bucket}).`,
-      `  reason: ${saved.abandonment!.reason}`,
+      `Abandoned ${saved.id} at ${abandonment.abandonedAt} (was ${abandonment.previousStatus}, bucket ${abandonment.bucket}).`,
+      `  reason: ${abandonment.reason}`,
+      ...(abandonment.supersededBy
+        ? await supersededLines(saved, abandonment.supersededBy)
+        : []),
       `  preserved: branch ${saved.branch}, worktree ${saved.worktreePath}, commits and recovery evidence. No Git, worktree or file changes were made.`,
-      `  restore: seshx restore --session ${saved.id}`,
+      `  restore: seshx restore --session ${saved.id}${abandonment.previousStatus === "active" ? "" : ` (returns it to ${abandonment.previousStatus})`}`,
     ]),
   );
+}
+
+/** What a superseded close verified, kept, and no longer reports. */
+async function supersededLines(
+  session: Session,
+  superseding: NonNullable<SessionAbandonment["supersededBy"]>,
+): Promise<string[]> {
+  const lines = [
+    `  superseded by: ${superseding.sessionId} (promoted ${superseding.promotedCommit}, reachable from ${superseding.targetBranch} at ${superseding.targetHead})`,
+  ];
+  if (session.recoveryBundle)
+    lines.push(
+      `  recovery bundle kept: ${session.recoveryBundle.path} (${session.recoveryBundle.state})`,
+    );
+  if (session.integrationWorktreePath)
+    lines.push(
+      `  integration worktree kept: ${session.integrationWorktreePath}`,
+    );
+  const followUps = session.rolloutFollowUps ?? [];
+  if (followUps.length) {
+    const other = await readSession(superseding.sessionId).catch(
+      () => undefined,
+    );
+    const theirs = new Set(other?.rolloutFollowUps ?? []);
+    const missing = followUps.filter((item) => !theirs.has(item));
+    lines.push(
+      `  rollout follow-ups: this session's ${followUps.length} are no longer reported; ${superseding.sessionId} records ${theirs.size}.`,
+    );
+    if (missing.length)
+      lines.push(
+        `  Check that ${superseding.sessionId} or the repository's task tracking covers each of these, which it does not record verbatim:`,
+        ...missing.map((item) => `    - ${item}`),
+      );
+  }
+  return lines;
 }
 
 async function batchAbandonCommand(parsed: AbandonArguments): Promise<void> {
@@ -799,6 +1001,11 @@ export async function restoreCommand(args: string[]): Promise<void> {
             `  coordinator: ${session.coordinator.cliPath} (use it for this session's lifecycle commands)`,
           ]
         : []),
+      ...(session.status === "active"
+        ? []
+        : [
+            `  recovery: its preserved integration is unchanged; continue it with seshx resume --session ${session.id}`,
+          ]),
       `Continue task in: ${session.worktreePath}`,
     ]),
   );

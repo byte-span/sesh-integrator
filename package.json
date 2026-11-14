@@ -1,6 +1,6 @@
 {
   "name": "sesh-integrator",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "One-shot Git integration for parallel Codex worktrees",
   "type": "module",
   "bin": {
