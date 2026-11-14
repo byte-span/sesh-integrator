@@ -410,12 +410,22 @@ export async function reconstructRecoveryWorktree(
       ["rev-parse", `${snapshot.object}^{tree}`],
       repository.path,
     );
-    await git(["read-tree", expected], path);
-    await git(["checkout-index", "-a", "-f"], path);
+    // Replace the checked-out staging tree with the snapshot in both the index
+    // and the working tree, so paths the merge deleted are removed from disk.
+    await git(["read-tree", "--reset", "-u", expected], path);
     const actual = await git(["write-tree"], path);
     if (actual !== expected)
       throw new Error(
         `Recovery tree hash mismatch: expected ${expected}, found ${actual}`,
+      );
+    const unstaged = await run("git", ["diff", "--quiet"], { cwd: path });
+    const untracked = await git(
+      ["ls-files", "--others", "--exclude-standard"],
+      path,
+    );
+    if (unstaged.code !== 0 || untracked.trim())
+      throw new Error(
+        `Recovery working tree does not match snapshot ${expected}; preserved ${path}`,
       );
     const gitDir = await git(["rev-parse", "--git-dir"], path);
     const absoluteGitDir = resolveGitDir(path, gitDir);
