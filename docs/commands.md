@@ -1240,8 +1240,11 @@ seshx skill path
 `status` prints one line per directory: target, harnesses, state, installed
 version and path; `--json` prints the same rows as an array. `install` installs
 missing copies and updates `legacy` and `stale` ones; it exits nonzero when a
-copy stays `unmanaged`, `edited` or managed by another tool. `remove` removes
-only `current`, `stale` and `legacy` copies. `path` prints only the bundled
+copy stays `unmanaged`, `edited` or managed by another tool, or when a
+directory fails (`error`, with the message), including when another process
+held its skill lock for 10 seconds. `remove` removes only `current`, `stale`
+and `legacy` copies, and `status` and `remove` also exit nonzero on a failed
+directory. `path` prints only the bundled
 source folder, for tools that compare against it.
 
 Every other command except `setup`, `uninstall` and `doctor` heals first: it

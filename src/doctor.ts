@@ -710,7 +710,7 @@ function skillChecks(home: string, harness: Harness): Check[] {
   const summary = rows
     .map(
       (row) =>
-        `${row.target} ${row.state}${row.installedVersion ? ` ${row.installedVersion}` : ""}`,
+        `${row.target} ${row.state}${row.installedVersion ? ` ${row.installedVersion}` : ""}${row.error ? ` (${row.error})` : ""}`,
     )
     .join(", ");
   const label = `Skill contract (${CONTRACT}, harness list ${HARNESS_LIST_VERSION})`;
@@ -766,6 +766,16 @@ function workflowSkillCheck(
       return fail(
         "Workflow skill",
         `${row.dest} is managed by ${row.owner ?? "another tool"}`,
+      );
+    case "busy":
+      return warn(
+        "Workflow skill",
+        `${row.dest} is being updated by another process; run seshx doctor again`,
+      );
+    case "error":
+      return fail(
+        "Workflow skill",
+        `${row.dest}: ${row.error ?? "unexpected failure"}`,
       );
   }
 }

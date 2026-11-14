@@ -5,13 +5,13 @@
 // each tool must work alone. Keep copies identical; change behavior only by
 // publishing a new contract version and updating every copy.
 //
-// Contract: agent-skill-contract/1 (see SPEC.md shipped alongside this file).
+// Contract: agent-skill-contract/1.1 (see SPEC.md shipped alongside this file).
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-export const CONTRACT = 'agent-skill-contract/1';
+export const CONTRACT = 'agent-skill-contract/1.1';
 export const HARNESS_LIST_VERSION = '2026-11-13';
 export const MANAGED_KEYS = ['managed-by', 'managed-version', 'managed-command', 'managed-hash'];
 
@@ -177,14 +177,77 @@ function safeHash(dir) {
   try { return hashSkill(dir); } catch { return null; }
 }
 
+
+// --- Locking --------------------------------------------------------------------
+
+// Per-skill lock: a `.<name>.lock` folder next to the copies. It holds no
+// SKILL.md, so harnesses ignore it. mkdir is atomic. A lock whose process is
+// gone, or that is older than LOCK_STALE_MS, is broken.
+const LOCK_STALE_MS = 60_000;
+const INSTALL_WAIT_MS = 10_000;
+const sleepCell = new Int32Array(new SharedArrayBuffer(4));
+const sleep = (ms) => Atomics.wait(sleepCell, 0, 0, ms);
+
+function processAlive(pid) {
+  try { process.kill(pid, 0); return true; } catch (error) { return error.code === 'EPERM'; }
+}
+
+function lockIsStale(lock) {
+  let stat;
+  try { stat = fs.statSync(lock); } catch { return false; }
+  if (Date.now() - stat.mtimeMs > LOCK_STALE_MS) return true;
+  let pid;
+  try { pid = Number(fs.readFileSync(path.join(lock, 'pid'), 'utf8')); } catch { return false; }
+  return Number.isInteger(pid) && pid > 0 && !processAlive(pid);
+}
+
+// Runs fn while holding the lock. Returns { value } or { busy: true } when
+// the lock stayed held for waitMs.
+function withLock(targetDir, name, waitMs, fn) {
+  fs.mkdirSync(targetDir, { recursive: true });
+  const lock = path.join(targetDir, `.${name}.lock`);
+  const deadline = Date.now() + waitMs;
+  for (;;) {
+    try {
+      fs.mkdirSync(lock);
+      fs.writeFileSync(path.join(lock, 'pid'), String(process.pid));
+      break;
+    } catch (error) {
+      if (error.code !== 'EEXIST') throw error;
+      if (lockIsStale(lock)) { fs.rmSync(lock, { recursive: true, force: true }); continue; }
+      if (Date.now() >= deadline) return { busy: true };
+      sleep(50);
+    }
+  }
+  try { return { value: fn() }; } finally { fs.rmSync(lock, { recursive: true, force: true }); }
+}
+
+function busyError(targetDir, name) {
+  return new Error(`Another process is updating ${name} in ${targetDir}. Try again in a moment.`);
+}
+
 // --- Install / remove -----------------------------------------------------------
 
-// Copy a bundled skill folder into targetDir/<name>, stamped with managed
-// metadata. Callers must only replace an existing copy whose state is
-// stale or legacy. The swap uses sibling temp folders, then renames.
-export function installSkill({ source, name, targetDir, owner, version, command }) {
+// Remove temp folders left by an install that crashed, so a harness never
+// sees a stray copy. Skips folders whose process is still alive.
+function sweepLeftovers(targetDir, name) {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(`^\\.${escaped}\\.(installing|replaced)-(\\d+)$`);
+  let entries = [];
+  try { entries = fs.readdirSync(targetDir); } catch { return; }
+  for (const entry of entries) {
+    const match = pattern.exec(entry);
+    if (!match) continue;
+    const pid = Number(match[2]);
+    if (pid !== process.pid && processAlive(pid)) continue;
+    fs.rmSync(path.join(targetDir, entry), { recursive: true, force: true });
+  }
+}
+
+// Caller holds the lock and has checked the state allows replacing.
+function installUnlocked({ source, name, targetDir, owner, version, command }) {
   const hash = hashSkill(source);
-  fs.mkdirSync(targetDir, { recursive: true });
+  sweepLeftovers(targetDir, name);
   const dest = path.join(targetDir, name);
   const temp = path.join(targetDir, `.${name}.installing-${process.pid}`);
   const old = path.join(targetDir, `.${name}.replaced-${process.pid}`);
@@ -204,18 +267,54 @@ export function installSkill({ source, name, targetDir, owner, version, command 
   } catch (error) {
     fs.rmSync(temp, { recursive: true, force: true });
     if (!fs.existsSync(dest) && fs.existsSync(old)) fs.renameSync(old, dest);
+    else fs.rmSync(old, { recursive: true, force: true });
     throw error;
   }
   return { dest, hash };
 }
 
+// Copy a bundled skill folder into targetDir/<name>, stamped with managed
+// metadata. Callers must only replace an existing copy whose state is stale
+// or legacy (or after an explicit replace flag and backup). Waits for the
+// per-skill lock, so concurrent installs never collide.
+export function installSkill(options) {
+  const result = withLock(options.targetDir, options.name, INSTALL_WAIT_MS, () => installUnlocked(options));
+  if (result.busy) throw busyError(options.targetDir, options.name);
+  return result.value;
+}
+
+// Back up whatever copy exists (any state) to backupDir, then install. Use
+// only after an explicit user flag (--replace-unmanaged, --replace-edited,
+// --allow-downgrade). backupDir must be outside every skills directory and
+// must not exist yet.
+export function replaceSkill({ backupDir, ...options }) {
+  const dest = path.join(options.targetDir, options.name);
+  const result = withLock(options.targetDir, options.name, INSTALL_WAIT_MS, () => {
+    let backup = null;
+    if (fs.existsSync(dest)) {
+      if (fs.existsSync(backupDir)) throw new Error(`Backup folder already exists: ${backupDir}`);
+      fs.mkdirSync(path.dirname(backupDir), { recursive: true });
+      fs.cpSync(dest, backupDir, { recursive: true, errorOnExist: true, force: false });
+      backup = backupDir;
+    }
+    return { ...installUnlocked(options), backup };
+  });
+  if (result.busy) throw busyError(options.targetDir, options.name);
+  return result.value;
+}
+
 // Remove an owned copy. Refuses anything not current, stale or legacy.
 export function removeSkill({ name, targetDir, owner, bundledHash, legacyHashes }) {
   const dest = path.join(targetDir, name);
-  const state = classify(dest, { owner, bundledHash, legacyHashes });
-  if (!['current', 'stale', 'legacy'].includes(state)) return { dest, state, removed: false };
-  fs.rmSync(dest, { recursive: true, force: true });
-  return { dest, state, removed: true };
+  if (!fs.existsSync(dest)) return { dest, state: 'missing', removed: false };
+  const result = withLock(targetDir, name, INSTALL_WAIT_MS, () => {
+    const state = classify(dest, { owner, bundledHash, legacyHashes });
+    if (!['current', 'stale', 'legacy'].includes(state)) return { dest, state, removed: false };
+    fs.rmSync(dest, { recursive: true, force: true });
+    return { dest, state, removed: true };
+  });
+  if (result.busy) throw busyError(targetDir, name);
+  return result.value;
 }
 
 // Compare dotted versions ("1.10.0" > "1.9.2"). Numeric segments compare as
@@ -234,6 +333,16 @@ export function compareVersions(a, b) {
   return 0;
 }
 
+function decide(dest, { owner, bundledHash, legacyHashes, version, mode, allowDowngrade }) {
+  const state = classify(dest, { owner, bundledHash, legacyHashes });
+  const installedVersion = state === 'stale' ? readStamp(dest).version : undefined;
+  const order = state === 'stale' ? compareVersions(version, installedVersion) : 0;
+  let update = state === 'legacy';
+  if (state === 'missing') update = mode === 'install';
+  if (state === 'stale') update = mode === 'heal' ? order > 0 : order >= 0 || allowDowngrade;
+  return { state, installedVersion, update: mode !== 'status' && update };
+}
+
 // One pass over active targets.
 //   mode "install": install where missing; update legacy, and stale copies
 //                   whose installed version is not newer than this one
@@ -241,26 +350,33 @@ export function compareVersions(a, b) {
 //   mode "heal":    update legacy, and stale copies with an older installed
 //                   version only. Never adds a missing copy (respects
 //                   deliberate removal) and never downgrades, so two installed
-//                   versions of a tool cannot flip-flop. Use on normal CLI runs.
+//                   versions of a tool cannot flip-flop. Never waits: if
+//                   another process holds the lock, the row is "busy".
+//                   Use on normal CLI runs; it takes no lock when nothing
+//                   needs updating.
 //   mode "status":  change nothing.
-// Never touches unmanaged, other-owner or edited copies.
+// Never touches unmanaged, other-owner or edited copies. Never throws for a
+// single target; failures are reported in the row's `error`.
 export function syncSkill({ source, name, owner, version, command, legacyHashes = [], mode = 'status', allowDowngrade = false, home, env }) {
   const bundledHash = hashSkill(source);
+  const policy = { owner, bundledHash, legacyHashes, version, mode, allowDowngrade };
   return activeTargets({ home, env }).map((target) => {
     const dest = path.join(target.dir, name);
-    const state = classify(dest, { owner, bundledHash, legacyHashes });
-    const installedVersion = state === 'stale' ? readStamp(dest).version : undefined;
-    const order = state === 'stale' ? compareVersions(version, installedVersion) : 0;
-    let update = state === 'legacy';
-    if (state === 'missing') update = mode === 'install';
-    if (state === 'stale') update = mode === 'heal' ? order > 0 : order >= 0 || allowDowngrade;
-    const row = { target: target.id, harnesses: target.harnesses, dest, state, installedVersion, changed: false };
-    if (mode === 'status' || !update) return row;
+    const base = { target: target.id, harnesses: target.harnesses, dest, changed: false };
     try {
-      installSkill({ source, name, targetDir: target.dir, owner, version, command });
-      return { ...row, changed: true };
+      const first = decide(dest, policy);
+      if (!first.update) return { ...base, state: first.state, installedVersion: first.installedVersion };
+      const result = withLock(target.dir, name, mode === 'heal' ? 0 : INSTALL_WAIT_MS, () => {
+        const again = decide(dest, policy);
+        const row = { ...base, state: again.state, installedVersion: again.installedVersion };
+        if (!again.update) return row;
+        installUnlocked({ source, name, targetDir: target.dir, owner, version, command });
+        return { ...row, changed: true };
+      });
+      if (result.busy) return { ...base, state: 'busy', installedVersion: first.installedVersion };
+      return result.value;
     } catch (error) {
-      return { ...row, error: error.message };
+      return { ...base, state: 'error', error: error.message };
     }
   });
 }

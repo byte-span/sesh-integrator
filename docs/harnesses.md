@@ -72,7 +72,7 @@ does not provide the tool-free isolation available in the other ping adapters.
 ### Skill directories
 
 seshx installs its skill under the agent skill install contract
-(`agent-skill-contract/1`, harness list `2026-11-13`, in
+(`agent-skill-contract/1.1`, harness list `2026-11-13`, in
 `src/skill-contract.mjs`). A directory is a target when any of its detection
 paths exists:
 
@@ -106,6 +106,7 @@ each target's state:
 | `unmanaged`   | a copy seshx did not install                             |
 | `other-owner` | a copy another tool manages                              |
 | `edited`      | installed by seshx, then changed                         |
+| `error`       | the directory could not be read or written; see message  |
 
 Normal seshx commands update `legacy` copies and `stale` copies from an older
 version, never add a missing copy and never downgrade, so older pinned
@@ -116,6 +117,14 @@ coordinators cannot undo a newer copy. `AGENT_SKILL_HEAL=0` turns that off.
 directory. A newer copy is replaced only with `--allow-downgrade`.
 `seshx uninstall` removes owned copies for the removed harnesses, and from every
 target once no harness remains enrolled.
+
+Every write holds a per-skill lock, `.sesh-integrator-workflow.lock` in that
+skills directory, so parallel seshx runs never collide. `install`, `remove` and
+setup wait up to 10 seconds for it. Normal runs never wait: they skip a
+directory another process is updating and stay silent about it. The next
+install removes leftover `.sesh-integrator-workflow.installing-<pid>` and
+`.sesh-integrator-workflow.replaced-<pid>` folders from crashed runs. seshx only ever reads its own
+folder in a skills directory, so these dot entries never appear as skills.
 
 The harness list is frozen per contract version. If a vendor documents a
 different path, report it with the source link instead of changing it here.
