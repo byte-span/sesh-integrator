@@ -31,6 +31,15 @@ import {
   type Harness,
 } from "./harness.js";
 import { ensureRuntime, runtimePaths } from "./runtime.js";
+import {
+  installWorkflowSkill,
+  installWouldChange,
+  printInstall,
+  removeWorkflowSkill,
+  SKILL_NAME,
+  skillStatus,
+  skillTargetStatus,
+} from "./skill.js";
 
 const project = fileURLToPath(new URL("../", import.meta.url));
 const start = "<!-- codex-handoff:managed:start -->";
@@ -86,6 +95,29 @@ async function atomicWrite(path: string, text: string): Promise<void> {
   await rename(temporary, path);
 }
 
+/**
+ * Remove owned skill copies for uninstalled harnesses; once no harness is
+ * enrolled, from every detected harness directory. Customized copies stay.
+ */
+function removeSkillCopies(home: string, uninstalled: string[]): void {
+  const remaining = installedHarnesses(home);
+  const kept = new Set(
+    remaining.flatMap((harness) => harnessInfo[harness].skillTarget ?? []),
+  );
+  const rows = removeWorkflowSkill({
+    home,
+    ...(remaining.length
+      ? { targets: uninstalled.filter((id) => !kept.has(id)) }
+      : {}),
+  });
+  for (const row of rows)
+    if (row.removed) console.log(`Removed ${row.dest}`);
+    else if (row.error)
+      console.log(`Could not remove ${row.dest}: ${row.error}`);
+    else if (row.state !== "missing")
+      console.log(`Preserving customized skill: ${row.dest} (${row.state})`);
+}
+
 export async function setupCommand(
   args: string[],
   uninstall = false,
@@ -98,10 +130,21 @@ async function setupUnlocked(args: string[], uninstall = false): Promise<void> {
   const explicit: Harness[] = [];
   let detected = false;
   let yes = false;
+  const skillFlags = {
+    replaceUnmanaged: false,
+    replaceEdited: false,
+    allowDowngrade: false,
+  };
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === "--yes") yes = true;
     else if (arg === "--detected" && !uninstall) detected = true;
+    else if (arg === "--replace-unmanaged" && !uninstall)
+      skillFlags.replaceUnmanaged = true;
+    else if (arg === "--replace-edited" && !uninstall)
+      skillFlags.replaceEdited = true;
+    else if (arg === "--allow-downgrade" && !uninstall)
+      skillFlags.allowDowngrade = true;
     else if (arg === "--harness" && args[i + 1])
       explicit.push(parseHarness(args[++i]!));
     else throw new Error(`Unknown or incomplete option: ${arg}`);
@@ -149,7 +192,7 @@ async function setupUnlocked(args: string[], uninstall = false): Promise<void> {
     if (!selected.length)
       throw new Error(
         uninstall
-          ? "No installed workflows found."
+          ? "No installed workflows found. To remove only the skill, run seshx skill remove."
           : "No harnesses selected. Install a harness or pass --harness <name>.",
       );
     await preflightRuntimeCompatibility();
@@ -201,42 +244,41 @@ async function setupUnlocked(args: string[], uninstall = false): Promise<void> {
       digest?: string;
       previousDigest?: string;
     }[] = [];
+    // The skill is shared by every detected harness directory through the
+    // skill install contract; only guidance blocks are per harness.
+    const selectedTargets = [
+      ...new Set(
+        selected.flatMap((harness) => harnessInfo[harness].skillTarget ?? []),
+      ),
+    ];
+    const skillDestinations: string[] = [];
+    if (!uninstall) {
+      for (const id of selectedTargets) {
+        const current = skillTargetStatus(id, { home });
+        if (!current) continue;
+        if (current.state === "other-owner")
+          throw new Error(
+            `Preserving ${current.dest}, which ${current.owner ?? "another tool"} manages. Remove it with that tool, then run setup again.`,
+          );
+        if (
+          (current.state === "unmanaged" || current.state === "edited") &&
+          !installWouldChange(current, skillFlags)
+        )
+          throw new Error(
+            `Preserving customized skill: ${current.dest}. Rerun with --replace-${current.state} to back it up and replace it, or move it yourself first.`,
+          );
+        if (installWouldChange(current, skillFlags))
+          skillDestinations.push(current.dest);
+      }
+      for (const current of skillStatus({ home }))
+        if (
+          !skillDestinations.includes(current.dest) &&
+          installWouldChange(current, skillFlags)
+        )
+          skillDestinations.push(current.dest);
+    }
     for (const harness of selected) {
       const info = harnessInfo[harness];
-      for (const file of ["SKILL.md", ...info.metadataFiles]) {
-        const path = join(
-          home,
-          info.skillDirectory,
-          "skills",
-          "sesh-integrator-workflow",
-          file,
-        );
-        const bundled = await readFile(
-          join(project, "skill/sesh-integrator-workflow", file),
-          "utf8",
-        );
-        const before = await optional(path);
-        const owned =
-          before === undefined ||
-          hash(before) === receipt[path] ||
-          hash(before) === receipt[path + ":previous"] ||
-          before === bundled;
-        if (!owned) {
-          if (!uninstall)
-            throw new Error(
-              `Preserving customized file: ${path}. Back it up and move it before running setup again.`,
-            );
-          console.log(`Preserving customized file: ${path}`);
-          continue;
-        }
-        changes.push({
-          path,
-          before,
-          after: uninstall ? undefined : bundled,
-          digest: hash(bundled),
-          ...(before !== undefined ? { previousDigest: hash(before) } : {}),
-        });
-      }
       const path = join(home, info.directory, info.instructions);
       const before = await optional(path);
       const range = managedRange(before ?? "");
@@ -270,16 +312,16 @@ async function setupUnlocked(args: string[], uninstall = false): Promise<void> {
       });
     }
     if (!uninstall)
-      await requireCapabilities(
-        process.cwd(),
-        false,
-        changes.map((change) => dirname(change.path)),
-      );
+      await requireCapabilities(process.cwd(), false, [
+        ...changes.map((change) => dirname(change.path)),
+        ...skillDestinations.map((dest) => dirname(dest)),
+      ]);
     console.log(
       `${uninstall ? "Remove" : "Install"} integrations: ${selected.join(", ")}`,
     );
     for (const change of changes)
       if (change.before !== change.after) console.log(`  ${change.path}`);
+    for (const dest of skillDestinations) console.log(`  ${dest}`);
     if (!uninstall)
       console.log(
         `Initialize configuration if missing: ${runtimePaths().config}`,
@@ -320,6 +362,22 @@ async function setupUnlocked(args: string[], uninstall = false): Promise<void> {
         throw new Error(`Verification failed: ${change.path}`);
     }
     await atomicWrite(receiptPath, JSON.stringify(receipt, null, 2) + "\n");
+    if (uninstall) removeSkillCopies(home, selectedTargets);
+    else {
+      const rows = installWorkflowSkill({
+        home,
+        ...skillFlags,
+        ensureTargets: selectedTargets,
+      });
+      printInstall(rows);
+      const blocked = rows.filter(
+        (row) => row.blocked && selectedTargets.includes(row.target),
+      );
+      if (blocked.length)
+        throw new Error(
+          `The ${SKILL_NAME} skill was not installed at ${blocked.map((row) => `${row.dest} (${row.note})`).join("; ")}`,
+        );
+    }
     if (!uninstall) await setEnrollment(selected, false);
     if (uninstall)
       console.log(

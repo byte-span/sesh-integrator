@@ -128,7 +128,10 @@ describe("vitest worker bound", () => {
     expect(derived.test.maxWorkers).toBe(
       boundedWorkers(availableParallelism(), 2),
     );
-    expect(derived.test.setupFiles).toEqual(["./test/queue-isolation.ts"]);
+    expect(derived.test.setupFiles).toEqual([
+      "./test/queue-isolation.ts",
+      "./test/skill-isolation.ts",
+    ]);
     vi.stubEnv(testWorkersVariable, "3");
     expect(
       (await config({ command: "serve", mode: "test" })).test.maxWorkers,

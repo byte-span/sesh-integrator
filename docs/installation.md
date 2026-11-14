@@ -31,8 +31,12 @@ preselects detected harnesses, and lets you choose integrations. It previews the
 skill and global instruction paths before confirmation, initializes configuration,
 and verifies Git and installed files. Detection does not execute harnesses or
 check authentication. Personal instructions outside the managed block are preserved.
-Customized skill files are preserved; back them up and move them before reinstalling.
-Standard home directories are supported; custom harness homes require manual setup.
+The skill goes to every detected harness skill directory, not only the selected
+ones ([skill directories](harnesses.md#skill-directories)). Customized skill
+copies are preserved: setup stops if a selected harness has one, unless you add
+`--replace-edited` or `--replace-unmanaged` to back it up and replace it.
+Global instructions use standard home directories; custom harness homes require
+manual setup.
 
 For unattended installation, explicitly choose integrations:
 
@@ -50,7 +54,9 @@ seshx doctor --installed
 
 To remove installed integrations, run `seshx uninstall` (or `--yes` unattended).
 Use `--harness <name>` to remove one integration. Only unchanged managed files and
-managed guidance are removed; customized content, configuration, sessions, and
+managed guidance are removed. The skill is removed from that harness's skill
+directory, and from every directory once no integration remains;
+`seshx skill remove` removes only the skill; customized content, configuration, sessions, and
 worktrees remain. Uninstall stops new enrollment for selected harnesses. If any of their sessions are unfinished (including waiting, conflicted, validation-pending, or promotion-pending), removal is deferred and their guidance and recovery assets stay installed. Finish those sessions and rerun uninstall. Empty skill directories may remain. Remove the npm CLI separately:
 
 ```bash

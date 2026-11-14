@@ -1,6 +1,21 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { compareVersions, hashSkill } from "../src/skill-contract.mjs";
+
+/**
+ * Every shipped version of the bundled skill, oldest first. Installed copies
+ * carry managed-version (the package version), and normal runs only replace
+ * copies with an older one, so a skill change without a version bump never
+ * reaches installed copies. When the skill changes, bump package.json and
+ * append its new version and hash here (docs/development.md).
+ */
+const SKILL_RELEASES = [
+  {
+    version: "0.1.0",
+    hash: "sha256:a22ba9d4cc5a9cf1e82138668209e4cddb6b3c2e8dca9d753a4e01b519e573fb",
+  },
+];
 
 describe("bundled workflow trigger policy", () => {
   it("uses configured reviewers and assignees for self-hosting pull requests", async () => {
@@ -91,6 +106,27 @@ describe("bundled workflow trigger policy", () => {
     );
     expect(guidance).not.toContain("## Central secret requirements");
     expect(guidance).not.toContain("secret-sync/secret-configs/apps/");
+  });
+
+  it("bumps the package version whenever the bundled skill changes", async () => {
+    const { version } = JSON.parse(
+      await readFile(join(process.cwd(), "package.json"), "utf8"),
+    ) as { version: string };
+    for (const [index, release] of SKILL_RELEASES.entries())
+      if (index > 0)
+        expect(
+          compareVersions(release.version, SKILL_RELEASES[index - 1]!.version),
+          "SKILL_RELEASES versions must increase",
+        ).toBe(1);
+    const latest = SKILL_RELEASES.at(-1)!;
+    expect(
+      hashSkill(join(process.cwd(), "skill", "sesh-integrator-workflow")),
+      "The bundled skill changed: bump the package.json version, then append { version, hash } to SKILL_RELEASES",
+    ).toBe(latest.hash);
+    expect(
+      compareVersions(version, latest.version),
+      `package.json version ${version} is older than the skill release ${latest.version}`,
+    ).toBeGreaterThanOrEqual(0);
   });
 
   it("ships managed guidance and bounded self-hosting automation", async () => {

@@ -806,8 +806,16 @@ export async function commitCommand(
     );
   }
 
+  // Match observeGitState: without --no-renames a staged rename lists only its
+  // new path, so the old path looks like an unrelated deletion.
   const stagedOutput = await git(
-    ["diff", "--cached", "--name-only", "--diff-filter=ACDMRTUXB"],
+    [
+      "diff",
+      "--cached",
+      "--name-only",
+      "--no-renames",
+      "--diff-filter=ACDMRTUXB",
+    ],
     source.worktreePath,
   );
   const stagedPaths = stagedOutput.split("\n").filter(Boolean);

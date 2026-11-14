@@ -8,6 +8,17 @@ import {
   type Harness,
 } from "./harness.js";
 import { isRepositoryDisabled, repositoryCommonDir } from "./enablement.js";
+import {
+  CONTRACT,
+  HARNESS_LIST_VERSION,
+  compareVersions,
+} from "./skill-contract.mjs";
+import {
+  skillStatus,
+  skillTargetStatus,
+  skillVersion,
+  type SkillRow,
+} from "./skill.js";
 import { constants } from "node:fs";
 import { access, readFile, readdir, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -153,45 +164,7 @@ export async function doctorCommand(
   );
 
   const home = process.env.PARALLEL_INTEGRATOR_DOCTOR_HOME ?? homedir();
-  const skillRoot = join(
-    home,
-    selectedHarness.skillDirectory,
-    "skills",
-    "sesh-integrator-workflow",
-  );
-  const skillFiles = [
-    join(skillRoot, "SKILL.md"),
-    ...selectedHarness.metadataFiles.map((file) => join(skillRoot, file)),
-  ];
-  const bundledSkillRoot = fileURLToPath(
-    new URL("../skill/sesh-integrator-workflow", import.meta.url),
-  );
-  const bundledSkillFiles = [
-    join(bundledSkillRoot, "SKILL.md"),
-    ...selectedHarness.metadataFiles.map((file) =>
-      join(bundledSkillRoot, file),
-    ),
-  ];
-  if (!(await allExist(skillFiles))) {
-    checks.push(
-      fail(
-        "Workflow skill",
-        `missing installation at ${skillRoot}; run seshx setup --harness ${harness}`,
-      ),
-    );
-  } else if (
-    (await allExist(bundledSkillFiles)) &&
-    !(await filesMatch(skillFiles, bundledSkillFiles))
-  ) {
-    checks.push(
-      fail(
-        "Workflow skill",
-        `installed files differ from this CLI; run seshx setup --harness ${harness}`,
-      ),
-    );
-  } else {
-    checks.push(pass("Workflow skill", skillRoot));
-  }
+  checks.push(...skillChecks(home, harness));
 
   const agentsPath = join(
     home,
@@ -654,23 +627,6 @@ function validParticipantList(value: unknown): boolean {
   );
 }
 
-async function allExist(paths: string[]): Promise<boolean> {
-  return (await Promise.all(paths.map(exists))).every(Boolean);
-}
-
-async function filesMatch(
-  installed: string[],
-  bundled: string[],
-): Promise<boolean> {
-  const [installedContents, bundledContents] = await Promise.all([
-    Promise.all(installed.map((path) => readFile(path, "utf8"))),
-    Promise.all(bundled.map((path) => readFile(path, "utf8"))),
-  ]);
-  return installedContents.every(
-    (contents, index) => contents === bundledContents[index],
-  );
-}
-
 async function exists(path: string): Promise<boolean> {
   try {
     await access(path, constants.F_OK);
@@ -733,6 +689,94 @@ export async function doctorInstalledCommand(
   for (const harness of installed) {
     process.stdout.write(`\nHarness: ${harnessInfo[harness].name}\n`);
     await doctorCommand(cwd, harness);
+  }
+}
+
+/**
+ * Skill install contract status: the selected harness's own copy, then every
+ * detected harness directory. Read-only; normal seshx runs heal what they can.
+ */
+function skillChecks(home: string, harness: Harness): Check[] {
+  const targetId = harnessInfo[harness].skillTarget;
+  const checks: Check[] = [];
+  let rows: SkillRow[];
+  try {
+    rows = skillStatus({ home });
+    const own = targetId ? skillTargetStatus(targetId, { home }) : undefined;
+    if (own) checks.push(workflowSkillCheck(own, harness));
+  } catch (error) {
+    return [fail("Workflow skill", errorMessage(error))];
+  }
+  const summary = rows
+    .map(
+      (row) =>
+        `${row.target} ${row.state}${row.installedVersion ? ` ${row.installedVersion}` : ""}${row.error ? ` (${row.error})` : ""}`,
+    )
+    .join(", ");
+  const label = `Skill contract (${CONTRACT}, harness list ${HARNESS_LIST_VERSION})`;
+  checks.push(
+    !rows.length
+      ? warn(label, "no supported harness directory found")
+      : rows.every((row) => row.state === "current")
+        ? pass(label, summary)
+        : warn(label, `${summary}; see seshx skill status`),
+  );
+  return checks;
+}
+
+function workflowSkillCheck(
+  row: SkillRow & { owner?: string | undefined },
+  harness: Harness,
+): Check {
+  const version = skillVersion();
+  switch (row.state) {
+    case "current":
+      return pass("Workflow skill", `${row.dest} (${row.installedVersion})`);
+    case "missing":
+      return fail(
+        "Workflow skill",
+        `missing installation at ${row.dest}; run seshx setup --harness ${harness}`,
+      );
+    case "legacy":
+      return warn(
+        "Workflow skill",
+        `${row.dest} was installed by an earlier seshx; the next seshx command adopts it, or run seshx skill install`,
+      );
+    case "stale":
+      return compareVersions(row.installedVersion, version) > 0
+        ? warn(
+            "Workflow skill",
+            `${row.dest} has ${row.installedVersion} from a newer seshx; this CLI bundles ${version}`,
+          )
+        : warn(
+            "Workflow skill",
+            `${row.dest} has ${row.installedVersion ?? "an older version"}; the next seshx command updates it to ${version}, or run seshx skill install`,
+          );
+    case "edited":
+      return fail(
+        "Workflow skill",
+        `${row.dest} was edited after install; keep it, or run seshx skill install --replace-edited to back it up and replace it`,
+      );
+    case "unmanaged":
+      return fail(
+        "Workflow skill",
+        `${row.dest} was not installed by seshx; run seshx skill install --replace-unmanaged to back it up and replace it`,
+      );
+    case "other-owner":
+      return fail(
+        "Workflow skill",
+        `${row.dest} is managed by ${row.owner ?? "another tool"}`,
+      );
+    case "busy":
+      return warn(
+        "Workflow skill",
+        `${row.dest} is being updated by another process; run seshx doctor again`,
+      );
+    case "error":
+      return fail(
+        "Workflow skill",
+        `${row.dest}: ${row.error ?? "unexpected failure"}`,
+      );
   }
 }
 

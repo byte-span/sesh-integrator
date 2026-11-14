@@ -121,10 +121,12 @@ their preserved state before reconstruction. Explicit archival/deletion policy
 may be added separately; age alone must never make a failed session
 unrecoverable.
 
-User skill:
+User skill, in every detected harness skill directory under the agent skill
+install contract (`src/skill-contract.mjs`; see docs/harnesses.md), for example:
 
 ```text
 ~/.agents/skills/sesh-integrator-workflow/
+~/.claude/skills/sesh-integrator-workflow/
 ```
 
 Global Codex guidance:

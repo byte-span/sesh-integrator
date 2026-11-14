@@ -218,11 +218,30 @@ check. The check can fetch `origin/main` and fast-forward a clean local `dev`.
 macOS installs hooks without systemd. These safeguards are separate from public
 setup and are not removed by `seshx uninstall`.
 
-`scripts/install-skill.sh` idempotently installs the supplied skill at `~/.agents/skills/sesh-integrator-workflow/`. It accepts an alternate destination for testing:
+`scripts/install-skill.sh` idempotently installs the supplied skill at `~/.agents/skills/sesh-integrator-workflow/`
+and every other detected harness skill directory, as `seshx skill install` does.
+It accepts an alternate destination for testing:
 
 ```bash
 ./scripts/install-skill.sh /tmp/sesh-integrator-skill
 ```
+
+#### Changing the workflow skill
+
+Installed copies record `managed-version`, the `package.json` version. Normal
+runs replace only copies with an older version, so a skill change that keeps the
+version never reaches installed copies. When you change anything under
+`skill/sesh-integrator-workflow/`:
+
+1. Bump `version` in `package.json`.
+2. Append `{ version, hash }` to `SKILL_RELEASES` in
+   `test/workflow-policy.test.ts`. The failing test prints the new hash.
+
+`src/skill-contract.mjs` is a verbatim copy of the shared contract; change it
+only by adopting a new contract version, and keep
+`test/skill-contract.test.mjs` passing. `LEGACY_SKILL_HASHES` in
+`src/skill.ts` lists what pre-contract installers wrote; it never needs new
+entries, because contract installs are stamped.
 
 Only the managed section in `~/.codex/AGENTS.md` is synchronized, using
 [GLOBAL_AGENTS_SNIPPET.md](../GLOBAL_AGENTS_SNIPPET.md). Surrounding global

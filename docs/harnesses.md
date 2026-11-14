@@ -4,6 +4,7 @@
 
 Commands below run from the repository root unless stated otherwise.
 
+- [Skill directories](#skill-directories)
 - [Shared harness configuration and maintenance](#shared-harness-configuration-and-maintenance)
 - [Documented adapter differences](#documented-adapter-differences)
 - [Opt-in live conflict evaluations](#opt-in-live-conflict-evaluations)
@@ -20,21 +21,23 @@ seshx setup --harness antigravity
 seshx setup --harness grok
 ```
 
-Setup preserves personal text outside the managed instruction block and leaves
-repository instructions untouched. The legacy `scripts/install-skill.sh` keeps
-its no-argument Codex default and positional custom skill directory support.
+Setup writes the managed instruction block for each selected harness and
+installs the `sesh-integrator-workflow` skill into every detected harness skill
+directory (see [skill directories](#skill-directories)). It preserves personal
+text outside the managed block and leaves repository instructions untouched.
+The legacy `scripts/install-skill.sh` keeps its no-argument Codex default and
+positional custom skill directory support.
 
-| Harness                       | Identifier    | User skill directory                | Global instructions   |
-| ----------------------------- | ------------- | ----------------------------------- | --------------------- |
-| Codex CLI                     | `codex`       | `~/.agents/skills/`                 | `~/.codex/AGENTS.md`  |
-| Claude Code                   | `claude`      | `~/.claude/skills/`                 | `~/.claude/CLAUDE.md` |
-| Antigravity CLI               | `antigravity` | `~/.gemini/antigravity-cli/skills/` | `~/.gemini/GEMINI.md` |
-| Grok Build (official xAI CLI) | `grok`        | `~/.grok/skills/`                   | `~/.grok/AGENTS.md`   |
+| Harness                       | Identifier    | Skill target      | Global instructions   |
+| ----------------------------- | ------------- | ----------------- | --------------------- |
+| Codex CLI                     | `codex`       | `agents`          | `~/.codex/AGENTS.md`  |
+| Claude Code                   | `claude`      | `claude`          | `~/.claude/CLAUDE.md` |
+| Antigravity CLI               | `antigravity` | `antigravity-cli` | `~/.gemini/GEMINI.md` |
+| Grok Build (official xAI CLI) | `grok`        | `grok`            | `~/.grok/AGENTS.md`   |
 
-Each skill directory contains `sesh-integrator-workflow/SKILL.md`. These commands
-use the standard user directories under HOME. Custom harness home directories
-require installing the skill and global instructions at the corresponding custom
-paths yourself; doctor checks the standard paths.
+Global instructions use the standard directories under HOME; custom harness
+homes need the managed block copied there yourself. Skill directories follow
+the overrides listed below.
 
 ```bash
 seshx doctor --harness claude
@@ -66,10 +69,71 @@ upgrading the coordinator. `GEMINI.md` remains Antigravity's native rules filena
 The live Antigravity ping uses plan mode and existing account permissions; it
 does not provide the tool-free isolation available in the other ping adapters.
 
+### Skill directories
+
+seshx installs its skill under the agent skill install contract
+(`agent-skill-contract/1.1`, harness list `2026-11-13`, in
+`src/skill-contract.mjs`). A directory is a target when any of its detection
+paths exists:
+
+| Target                   | Directory                                                                          | Harnesses served                        | Detected by                                           |
+| ------------------------ | ---------------------------------------------------------------------------------- | --------------------------------------- | ----------------------------------------------------- |
+| `agents`                 | `~/.agents/skills`                                                                 | Codex, Gemini CLI                       | `~/.agents`, `$CODEX_HOME` or `~/.codex`, `~/.gemini` |
+| `claude`                 | `$CLAUDE_CONFIG_DIR` or `~/.claude`, then `/skills`                                | Claude Code, Cursor, GitHub Copilot CLI | that directory, `~/.cursor`, `~/.copilot`             |
+| `grok`                   | `~/.grok/skills`                                                                   | Grok Build                              | `~/.grok`                                             |
+| `antigravity-cli`        | `~/.gemini/antigravity-cli/skills`                                                 | Antigravity CLI                         | `~/.gemini/antigravity-cli`                           |
+| `antigravity-ide`        | `~/.gemini/config/skills`                                                          | Antigravity IDE                         | `~/.gemini/config`                                    |
+| `antigravity-ide-legacy` | `~/.gemini/antigravity/skills`                                                     | Antigravity IDE (legacy)                | `~/.gemini/antigravity`                               |
+| `opencode`               | `$OPENCODE_CONFIG_DIR` or `${XDG_CONFIG_HOME:-~/.config}/opencode`, then `/skills` | OpenCode                                | that directory                                        |
+| `pi`                     | `$PI_CODING_AGENT_DIR` or `~/.pi/agent`, then `/skills`                            | Pi                                      | that directory                                        |
+
+Cursor, GitHub Copilot CLI and Gemini CLI read a shared directory, so they get
+no separate copy. `~/.codex/skills` is not a target; it holds Codex built-ins.
+Setup also creates the directory of each harness you select, so its copy is
+installed even before the harness has run once.
+
+Each copy is the whole bundled folder, `SKILL.md` plus `agents/openai.yaml`,
+with `managed-by`, `managed-version`, `managed-command` and `managed-hash`
+stamped into the `SKILL.md` frontmatter `metadata`. `seshx skill status` shows
+each target's state:
+
+| State         | Meaning                                                  |
+| ------------- | -------------------------------------------------------- |
+| `missing`     | not installed there                                      |
+| `current`     | installed by seshx, unedited, same as this CLI's skill   |
+| `stale`       | installed by seshx, unedited, from another seshx version |
+| `legacy`      | an unstamped copy that an earlier seshx installed        |
+| `unmanaged`   | a copy seshx did not install                             |
+| `other-owner` | a copy another tool manages                              |
+| `edited`      | installed by seshx, then changed                         |
+| `error`       | the directory could not be read or written; see message  |
+
+Normal seshx commands update `legacy` copies and `stale` copies from an older
+version, never add a missing copy and never downgrade, so older pinned
+coordinators cannot undo a newer copy. `AGENT_SKILL_HEAL=0` turns that off.
+`seshx skill`, `setup`, `uninstall` and the read-only `doctor` never heal.
+`unmanaged` and `edited` copies are replaced only with `--replace-unmanaged` or
+`--replace-edited`, which first move them to `skill-backups/` in the runtime
+directory. A newer copy is replaced only with `--allow-downgrade`.
+`seshx uninstall` removes owned copies for the removed harnesses, and from every
+target once no harness remains enrolled.
+
+Every write holds a per-skill lock, `.sesh-integrator-workflow.lock` in that
+skills directory, so parallel seshx runs never collide. `install`, `remove` and
+setup wait up to 10 seconds for it. Normal runs never wait: they skip a
+directory another process is updating and stay silent about it. The next
+install removes leftover `.sesh-integrator-workflow.installing-<pid>` and
+`.sesh-integrator-workflow.replaced-<pid>` folders from crashed runs. seshx only ever reads its own
+folder in a skills directory, so these dot entries never appear as skills.
+
+The harness list is frozen per contract version. If a vendor documents a
+different path, report it with the source link instead of changing it here.
+
 ### Shared harness configuration and maintenance
 
-`harnesses.json` is the single registry of harness names, installation paths, and
-native skill metadata. Both the CLI and installation scripts consume it.
+`harnesses.json` is the single registry of harness names, global instruction
+paths, and each harness's skill target. Both the CLI and installation scripts
+consume it.
 
 ```json
 {
@@ -92,8 +156,9 @@ global instructions. The machine safeguard installer uses it; post-merge hooks
 do not refresh workflows or global instructions.
 `seshx doctor --installed` checks those same installations and reports failure if
 any fails. Scheduled health checks and macOS upgrade checks use this mode.
-An installed workflow is identified by its native `sesh-integrator-workflow/SKILL.md`;
-unused harnesses are not installed by bulk refresh or machine safeguards. On a
+An installed workflow is identified by the managed block in its global
+instructions file. The skill alone does not enroll a harness, so unused
+harnesses get no managed block from bulk refresh or machine safeguards. On a
 fresh installation, run `seshx setup` or choose a harness with `seshx setup --harness <name>`
 before running the health check. The no-argument Codex default
 and positional custom-directory installer remain compatible.

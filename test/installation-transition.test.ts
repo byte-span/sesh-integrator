@@ -1,3 +1,4 @@
+import { harnessHomeEnv } from "./harness-env.js";
 import { createHash } from "node:crypto";
 import { execFileSync, spawnSync } from "node:child_process";
 import {
@@ -38,13 +39,11 @@ async function fixture() {
     "CLOUD_SANDBOX_SNIPPET.md",
   ])
     await cp(join(process.cwd(), name), join(pkg, name), { recursive: true });
-  const env = {
-    ...process.env,
-    HOME: home,
+  const env = harnessHomeEnv(home, {
     SESH_INTEGRATOR_HOME: runtime,
     PARALLEL_INTEGRATOR_TEST_INCIDENT_FALLBACK: "1",
     GIT_CONFIG_GLOBAL: join(home, "gitconfig"),
-  };
+  });
   const git = (cwd: string, ...args: string[]) =>
     execFileSync("git", args, {
       cwd,
