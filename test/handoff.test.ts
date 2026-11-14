@@ -2781,6 +2781,49 @@ process.stdout.write(JSON.stringify({status:"SUCCESS",response:"resolved",text:"
     );
   });
 
+  it.each([false, true])(
+    "commits a staged rename and still blocks an unrelated deletion (content changed: %s)",
+    async (changeContent) => {
+      const fixture = await createFixture();
+      const lines = Array.from({ length: 12 }, (_, i) => `line ${i}\n`);
+      await writeFile(join(fixture.repo, "old-name.txt"), lines.join(""));
+      await writeFile(join(fixture.repo, "kept.txt"), "keep\n");
+      git(fixture.repo, "add", "old-name.txt", "kept.txt");
+      git(fixture.repo, "commit", "-m", "add rename fixtures");
+      const worktree = await addWorktree(fixture, "rename-source");
+      await runCliOk(fixture, worktree, ["begin", "--summary", "rename"]);
+      git(worktree, "mv", "old-name.txt", "new-name.txt");
+      if (changeContent) {
+        lines[3] = "changed line 3\n";
+        await writeFile(join(worktree, "new-name.txt"), lines.join(""));
+        git(worktree, "add", "new-name.txt");
+      }
+      // Git must see the staged change as a rename for this to cover the bug.
+      expect(git(worktree, "diff", "--cached", "--name-status")).toMatch(
+        /^R\d+\told-name\.txt\tnew-name\.txt$/,
+      );
+      await rm(join(worktree, "kept.txt"));
+
+      const blocked = await runCli(fixture, worktree, [
+        "commit",
+        "--message",
+        "rename with unrelated deletion",
+      ]);
+      expect(blocked.code).toBe(1);
+      expect(blocked.stderr).toContain(
+        "kept.txt: blocked because a new unrelated tracked-file deletion",
+      );
+      expect(blocked.stderr).not.toContain("old-name.txt");
+
+      git(worktree, "checkout", "--", "kept.txt");
+      await runCliOk(fixture, worktree, ["commit", "--message", "rename"]);
+      expect(git(worktree, "ls-tree", "-r", "--name-only", "HEAD")).toBe(
+        ["kept.txt", "new-name.txt", "shared.txt"].join("\n"),
+      );
+      expect(git(worktree, "status", "--porcelain")).toBe("");
+    },
+  );
+
   it("does not attempt a source commit when the signing preflight fails", async () => {
     const fixture = await createFixture();
     await updateConfig(fixture, (config) => {
@@ -3915,6 +3958,55 @@ process.stdout.write(JSON.stringify({status:"SUCCESS",response:"resolved",text:"
         ({ worktreePath }) => worktreePath === second,
       )?.status,
     ).toBe("succeeded");
+  });
+
+  it("resumes a resolved conflict whose merge deletes files present on staging", async () => {
+    const fixture = await createFixture("base\n");
+    await mkdir(join(fixture.repo, "src", "sink"), { recursive: true });
+    await writeFile(join(fixture.repo, "src", "sink", "sink.ts"), "sink\n");
+    await writeFile(join(fixture.repo, "doomed.txt"), "doomed\n");
+    git(fixture.repo, "add", "src/sink/sink.ts", "doomed.txt");
+    git(fixture.repo, "commit", "-m", "add files the task deletes");
+    const first = await addWorktree(fixture, "delete-first");
+    const second = await addWorktree(fixture, "delete-second");
+    await runCliOk(fixture, first, ["begin", "--summary", "first"]);
+    await runCliOk(fixture, second, ["begin", "--summary", "delete"]);
+    commitFile(first, "shared.txt", "first\n", "first");
+    git(second, "rm", "-q", "src/sink/sink.ts", "doomed.txt");
+    commitFile(second, "shared.txt", "second\n", "delete and change");
+    await runCliOk(fixture, first, ["integrate", "--summary", "first done"]);
+    const conflicted = await runCli(fixture, second, [
+      "integrate",
+      "--summary",
+      "delete done",
+    ]);
+    expect(conflicted.code).toBe(1);
+    const pending = (await sessions(fixture)).find(
+      (session) => session.worktreePath === second,
+    )!;
+    expect(pending.awaitingConflictResolution).toBe(true);
+    const integration = pending.integrationWorktreePath;
+    expect(git(integration, "diff", "--name-only", "--diff-filter=U")).toBe(
+      "shared.txt",
+    );
+    await writeFile(join(integration, "shared.txt"), "first\nsecond\n");
+    git(integration, "add", "shared.txt");
+
+    const resumed = await runCli(fixture, second, ["resume"]);
+
+    expect(resumed.code, resumed.stderr).toBe(0);
+    const record = (await sessions(fixture)).find(
+      (session) => session.worktreePath === second,
+    )!;
+    expect(record.status).toBe("succeeded");
+    expect(git(fixture.repo, "show", "main:shared.txt")).toBe("first\nsecond");
+    expect(git(fixture.repo, "ls-tree", "-r", "--name-only", "main")).toBe(
+      "shared.txt",
+    );
+    expect(await exists(join(fixture.repo, "doomed.txt"))).toBe(false);
+    expect(await exists(join(fixture.repo, "src", "sink", "sink.ts"))).toBe(
+      false,
+    );
   });
 
   it("treats an already-contained pull-request head as satisfied", async () => {
