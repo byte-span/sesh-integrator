@@ -203,12 +203,6 @@ async function prepareBuild(cwd, session, releaseRoot) {
       () => unlink(link),
       "Build dependency link cleanup",
     );
-    // As `pnpm build` does: plain .mjs modules are copied, not compiled.
-    await command(
-      process.execPath,
-      [join(root, "scripts/copy-js-modules.mjs")],
-      root,
-    );
     // The copy has no Git metadata; record the exact promoted commit for
     // `seshx version`, as the build step does in a checkout.
     await writeFile(

@@ -398,12 +398,6 @@ export async function main(args) {
     { cwd: root, stdio: "inherit" },
   );
   if (build.status !== 0) return 1;
-  const copy = spawnSync(
-    process.execPath,
-    [join(root, "scripts/copy-js-modules.mjs")],
-    { cwd: root, stdio: "inherit" },
-  );
-  if (copy.status !== 0) return 1;
   const { readConfig } = await import("../dist/runtime.js");
   return runSelected(selected, await readConfig(true));
 }
