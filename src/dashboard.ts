@@ -160,6 +160,11 @@ export function detailLines(row: DashboardRow, includeTasks = true): string[] {
     lines.push(
       `Abandoned: ${exactTime(s.abandonment.abandonedAt)} from ${s.abandonment.previousStatus} (bucket ${s.abandonment.bucket})`,
       `Abandon reason: ${s.abandonment.reason}`,
+      ...(s.abandonment.supersededBy
+        ? [
+            `Superseded by: ${s.abandonment.supersededBy.sessionId} (promoted ${s.abandonment.supersededBy.promotedCommit} to ${s.abandonment.supersededBy.targetBranch})`,
+          ]
+        : []),
       `Restore: seshx restore --session ${s.id}`,
     );
   for (const past of s.abandonmentHistory ?? [])

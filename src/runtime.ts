@@ -33,6 +33,7 @@ import type {
   Session,
   SessionAbandonment,
   SessionIndexEntry,
+  SessionStatus,
   SessionTask,
 } from "./types.js";
 import {
@@ -567,21 +568,33 @@ export function abandonedSessionMessage(session: Session): string {
 }
 
 /**
- * Abandon an active session under its record lock. `verify` receives the
- * latest record, rechecks it (throwing to refuse) and returns the abandonment
- * to store. Only the record changes, and the heartbeat is kept so the idle
- * evidence from before abandoning survives.
+ * Statuses an abandonment can return to on restore. Recovery statuses are
+ * abandoned only when another promoted session superseded the session.
+ */
+export const RESTORABLE_STATUSES: readonly SessionStatus[] = [
+  "active",
+  "needs_review",
+  "validation_pending",
+];
+
+/**
+ * Abandon a session under its record lock. `verify` receives the latest
+ * record, rechecks it (throwing to refuse) and returns the abandonment to
+ * store. Only the record changes, and the heartbeat is kept so the idle
+ * evidence from before abandoning survives. Only `active` sessions are
+ * accepted unless `statuses` names more.
  */
 export async function abandonSessionRecord(
   sessionId: string,
   verify: (session: Session) => Promise<SessionAbandonment>,
+  statuses: readonly SessionStatus[] = ["active"],
 ): Promise<Session> {
   return withSessionRecordLock(sessionId, async () => {
     const session = await readSession(sessionId);
     if (!session) throw new Error(`Unknown session: ${sessionId}`);
-    if (session.status !== "active")
+    if (!statuses.includes(session.status))
       throw new Error(
-        `Only an active session can be abandoned; ${sessionId} is ${session.status}.`,
+        `Only ${statuses.length === 1 ? `an ${statuses[0]} session` : `${statuses.join(", ")} sessions`} can be abandoned; ${sessionId} is ${session.status}.`,
       );
     const abandonment = await verify(session);
     session.status = "abandoned";
@@ -608,9 +621,9 @@ export async function restoreSessionRecord(
       throw new Error(
         `Only an abandoned session can be restored; ${sessionId} is ${session.status}.`,
       );
-    if (abandonment.previousStatus !== "active")
+    if (!RESTORABLE_STATUSES.includes(abandonment.previousStatus))
       throw new Error(
-        `Session ${sessionId} was abandoned from ${abandonment.previousStatus}; this coordinator restores only active sessions.`,
+        `Session ${sessionId} was abandoned from ${abandonment.previousStatus}; this coordinator restores only ${RESTORABLE_STATUSES.join(", ")} sessions.`,
       );
     await verify(session);
     const restoredAt = new Date().toISOString();

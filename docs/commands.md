@@ -59,6 +59,7 @@ seshx tasks move <task-id> --position <n> [--session <session-id>]
 seshx sessions audit [--repo <path>] [--idle-days <n>] [--json]
 seshx sessions idle --repo <path>
 seshx abandon --session <session-id> --reason "..." [--include-unsaved]
+seshx abandon --session <session-id> --superseded-by <session-id> [--reason "..."] [--include-unsaved]
 seshx abandon --all [--repo <path>] [--idle-days <n>] [--bucket <list>] [--include-unsaved] [--apply --reason "..."]
 seshx restore --session <session-id>
 seshx reconcile [repo-path] [--apply]
@@ -649,6 +650,10 @@ It recognizes the existing attempt's detached recovery merge, preserves partial
 resolutions, and imports the fully staged resolution before reconstruction.
 Do not edit session records, recovery manifests, refs, or retained executables.
 
+If another session already re-landed the work, do not resume. Close the stuck
+session with `seshx abandon --session <session-id> --superseded-by <successful-session-id>`;
+see [Closing a superseded session](#closing-a-superseded-session).
+
 For `promotion_pending`, an unchanged target retries the exact validated staging
 commit. If the local target advanced normally from the recorded baseline,
 `resume` merges that exact target commit with the preserved result in a detached
@@ -1092,7 +1097,8 @@ seshx restore --session <session-id>
   lifecycle or recovery (`ready`, `validation_pending`, `promotion_pending`,
   `needs_review`, a recorded lock wait, conflict, recovery phase or recovery
   bundle, or a ready/staging/promoted commit), or holds the repository lock or
-  its session record lock.
+  its session record lock. For a session whose work another session already
+  delivered, see [Closing a superseded session](#closing-a-superseded-session).
 - Refuses sessions in the `unsaved work` bucket, or whose state could not be
   fully inspected, unless you pass `--include-unsaved`.
 - Rechecks the session under its record lock immediately before saving, and
@@ -1116,10 +1122,53 @@ directory, also for sessions whose repository is missing, unregistered or
 disabled.
 
 **If you abandoned the wrong session**, run `seshx restore --session <id>`.
-It returns the session to `active`, moves the abandonment to the record's
-`abandonmentHistory`, records activity, and prints the worktree to continue
-in. Keep using the session's pinned coordinator. Restore refuses if another
-unfinished session now uses the same worktree; finish or abandon that one first.
+It returns the session to the status it was abandoned from, moves the
+abandonment to the record's `abandonmentHistory`, records activity, and prints
+the worktree to continue in. Keep using the session's pinned coordinator.
+Restore refuses if another unfinished session now uses the same worktree;
+finish or abandon that one first.
+
+#### Closing a superseded session
+
+When another session already delivered a session's work, for example by
+re-landing a session stuck in conflict recovery, close the old one instead of
+resuming it:
+
+```bash
+seshx abandon --session <old-session-id> --superseded-by <successful-session-id>
+```
+
+1. Check that the successful session delivered everything the old one was
+   meant to: compare its promoted result with the old session's preserved
+   merge or source commits.
+2. Run the command above. `--reason` is optional and defaults to
+   `Superseded by <id>`.
+3. Read the output. It names the superseding promotion, the recovery bundle
+   and integration worktree it kept, and any of the old session's rollout
+   follow-ups the superseding session does not record word for word. Make sure
+   each is still tracked there or in the repository's task register.
+
+It closes `active`, `needs_review` and `validation_pending` sessions,
+including open recovery bundles, conflicts and unintegrated commits. It
+refuses, changing nothing, when:
+
+- the named session is not `succeeded` in the same repository and target, or
+  its promoted commit is not reachable from the current target;
+- the old session has a staging or promoted commit, a recovery phase or local
+  target recovery (later integrations may build on those; finish or resume it
+  instead), or is `ready` or `promotion_pending`;
+- the old session is waiting for or holds the repository lock, or its record
+  lock is present;
+- its worktree has uncommitted paths, or could not be fully inspected, unless
+  you pass `--include-unsaved`.
+
+As with every abandon, only the session record changes. The old session's
+own rollout follow-ups and outstanding prerequisites are no longer reported;
+`status --session` points to the superseding session instead. Restoring it
+returns it to `needs_review` or `validation_pending` with its preserved
+recovery unchanged, so `seshx resume` continues where it stopped. Coordinators
+that predate `--superseded-by` show such a session as abandoned and refuse to
+restore it.
 
 Older coordinators see `abandoned` as an unknown, unfinished status: they still
 show it and defer uninstall for it, and they refuse to commit, validate,

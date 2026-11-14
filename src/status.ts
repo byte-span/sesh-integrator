@@ -229,7 +229,7 @@ export async function statusCommand(sessionId?: string): Promise<void> {
     }
     if (selected && (session.readyCommit || session.status === "no_changes"))
       writeCompletionSummary(session);
-    if (session.awaitingConflictResolution) {
+    if (session.awaitingConflictResolution && session.status !== "abandoned") {
       process.stdout.write(
         `  resumable conflict: yes (run seshx resume after resolving and staging)\n`,
       );
@@ -288,6 +288,11 @@ function abandonmentLines(session: Session, detailed: boolean): string[] {
     lines.push(
       `abandoned: ${current.abandonedAt} from ${current.previousStatus} (bucket ${current.bucket})`,
       `abandon reason: ${current.reason}`,
+      ...(current.supersededBy
+        ? [
+            `superseded by: ${current.supersededBy.sessionId} (promoted ${current.supersededBy.promotedCommit} to ${current.supersededBy.targetBranch})`,
+          ]
+        : []),
     );
     if (detailed)
       lines.push(

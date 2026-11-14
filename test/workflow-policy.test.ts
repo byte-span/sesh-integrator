@@ -15,6 +15,10 @@ const SKILL_RELEASES = [
     version: "0.1.0",
     hash: "sha256:a22ba9d4cc5a9cf1e82138668209e4cddb6b3c2e8dca9d753a4e01b519e573fb",
   },
+  {
+    version: "0.1.1",
+    hash: "sha256:cef5d4712e3415c9a8e91eff7ea747e46d0896f03fa6b0b26204bdb18c96229b",
+  },
 ];
 
 describe("bundled workflow trigger policy", () => {

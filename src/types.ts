@@ -287,13 +287,27 @@ export interface SessionAbandonment {
   abandonedAt: string;
   /** User-supplied explanation; never a secret value. */
   reason: string;
-  /** Status restored by `seshx restore`; currently always `active`. */
+  /**
+   * Status restored by `seshx restore`: `active`, or `needs_review` or
+   * `validation_pending` for a recovery session closed as superseded.
+   */
   previousStatus: SessionStatus;
   /** Audit bucket and evidence observed immediately before abandoning. */
   bucket: string;
   evidence: string[];
   /** Whether `--include-unsaved` was required and given. */
   includedUnsaved?: boolean;
+  /**
+   * The successfully promoted session in the same repository whose work
+   * replaces this one, verified on the target when abandoning.
+   */
+  supersededBy?: {
+    sessionId: string;
+    promotedCommit: string;
+    targetBranch: string;
+    /** Target head the promoted commit was verified against. */
+    targetHead: string;
+  };
   /** Set when the abandonment is moved to the history by a restore. */
   restoredAt?: string;
 }

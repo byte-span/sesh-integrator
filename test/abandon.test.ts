@@ -531,6 +531,170 @@ it("restores an abandoned session to active and continues its lifecycle", async 
   expect(f.git(["show", "main:feature.txt"])).toBe("feature");
 }, 60000);
 
+it("closes a conflicted session superseded by a re-land and restores its recovery", async () => {
+  const f = await fixture();
+  await writeFile(
+    join(f.repo, "TASKS.json"),
+    JSON.stringify({ tasks: [{ id: "T-1", status: "ready" }] }),
+  );
+  f.git(["add", "TASKS.json"]);
+  f.git(["commit", "-m", "tasks"]);
+  const change = (worktree: string, contents: string, message: string) => {
+    execFileSync(process.execPath, [
+      "-e",
+      `require("fs").writeFileSync(${JSON.stringify(join(worktree, "base.txt"))}, ${JSON.stringify(contents)})`,
+    ]);
+    f.git(["add", "base.txt"], worktree);
+    f.run(["commit", "--message", message], worktree);
+    f.run(["validate"], worktree);
+  };
+  const integrate = (worktree: string, followUp: string, code = 0) =>
+    f.run(
+      [
+        "integrate",
+        "--summary",
+        "done",
+        "--rollout",
+        "manual",
+        "--follow-up",
+        followUp,
+      ],
+      worktree,
+      code,
+    );
+  const other = await f.begin("Other");
+  const original = await f.begin("Original");
+  change(other.worktreePath, "other\n", "Other");
+  change(original.worktreePath, "original\n", "Original");
+  integrate(other.worktreePath, "T-1: Other rollout");
+  integrate(original.worktreePath, "T-1: Configure the original rollout", 1);
+  const conflicted = await f.record(original.id);
+  expect(conflicted).toMatchObject({
+    status: "needs_review",
+    awaitingConflictResolution: true,
+  });
+  expect(conflicted.recoveryBundle?.state).toBe("open");
+  // The work is re-landed by a new session instead of resuming the conflict.
+  const reland = await f.begin("Re-land original");
+  change(reland.worktreePath, "other\noriginal\n", "Re-land");
+  integrate(reland.worktreePath, "T-1: Configure the re-landed rollout");
+  const relanded = await f.record(reland.id);
+  expect(relanded.status).toBe("succeeded");
+
+  // Plain abandon still refuses recovery state and points at the option.
+  expect(f.abandon(original.id, [], 1)).toContain(
+    "close it with --superseded-by <session-id>",
+  );
+  // Only a promoted session in this repository whose commit is on the
+  // target supersedes it; staging or promotion state is never closed.
+  const notOnTarget = await f.clone(relanded, "offtarget", {
+    promotedCommit: conflicted.readyCommit!,
+  });
+  const staged = await f.clone(conflicted, "staged", {
+    integratedCommit: relanded.promotedCommit!,
+  });
+  const pending = await f.clone(conflicted, "pending", {
+    status: "promotion_pending",
+  });
+  const refusals: [string, string, RegExp][] = [
+    [original.id, original.id, /cannot supersede itself/],
+    [original.id, "session_unknown", /does not exist/],
+    [original.id, notOnTarget.id, /is not reachable from target main/],
+    [staged.id, reland.id, /staging or promotion state/],
+    [pending.id, reland.id, /status is promotion_pending/],
+  ];
+  const activeRefusal = await f.begin("Unfinished");
+  refusals.push([original.id, activeRefusal.id, /is active/]);
+  const gitBefore = f.gitState();
+  const recoveryBefore = await snapshot([conflicted.integrationWorktreePath!]);
+  for (const [id, by, reason] of refusals) {
+    const before = await f.raw(id);
+    const output = f.run(
+      ["abandon", "--session", id, "--superseded-by", by],
+      f.repo,
+      1,
+    );
+    expect(output, `${id} by ${by}`).toMatch(reason);
+    expect(await f.raw(id)).toBe(before);
+  }
+  expect(f.exec(["abandon", "--all", "--superseded-by", reland.id]).code).toBe(
+    1,
+  );
+  // The refused clones share the original worktree; drop them so restore
+  // later is not blocked by another unfinished claimant.
+  for (const clone of [staged, pending, notOnTarget])
+    await rm(join(f.runtime, "sessions", `${clone.id}.json`));
+
+  const output = f.run(
+    ["abandon", "--session", original.id, "--superseded-by", reland.id],
+    f.root,
+  );
+  expect(output).toContain(`Abandoned ${original.id} at `);
+  expect(output).toContain("(was needs_review, bucket lifecycle)");
+  expect(output).toContain(`reason: Superseded by ${reland.id}`);
+  expect(output).toContain(
+    `superseded by: ${reland.id} (promoted ${relanded.promotedCommit}, reachable from main at `,
+  );
+  expect(output).toContain(
+    `recovery bundle kept: ${conflicted.recoveryBundle!.path} (open)`,
+  );
+  expect(output).toContain("    - T-1: Configure the original rollout");
+  expect(output).toContain(
+    `restore: seshx restore --session ${original.id} (returns it to needs_review)`,
+  );
+  const closed = await f.record(original.id);
+  expect(closed.status).toBe("abandoned");
+  expect(closed.abandonment).toMatchObject({
+    previousStatus: "needs_review",
+    supersededBy: {
+      sessionId: reland.id,
+      promotedCommit: relanded.promotedCommit,
+      targetBranch: "main",
+    },
+  });
+  expect(unfinished(closed)).toBe(false);
+  // Only the record changed: refs, worktrees and the preserved merge stay.
+  expect(f.gitState()).toEqual(gitBefore);
+  expect(await snapshot([conflicted.integrationWorktreePath!])).toEqual(
+    recoveryBefore,
+  );
+  const status = f.run(["status", "--session", original.id]);
+  expect(status).toContain(`superseded by: ${reland.id}`);
+  expect(status).toContain(
+    `Outcome: Abandoned at ${closed.abandonment!.abandonedAt} from needs_review; superseded by ${reland.id}`,
+  );
+  expect(status).not.toContain("resumable conflict");
+  expect(status).not.toContain("Manual follow-up:");
+  expect(
+    f.run(["resume", "--session", original.id], original.worktreePath, 1),
+  ).toMatch(/abandoned/);
+  // A later session still integrates normally.
+  const later = await f.begin("Later");
+  await writeFile(join(later.worktreePath, "later.txt"), "later\n");
+  f.git(["add", "later.txt"], later.worktreePath);
+  f.run(["commit", "--message", "Later"], later.worktreePath);
+  f.run(["validate"], later.worktreePath);
+  f.run(
+    ["integrate", "--summary", "later", "--rollout", "none"],
+    later.worktreePath,
+  );
+  expect(f.git(["show", "main:base.txt"])).toBe("other\noriginal");
+
+  // Restore returns the exact recovery state for resume.
+  const restored = f.run(["restore", "--session", original.id], f.root);
+  expect(restored).toContain(`Restored ${original.id} to needs_review.`);
+  expect(restored).toContain(
+    `continue it with seshx resume --session ${original.id}`,
+  );
+  const reopened = await f.record(original.id);
+  expect(reopened.status).toBe("needs_review");
+  expect(reopened.recoveryBundle).toEqual(conflicted.recoveryBundle);
+  expect(reopened.awaitingConflictResolution).toBe(true);
+  expect(
+    f.run(["resume", "--session", original.id], original.worktreePath, 1),
+  ).toContain("Resolve and stage all conflicts before resume");
+}, 120000);
+
 it("shows abandoned sessions separately in the dashboards", async () => {
   const f = await fixture();
   vi.stubEnv("SESH_INTEGRATOR_HOME", f.runtime);
