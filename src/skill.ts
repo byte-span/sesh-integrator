@@ -1,11 +1,4 @@
-import {
-  cpSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  renameSync,
-  rmSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -16,11 +9,12 @@ import {
   installSkill,
   readStamp,
   removeSkill,
+  replaceSkill,
   skillTargets,
   syncSkill,
-  type SkillState,
   type SkillTarget,
   type SyncRow,
+  type SyncState,
 } from "./skill-contract.mjs";
 import { runtimePaths } from "./runtime.js";
 
@@ -77,18 +71,22 @@ export interface SkillRow {
   target: string;
   harnesses: string[];
   dest: string;
-  state: SkillState;
+  /** A contract state, or "busy"/"error" when a row could not be handled. */
+  state: SyncState;
   installedVersion: string | null;
+  error?: string;
 }
 
 export interface SkillChange extends SkillRow {
   changed: boolean;
   backup?: string;
-  error?: string;
   /** Left alone in a state the caller must resolve (flag or other tool). */
   blocked: boolean;
   note: string;
 }
+
+const busyMessage =
+  "another process is updating this skill; try again in a moment";
 
 /** Absolute path of the bundled source folder (`seshx skill path`). */
 export function skillSource(): string {
@@ -106,6 +104,18 @@ export function skillVersion(): string {
   return packageVersion;
 }
 
+/** installSkill/replaceSkill options for one skills directory. */
+function installOptions(targetDir: string, name = SKILL_NAME) {
+  return {
+    source: skillSource(),
+    name,
+    targetDir,
+    owner: SKILL_OWNER,
+    version: skillVersion(),
+    command: SKILL_COMMAND,
+  };
+}
+
 function contractOptions(scope: SkillScope) {
   return {
     source: skillSource(),
@@ -121,7 +131,8 @@ function contractOptions(scope: SkillScope) {
 
 function row(
   target: Pick<SyncRow, "target" | "harnesses" | "dest">,
-  state: SkillState,
+  state: SyncState,
+  error?: string,
 ): SkillRow {
   return {
     target: target.target,
@@ -129,6 +140,7 @@ function row(
     dest: target.dest,
     state,
     installedVersion: readStamp(target.dest)?.version ?? null,
+    ...(error ? { error } : {}),
   };
 }
 
@@ -138,10 +150,14 @@ const targetRow = (target: SkillTarget) => ({
   dest: join(target.dir, SKILL_NAME),
 });
 
-/** One row per active target; changes nothing. */
+/**
+ * One row per active target; changes nothing. Only seshx's own folder in each
+ * directory is read, so lock and temp entries (names starting with ".") are
+ * never reported as skills.
+ */
 export function skillStatus(scope: SkillScope = {}): SkillRow[] {
   return syncSkill({ ...contractOptions(scope), mode: "status" }).map(
-    (result) => row(result, result.state),
+    (result) => row(result, result.state, result.error),
   );
 }
 
@@ -202,7 +218,9 @@ export function installWorkflowSkill(
     if (target) mkdirSync(target.dir, { recursive: true });
   }
   const before = new Map(skillStatus(scope).map((r) => [r.target, r]));
-  const backups = new Map<string, string>();
+  // Flagged replacements back up and install under the per-skill lock; the
+  // sync pass below then finds those copies current and leaves them.
+  const replaced = new Map<string, string | null>();
   const failures = new Map<string, string>();
   for (const current of before.values()) {
     if (
@@ -210,7 +228,11 @@ export function installWorkflowSkill(
       installWouldChange(current, options)
     ) {
       try {
-        backups.set(current.target, backupSkill(current.dest));
+        const result = replaceSkill({
+          ...installOptions(dirname(current.dest)),
+          backupDir: backupPath(),
+        });
+        replaced.set(current.target, result.backup);
       } catch (error) {
         failures.set(current.target, errorMessage(error));
       }
@@ -223,12 +245,16 @@ export function installWorkflowSkill(
   });
   return rows.map((result) => {
     const previous = before.get(result.target)!;
-    const error = failures.get(result.target) ?? result.error;
-    const after = row(result, result.changed ? "current" : result.state);
-    const backup = backups.get(result.target);
+    const changed = result.changed || replaced.has(result.target);
+    const error =
+      failures.get(result.target) ??
+      result.error ??
+      (result.state === "busy" ? busyMessage : undefined);
+    const after = row(result, changed ? "current" : result.state);
+    const backup = replaced.get(result.target);
     const change: SkillChange = {
       ...after,
-      changed: result.changed,
+      changed,
       ...(backup ? { backup } : {}),
       ...(error ? { error } : {}),
       blocked: false,
@@ -237,7 +263,9 @@ export function installWorkflowSkill(
     change.note = describeInstall(change, previous);
     change.blocked =
       Boolean(error) ||
-      ["unmanaged", "edited", "other-owner"].includes(after.state);
+      ["unmanaged", "edited", "other-owner", "busy", "error"].includes(
+        after.state,
+      );
     return change;
   });
 }
@@ -254,7 +282,10 @@ function describeInstall(change: SkillChange, previous: SkillRow): string {
       case "stale":
         return `updated ${previous.installedVersion ?? "?"} -> ${version}`;
       default:
-        return `replaced the ${previous.state} copy (backup: ${change.backup}); now ${version}`;
+        // No backup means the copy was gone by the time the lock was held.
+        return change.backup
+          ? `replaced the ${previous.state} copy (backup: ${change.backup}); now ${version}`
+          : `installed ${version}`;
     }
   switch (change.state) {
     case "current":
@@ -272,10 +303,12 @@ function describeInstall(change: SkillChange, previous: SkillRow): string {
   }
 }
 
-/** Move a copy to <state dir>/skill-backups/<name>-<UTC timestamp>/. */
-function backupSkill(dest: string): string {
+/**
+ * An unused <state dir>/skill-backups/<name>-<UTC timestamp>/ path, outside
+ * every skills directory. replaceSkill creates it.
+ */
+function backupPath(): string {
   const root = join(runtimePaths().root, "skill-backups");
-  mkdirSync(root, { recursive: true });
   const stamp = new Date()
     .toISOString()
     .replace(/[-:]/g, "")
@@ -283,13 +316,6 @@ function backupSkill(dest: string): string {
   let backup = join(root, `${SKILL_NAME}-${stamp}`);
   for (let suffix = 2; existsSync(backup); suffix += 1)
     backup = join(root, `${SKILL_NAME}-${stamp}-${suffix}`);
-  try {
-    renameSync(dest, backup);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "EXDEV") throw error;
-    cpSync(dest, backup, { recursive: true, verbatimSymlinks: true });
-    rmSync(dest, { recursive: true, force: true });
-  }
   return backup;
 }
 
@@ -307,18 +333,25 @@ export function removeWorkflowSkill(
     .filter((target) => !options.targets || options.targets.includes(target.id))
     .map((target) => {
       const before = row(targetRow(target), "missing");
-      const result = removeSkill({
-        name: SKILL_NAME,
-        targetDir: target.dir,
-        owner: SKILL_OWNER,
-        bundledHash,
-        legacyHashes: LEGACY_SKILL_HASHES,
-      });
-      return {
-        ...before,
-        state: result.state,
-        removed: result.removed,
-      };
+      try {
+        const result = removeSkill({
+          name: SKILL_NAME,
+          targetDir: target.dir,
+          owner: SKILL_OWNER,
+          bundledHash,
+          legacyHashes: LEGACY_SKILL_HASHES,
+        });
+        return { ...before, state: result.state, removed: result.removed };
+      } catch (error) {
+        // One target failing (such as a lock that stayed held) never stops
+        // removal from the others.
+        return {
+          ...before,
+          state: "error" as const,
+          error: errorMessage(error),
+          removed: false,
+        };
+      }
     });
 }
 
@@ -340,21 +373,24 @@ export function installWorkflowSkillAt(dest: string): SkillChange {
     state === "missing" ||
     state === "legacy" ||
     (state === "stale" && installWouldChange(before));
+  let error: string | undefined;
+  // installSkill takes the per-skill lock in the parent folder.
   if (update)
-    installSkill({
-      source: skillSource(),
-      name: basename(dest),
-      targetDir: dirname(dest),
-      owner: SKILL_OWNER,
-      version: skillVersion(),
-      command: SKILL_COMMAND,
-    });
+    try {
+      installSkill(installOptions(dirname(dest), basename(dest)));
+    } catch (failure) {
+      error = errorMessage(failure);
+    }
+  const installed = update && !error;
   const change: SkillChange = {
     ...before,
-    state: update ? "current" : state,
-    installedVersion: update ? skillVersion() : before.installedVersion,
-    changed: update,
-    blocked: !update && state !== "current" && state !== "stale",
+    state: installed ? "current" : error ? "error" : state,
+    installedVersion: installed ? skillVersion() : before.installedVersion,
+    changed: installed,
+    ...(error ? { error } : {}),
+    blocked:
+      Boolean(error) ||
+      (!installed && state !== "current" && state !== "stale"),
     note: "",
   };
   change.note = describeInstall(change, before);
@@ -383,6 +419,8 @@ export function healWorkflowSkill(env: NodeJS.ProcessEnv = process.env): void {
       );
     });
     if (!mayChange) return;
+    // Heal never waits for the per-skill lock: a "busy" row (another process
+    // is updating it) is skipped silently, and an "error" row is ignored.
     const changed = syncSkill({ ...contractOptions({ env }), mode: "heal" })
       .filter((result) => result.changed)
       .map((result) => result.target);
@@ -440,9 +478,10 @@ export async function skillCommand(args: string[]): Promise<void> {
           line(
             r.target,
             r.harnesses,
-            `${r.state.padEnd(11)} ${(r.installedVersion ?? "-").padEnd(9)} ${r.dest}`,
+            `${r.state.padEnd(11)} ${(r.installedVersion ?? "-").padEnd(9)} ${r.dest}${r.error ? `: ${r.error}` : ""}`,
           ),
         );
+      if (rows.some((r) => r.state === "error")) process.exitCode = 1;
       return;
     }
     case "install": {
@@ -471,11 +510,14 @@ export async function skillCommand(args: string[]): Promise<void> {
             r.harnesses,
             r.removed
               ? `removed (${r.state})`
-              : r.state === "missing"
-                ? "not installed"
-                : `left the ${r.state} copy at ${r.dest}`,
+              : r.error
+                ? `failed: ${r.error}`
+                : r.state === "missing"
+                  ? "not installed"
+                  : `left the ${r.state} copy at ${r.dest}`,
           ),
         );
+      if (rows.some((r) => r.error)) process.exitCode = 1;
       return;
     }
     default:

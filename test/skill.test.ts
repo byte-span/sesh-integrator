@@ -109,6 +109,8 @@ it("installs, reports and removes the skill in every detected harness directory"
   expect(await readFile(join(claude, "SKILL.md"), "utf8")).toContain("My note");
   expect(m.run(["skill", "install", "--replace-edited"]).code).toBe(0);
   expect(hashSkill(claude)).toBe(hashSkill(source));
+  // The locked replace leaves no lock or temp folder a harness could load.
+  expect(await readdir(join(m.home, ".claude/skills"))).toEqual([name]);
   const backups = join(m.home, "runtime/skill-backups");
   const [backup] = await readdir(backups);
   expect(backup).toMatch(/^sesh-integrator-workflow-\d{8}T\d{6}Z$/);
@@ -165,6 +167,32 @@ it("adopts pre-contract copies on a normal run and leaves other copies alone", a
     expect(hashSkill(copy)).toBe(hashSkill(source));
   }
   expect(await readFile(join(grok, "SKILL.md"), "utf8")).toContain("Mine");
+  expect(healLines(m.run(["version"]).stderr)).toEqual([]);
+});
+
+it("skips a skill another process is updating and reports failed directories", async () => {
+  const m = await machine(".claude", ".grok");
+  const claude = m.copy(".claude/skills");
+  await cp(preContract, claude, { recursive: true });
+  // A live process (this test worker) holds the per-skill lock.
+  const lock = join(m.home, ".claude/skills", `.${name}.lock`);
+  await mkdir(lock);
+  await writeFile(join(lock, "pid"), String(process.pid));
+
+  // Heal never waits and says nothing; the copy waits for a later run.
+  const healed = m.run(["version"]);
+  expect(healed.code).toBe(0);
+  expect(healed.stderr).not.toMatch(/skill|lock/i);
+  expect(readStamp(claude)).toEqual({});
+  expect(existsSync(lock)).toBe(true);
+
+  // Install reports a directory it cannot write and still installs the rest.
+  await rm(lock, { recursive: true });
+  await writeFile(join(m.home, ".grok/skills"), "not a directory\n");
+  const install = m.run(["skill", "install"]);
+  expect(install.code).toBe(1);
+  expect(install.stdout).toMatch(/^grok .* failed: /m);
+  expect(readStamp(claude)?.version).toBe(version);
   expect(healLines(m.run(["version"]).stderr)).toEqual([]);
 });
 

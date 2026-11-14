@@ -15,6 +15,13 @@ export type SkillState =
   | "other-owner"
   | "edited";
 
+/**
+ * A syncSkill row also reports "busy" (heal found another process holding the
+ * per-skill lock, or install waited past its limit) and "error" (an
+ * unexpected failure, with the message in `error`).
+ */
+export type SyncState = SkillState | "busy" | "error";
+
 export interface SkillTarget {
   id: string;
   harnesses: string[];
@@ -38,8 +45,8 @@ export interface SyncRow {
   target: string;
   harnesses: string[];
   dest: string;
-  state: SkillState;
-  installedVersion: string | undefined;
+  state: SyncState;
+  installedVersion?: string | undefined;
   changed: boolean;
   error?: string;
 }
@@ -61,14 +68,29 @@ export declare function classify(
     legacyHashes?: readonly string[] | undefined;
   },
 ): SkillState;
-export declare function installSkill(options: {
+export interface InstallSkillOptions {
   source: string;
   name: string;
   targetDir: string;
   owner: string;
   version: string;
   command: string;
-}): { dest: string; hash: string };
+}
+
+/** Waits for the per-skill lock; throws if it stays held. */
+export declare function installSkill(options: InstallSkillOptions): {
+  dest: string;
+  hash: string;
+};
+/**
+ * Locked backup-then-install, for explicit replace flags only. backupDir must
+ * be outside every skills directory and must not exist yet. `backup` is null
+ * when there was no copy to back up.
+ */
+export declare function replaceSkill(
+  options: InstallSkillOptions & { backupDir: string },
+): { dest: string; hash: string; backup: string | null };
+/** Waits for the per-skill lock; throws if it stays held. */
 export declare function removeSkill(options: {
   name: string;
   targetDir: string;

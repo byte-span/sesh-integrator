@@ -112,6 +112,8 @@ function removeSkillCopies(home: string, uninstalled: string[]): void {
   });
   for (const row of rows)
     if (row.removed) console.log(`Removed ${row.dest}`);
+    else if (row.error)
+      console.log(`Could not remove ${row.dest}: ${row.error}`);
     else if (row.state !== "missing")
       console.log(`Preserving customized skill: ${row.dest} (${row.state})`);
 }
