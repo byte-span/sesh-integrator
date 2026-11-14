@@ -23,6 +23,7 @@ Commands below run from the repository root unless stated otherwise.
 - [Failure incidents](#failure-incidents)
 - [`reconcile`](#reconcile)
 - [`doctor`](#doctor)
+- [`skill`](#skill)
 
 For setup and uninstall, see [installation](installation.md). For `register`,
 `config apply`, `config check`, validation settings, and target branches, see
@@ -64,6 +65,10 @@ seshx reconcile [repo-path] [--apply]
 seshx audit-legacy
 seshx cleanup-guidance [--apply]
 seshx doctor
+seshx skill install [--replace-unmanaged] [--replace-edited] [--allow-downgrade]
+seshx skill status [--json]
+seshx skill remove
+seshx skill path
 seshx benchmark [--runs <n>] [--json] [--check]
 ```
 
@@ -1218,4 +1223,28 @@ Run one read-only readiness check from the project you intend to use:
 seshx doctor
 ```
 
-It checks Node.js, Git, the configured Codex executable, runtime/config files, the installed workflow skill, synchronized managed global guidance without stale concurrency prohibitions, current-project registration, separate staging/target branch ancestry, source and integration validation commands, active locks, and conflicting legacy automation. It prints `READY`, `READY WITH ... WARNINGS`, or `NOT READY` with actionable details. A `NOT READY` result exits nonzero. Warnings cover checks that could not be confirmed safely, such as an unavailable `launchctl` query.
+It checks Node.js, Git, the configured Codex executable, runtime/config files, the installed workflow skill and the skill contract state of every detected harness skill directory, synchronized managed global guidance without stale concurrency prohibitions, current-project registration, separate staging/target branch ancestry, source and integration validation commands, active locks, and conflicting legacy automation. It prints `READY`, `READY WITH ... WARNINGS`, or `NOT READY` with actionable details. A `NOT READY` result exits nonzero. Warnings cover checks that could not be confirmed safely, such as an unavailable `launchctl` query.
+
+### `skill`
+
+Manage the `sesh-integrator-workflow` skill in every detected harness skill
+directory ([targets and states](harnesses.md#skill-directories)):
+
+```bash
+seshx skill status [--json]
+seshx skill install [--replace-unmanaged] [--replace-edited] [--allow-downgrade]
+seshx skill remove
+seshx skill path
+```
+
+`status` prints one line per directory: target, harnesses, state, installed
+version and path; `--json` prints the same rows as an array. `install` installs
+missing copies and updates `legacy` and `stale` ones; it exits nonzero when a
+copy stays `unmanaged`, `edited` or managed by another tool. `remove` removes
+only `current`, `stale` and `legacy` copies. `path` prints only the bundled
+source folder, for tools that compare against it.
+
+Every other command except `setup`, `uninstall` and `doctor` heals first: it
+updates `legacy` copies and copies from an older seshx, and prints one stderr
+line when it changed something. It never adds a missing copy or downgrades.
+Set `AGENT_SKILL_HEAL=0` to turn it off.

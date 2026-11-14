@@ -11,8 +11,9 @@ export default defineConfig(async () => {
     );
   return {
     test: {
-      // Each test exercises disposable queue state, never the operator's queue.
-      setupFiles: ["./test/queue-isolation.ts"],
+      // Each test exercises disposable queue state, never the operator's queue,
+      // and never touches the operator's harness skill directories.
+      setupFiles: ["./test/queue-isolation.ts", "./test/skill-isolation.ts"],
       maxWorkers: workers.maxWorkers,
     },
   };

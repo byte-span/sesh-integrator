@@ -82,6 +82,12 @@ export async function main(
   );
   if (build.error) throw new Error("Could not start the smoke test build.");
   if (build.status !== 0) return build.status ?? 1;
+  const copy = execute(
+    process.execPath,
+    ["scripts/copy-js-modules.mjs"],
+    options,
+  );
+  if (copy.status !== 0) return copy.status ?? 1;
   const usage = await prepare(env);
   Object.assign(options.env, usage.env);
   try {

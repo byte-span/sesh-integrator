@@ -1,6 +1,8 @@
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Config } from "./types.js";
+
+export const MANAGED_START = "<!-- codex-handoff:managed:start -->";
 
 export type Harness = "codex" | "claude" | "antigravity" | "gemini" | "grok";
 interface HarnessInfo {
@@ -9,8 +11,8 @@ interface HarnessInfo {
   legacy?: boolean;
   directory: string;
   instructions: string;
-  skillDirectory: string;
-  metadataFiles: string[];
+  /** Skill install contract target that this harness reads skills from. */
+  skillTarget: string | null;
   versionArgs: string[];
 }
 // This manifest is also consumed directly by the installation scripts.
@@ -36,18 +38,23 @@ export function harnessCommand(config: Config, harness: Harness): string {
   );
 }
 
+/**
+ * Harnesses whose global instructions carry the managed block. The workflow
+ * skill goes to every detected harness directory, so only the per-harness
+ * block records that setup enrolled the harness.
+ */
 export function installedHarnesses(home: string): Harness[] {
-  return harnesses.filter((harness) =>
-    existsSync(
-      join(
-        home,
-        harnessInfo[harness].skillDirectory,
-        "skills",
-        "sesh-integrator-workflow",
-        "SKILL.md",
-      ),
-    ),
-  );
+  return harnesses.filter((harness) => {
+    const info = harnessInfo[harness];
+    try {
+      return readFileSync(
+        join(home, info.directory, info.instructions),
+        "utf8",
+      ).includes(MANAGED_START);
+    } catch {
+      return false;
+    }
+  });
 }
 
 export function validateHarnessConfig(config: Config): void {

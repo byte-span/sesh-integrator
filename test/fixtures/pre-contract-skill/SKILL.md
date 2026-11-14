@@ -1,0 +1,450 @@
+---
+name: sesh-integrator-workflow
+description: Use for most code-changing coding-agent tasks in Git repositories that should run in an isolated source worktree and be validated and promoted by the local sesh-integrator tool. Automatically register and begin or continue a session, then create a focused commit, validate, integrate, and resume when safe. Never use for read-only work, non-Git directories, its integration branch, or the legacy codex-integrator workflow.
+---
+
+# Sesh Integrator Workflow
+
+This skill coordinates a coding session with the local `sesh-integrator` CLI.
+
+It does not perform daemon monitoring.
+
+Supported harnesses are Codex CLI (`codex`), Claude Code (`claude`), Antigravity CLI
+(`antigravity`), and Grok Build (`grok`). When beginning a session, pass
+`--harness <your-harness>` with the matching identifier; omission means Codex
+for compatibility. Use the same identifier with `seshx doctor --harness`.
+Resolve conflicts and inspect failure evidence in the current agent session.
+Optional nested resolution (`conflictResolutionMode: "nested-agent"`) and
+automated incident investigation use the session's recorded harness.
+Antigravity automated diagnosis uses a neutral fallback because plan mode is not
+enforced read-only. All harnesses share the Git lifecycle; keep exceptions limited to documented
+harness behavior. `seshx doctor --installed` checks every installed workflow.
+Read repository `AGENTS.md` and your harness's project instructions, such as
+`CLAUDE.md` or `GEMINI.md`, before editing.
+
+When developing `sesh-integrator` itself, follow its repository instructions:
+use isolated source worktrees and a stable installed coordinator outside the
+source repository. Pin the resolved coordinator CLI path for the entire session,
+including resume, and run lifecycle commands through that path. Never coordinate
+integration with the candidate build being modified or replace the coordinator
+during unfinished sessions. See the repository README for snapshot installation.
+
+Use `seshx` as the preferred command. `sesh-integrator`, `pintx`,
+`parallel-integrator`, and `codex-handoff` remain compatible aliases. Existing
+runtime data and configured branch names remain in place.
+
+Runtime paths below use the fresh-install default. If `SESH_INTEGRATOR_HOME`, `PARALLEL_INTEGRATOR_HOME`
+or compatibility `CODEX_HANDOFF_HOME` is set, use that directory instead.
+Otherwise reuse `~/.codex-handoff/` first, then `~/.parallel-integrator/` if present;
+fresh installations use `~/.sesh-integrator/`. Do not move existing session or worktree data.
+
+## Execution capability stops
+
+Honor persisted manual-handoff mode and capability failures. Do not repeatedly
+retry lifecycle commands or run `capabilities --recheck` automatically to clear
+a stop. Inspect the reported operation, location, preserved state and recovery
+choices. `capabilities --mode manual` stops automatic lifecycle work in that
+repository/execution context; it does not complete an existing session.
+Restore `--mode automatic` only when the user chooses it. After an approved
+scoped environment repair or a move to an authorized execution context, run
+`seshx capabilities --recheck` before continuing the same session with its
+pinned coordinator. Older coordinators may require the compatible new CLI for
+the check, while retaining the recorded CLI for lifecycle recovery. Never
+relax secret protections, delete unknown locks, or replace pinned releases to
+bypass a failure. Integrator configuration cannot grant host permissions.
+
+## Adoption and installation continuity
+
+Repository-scoped registration/begin reports existing dirty work and managed
+sessions. Isolated tasks may start from dirty launch checkouts; never import,
+commit, stash, or discard old edits automatically. Global setup cannot discover
+intended repositories or enroll already-open conversations. Inspect status in
+each known repository and continue tasks by session ID.
+
+New sessions retain a content-hashed coordinator and resource copy under the
+runtime's `coordinators/` directory. `status --session <id>` identifies it and
+reports missing assets. Keep the pinned coordinator for unfinished tasks;
+compatible reinstall can recover if the original executable is missing.
+`seshx installation-check` rejects incompatible state before installation changes.
+Do not run older pre-contract executables on newer session records.
+
+Uninstall stops new enrollment for selected harnesses and defers guidance removal
+while their sessions are unfinished. Existing sessions can finish using retained
+executables; rerun uninstall afterward. Direct npm package removal can bypass
+uninstall, so preserve runtime data, recovery bundles and Git refs. Reinstall with
+the same runtime home and a compatible build. Never remove an ambiguous lock to
+make installation or recovery proceed.
+
+## Start of a code-changing task
+
+Check `seshx status` for the current repository's enablement before registration
+or session recovery. If it reports `Enablement: disabled`, skip this workflow
+and follow the repository's normal development instructions. Do not automatically
+register, begin, resume, or run `seshx enable` to bypass an opt-out. Registration
+and enablement are independent; registration never clears a disabled setting.
+Only enable the repository when the user requests it.
+
+Before modifying files:
+
+1. Confirm this is code-changing work in a Git repository and is not work on
+   its configured integration branch.
+2. Inspect repository instructions and Git state. Never reset, overwrite,
+   discard, clean, or silently stash existing user state.
+3. Check whether `seshx` is available and inspect
+   `seshx status`. Continue an active or recoverable session for this
+   task from its recorded source path. Do not replace a different task's
+   session.
+4. If the repository is unregistered, autonomously run:
+
+   ```bash
+   seshx register --auto-config
+   ```
+
+5. Before beginning, compare the effective target reported by
+   `seshx status` with repository instructions. When the default branch
+   is stable but agent work must land on another branch such as `dev`, set the
+   global `defaultTargetBranch` accordingly in `config.json` under the effective `Runtime:` directory shown by `seshx status`.
+   It applies to existing and new registrations that omit `targetBranch`; keep
+   per-repository `targetBranch` values only as explicit exceptions.
+6. If no appropriate session exists, run:
+
+   ```bash
+   seshx begin --create-worktree --summary "<concise task summary>"
+   ```
+
+   From an ordinary checkout, the command creates a unique task branch and
+   source worktree. From an existing linked worktree it reuses that worktree.
+   Read `Continue task in: <path>` from the output and perform every subsequent
+   edit and handoff command from that path. Do not edit the launch checkout.
+   An active session launched from that ordinary checkout does not block a new
+   unrelated task: begin another managed worktree. If a lifecycle command from
+   the shared launch checkout reports multiple matches, select the intended one
+   with `--session <session-id>`; do not infer task identity from timing.
+
+7. `begin` runs centrally configured setup commands before creating a task
+   branch or session. Auto-configured setup failures warn and continue; explicit
+   setup failures stop. Do not stop solely for the advisory warning.
+8. If `begin` reports a changed setup result, an indeterminate Git error, or the
+   handoff integration branch, stop and explain. A newly created worktree may be
+   preserved after failure; do not delete it or its branch automatically.
+9. For an already-linked/in-place source, if `begin` reports staged baseline
+   state, stop. Pre-existing unstaged paths may proceed only under the CLI's
+   recorded-baseline diagnostics. Never create or switch a branch manually as a
+   workaround. Dirty or staged state in an ordinary launch checkout is left
+   untouched and excluded from the new task worktree.
+10. If the user explicitly says this work depends on another handoff session,
+    pass its ID with `--depends-on`.
+11. Do not infer dependencies from start time alone.
+
+## During work
+
+- Follow repository `AGENTS.md`.
+- Work only in the source path recorded by the active session.
+- Keep changes scoped to the task.
+- Do not invoke the legacy `codex-integrator`.
+- Do not merge into the integration branch manually.
+
+### Maintain the session checklist
+
+After beginning or recovering a session, inspect `seshx tasks list` and maintain
+its existing plan. For a new checklist, add ordered, task-specific milestones:
+
+```bash
+seshx tasks add --title "Inspect existing behavior" --title "Implement changes" --title "Verify and integrate"
+seshx tasks update 1 --status in_progress
+```
+
+Do this before implementation so the dashboard can show progress. Titles should
+be short and concrete; use `--description` for detail. Tasks default to pending.
+Mark a task completed when its work is finished, then mark the next task
+in_progress. Only one task can be in_progress. Use blocked or skipped with an
+explicit `--reason` when needed. Never mark unfinished work completed.
+
+As the plan changes, add discoveries, clarify a task with `tasks update <id>
+--title "..."`, and reorder with `tasks move <id> --position <n>`. IDs remain
+stable after reordering; use the IDs printed by the CLI. To split work, add the
+replacement tasks and skip the original with a reason. Keep completed and
+skipped entries as history. Update the checklist promptly at each transition,
+including after successful integration; do not wait until the final response.
+Use `--session <session-id>` when selection from the launch checkout is ambiguous.
+Do not write the session JSON directly or record any secret values. Checklist
+status is agent-reported and never replaces required validation or promotion.
+
+### Finish when no changes are needed
+
+If inspection shows the requested work is already implemented and this session
+has no new changes, finish its checklist truthfully (skip unnecessary work with
+reasons), then run:
+
+```bash
+seshx finish --no-changes --summary "<why no changes are needed>" [--session <id>] [--satisfied-by <successful-session-id>]
+```
+
+This is required before the final response; skipping tasks alone does not close
+the session. The CLI verifies the unchanged source branch/commit and observable
+working-tree baseline, rejects integration/recovery state and unfinished tasks,
+and records `no_changes` without creating or promoting a commit. Never create an
+empty commit or integrate just to close a no-change session. If an earlier
+successful session already delivered the work, pass its ID with `--satisfied-by`;
+the CLI verifies its source commit is present and retains its outstanding PR
+review and rollout obligations. Report the current no-change session and the
+referenced integration separately. Inspect `seshx status --session <id>` before
+reporting completion. A terminal response does not update stored session status.
+
+## Task resource cleanup
+
+Track resources created for the task in its checklist or non-secret evidence:
+exact container/builder names, process identity, temporary paths, purpose and
+stop command. Prefer unique task identities and project scripts that clean up
+on success, failure and cancellation. Temporary containers and builders must
+not restart automatically with Docker unless their continued operation is
+explicitly required. An explicitly started development environment may remain
+running; record that intent and how to stop it.
+
+Before finishing (including no-change completion), after failed validation, and
+when resuming interrupted work, inspect the task's recorded resources. Stop
+owned containers, builders, servers and background processes that are no longer
+needed, using their supported lifecycle commands and bounded waits. Verify the
+result. Remove only known disposable task files after retaining needed evidence.
+An interruption or host crash may bypass cleanup handlers; reconcile leftovers
+before starting replacement workloads.
+
+Confirm ownership and current use before acting. Inactivity, a matching name
+prefix, or a dead parent alone does not prove a resource is safe to stop. Preserve
+shared resources, pre-existing development environments, persistent data, user
+changes, Git worktrees/branches, locks and integration recovery evidence. Never
+use blanket Docker prune, volume deletion, broad process kills or lock removal
+to clean up a session. If ownership is ambiguous, leave the resource intact and
+report the uncertainty. For anything intentionally retained or not cleaned up,
+report its exact identity, purpose, owner and supported stop/recovery command;
+record required manual cleanup as an outstanding follow-up. These are agent
+workflow duties, not a new daemon or automatic cleanup performed by `integrate`.
+
+## Validation scope
+
+This workflow owns the general policy. Repository instructions should retain
+only concrete validation commands, path lists and genuine project exceptions;
+do not copy this policy into each project or independently maintained global
+instruction sources. The installer distributes this policy with the skill.
+
+Before an expensive validation run, inspect the complete change and the
+repository's configured `validationTiers`, source and integration commands.
+Use checks that exercise the affected behavior. Documentation and task-register
+data normally need formatting/link checks and any existing schema/dependency
+validator, rather than unrelated runtime builds and native tests. Executable
+examples, generated inputs, packaged guidance and documentation used by the
+application can need additional focused checks; an extension alone is not proof
+that a file is inert.
+
+Keep repository-specific selection in the integrator configuration. A lightweight
+tier should allow only reviewed paths and supply their meaningful checks. The
+CLI selects it only when every changed path matches. Mixed runtime, test,
+build/validation tooling, dependency, migration or executable configuration
+changes must retain appropriate code checks, using an explicitly configured code
+tier or the full fallback. Do not broaden a docs tier to all JSON, all files in
+a documentation folder, or executable examples merely to make it match.
+
+When the configured checks are disproportionate and policy adjustment is within
+the user's authorization, correct the configuration before running them. Inspect
+existing project scripts and path usage, preserve custom tiers and explicit
+stricter requirements, and explain the intended change. Use existing tier support;
+coordinator code is needed only for a demonstrated missing capability. Keep the
+full fallback intact. Verify positive lightweight cases and negative mixed-code
+cases with the installed selection logic, then let `seshx validate` and integration
+select and run the configured plan on the exact committed trees.
+
+If changing policy is outside the authorized scope or its safety is unclear,
+report the mismatch and proposed correction; do not silently weaken checks.
+A policy correction is separate from a failed check: never hide a runtime failure
+by relabeling its paths, deleting checks, substituting a smaller command manually,
+or treating an interrupted run as successful. Record a changed configuration and
+rerun validation through the CLI; preserve all existing session/recovery state.
+
+Once the required selected checks pass, do not run unrelated full suites solely
+because source promotion is next. Honor the integration selection, combined-tree
+validation and any broader checks explicitly required by repository policy.
+
+## Completion
+
+Before saying the task is complete:
+
+1. Inspect the task diff and `git status`.
+2. If task changes are uncommitted:
+   - confirm they belong to this task
+   - confirm the branch is safe
+   - stage only the intended task paths
+   - create one focused commit through the controlled command so signing is
+     preflighted immediately before Git creates the commit:
+
+     ```bash
+     seshx commit --message "<focused commit message>"
+     ```
+
+   - never substitute a raw `git commit` when a handoff session is active
+3. If unrelated/ambiguous changes are present, ask before staging or committing.
+4. Require no newly introduced or changed non-task working-tree state. An
+   observably unchanged baseline path may remain only when `validate` explicitly
+   reports that it is preserved and excluded; do not claim an inaccessible
+   path's disk contents were verified.
+5. Run `seshx validate`. It chooses configured validation commands from
+   the exact committed diff; do not manually substitute a cheaper tier.
+6. If validation fails, inspect the complete failure evidence before stopping.
+   An exit code is evidence, not a verdict about whether the failure is
+   deterministic. When retrying is plausibly safe, rerun the unchanged
+   `seshx validate` command, for at most three total attempts. Do not
+   edit code merely to make a retry pass. Stop after repeated failure or when
+   the evidence identifies a code defect, and never integrate without
+   successful validation. If validation succeeds while warning that a
+   baseline-inaccessible tracked path is preserved and excluded, continue to
+   `integrate`; do not independently reject that path or inspect the integration
+   worktree before the CLI does.
+7. Run:
+
+   ```bash
+   seshx integrate --summary "<concise completion summary>" \
+     --rollout <none|applied|automated|manual> \
+     [--follow-up "<required manual action>"]...
+   ```
+
+8. If `integrate` reports a resumable merge conflict:
+   - read the saved conflict prompt
+   - inspect and resolve the preserved integration worktree reported by the CLI
+   - preserve compatible intent, remove all conflict markers, and stage the resolved files
+   - do not commit in the integration worktree
+   - run `seshx resume` from the original source worktree
+   - continue autonomously unless the conflict is genuinely ambiguous or validation fails
+9. If a clean merge was preserved after validation or commit creation failed,
+   run `seshx resume` from the original source worktree. The CLI must
+   verify that its exact staged merge tree is unchanged before retrying.
+   Every integration validation failure is recorded as `validation_pending`;
+   it is resumable by the same command after evidence review and does not
+   require reclassifying it as `needs_review`.
+   Resume treats the durable recovery bundle as authoritative and reconstructs
+   a fresh, hash-verified recovery worktree. Do not move, edit, or delete files
+   under `~/.sesh-integrator/recovery-bundles/` or refs under
+   `refs/codex-handoff/recovery/`; the previously shared integration worktree
+   may no longer be the worktree reported after resume.
+10. If validation succeeded but target promotion reports
+    `promotion_pending`, preserve the staging commit. Correct only the reported
+    condition (for example, check out the target branch or save and clean user
+    changes in its worktree)
+    and run `seshx resume`. Do not reset, clean, or discard user state.
+    If its owner committed the old target edits, resume reconciles both histories
+    in an isolated worktree and runs full integration validation. Resolve/stage
+    conflicts in the reported worktree without committing, then resume. Each
+    resume makes one local reconciliation attempt; another target movement stays
+    pending. Never replace the recorded expected SHA manually.
+11. If shared-target remote recovery reports a conflict, resolve and stage only
+    the preserved integration worktree it names, then run `seshx
+resume`. Do not fetch, merge, push, reset, or retry manually; the CLI owns
+    the exact fetched commit, full revalidation, and bounded non-force retries.
+12. For any other integration failure, inspect the CLI's complete preserved
+    evidence and incident diagnosis. Treat classifications as evidence, not a
+    verdict. If retrying the unchanged result is safe, run `seshx
+resume` in the same session for at most three total attempts. Report a
+    blocker only after those attempts fail or the evidence identifies a code
+    defect, ambiguity, or required external change. Do not start a replacement
+    session merely to retry integration, and never edit workflow instructions
+    or tool code from the failed session itself.
+13. Classify external-state rollout for every integration. `none` means no
+    external state is affected; `applied` means it is already applied;
+    `automated` means trusted automation will apply it; and `manual` requires
+    one or more explicit `--follow-up` actions. Source promotion never implies
+    that migrations, infrastructure, configuration, secrets, jobs, backfills,
+    or deployment state were applied.
+14. Report:
+
+- session ID
+- source commit
+- staging integration commit
+- target branch and promoted commit if successful
+- pull-request URL when one was created or reused
+- `promotion_pending` or `needs_review` details if unsuccessful
+- all required manual follow-up steps, or `No manual follow-up required.` when
+  there are none
+
+Requests for concision never override these required completion fields. Use the
+CLI's compact `Completion summary` block as the reporting baseline and do not
+omit a populated pull-request URL.
+
+Start each `--follow-up` with the ID of the open task in the repository's
+`TASKS.json` that covers it, for example `PC-006: Deploy ...`; integration
+refuses anything else. If no task covers the action, add or update one in this
+session first. If the repository has no `TASKS.json`, ask the user where to
+track the action instead of reporting it untracked. The pull request's own
+review and merge needs no follow-up.
+
+For each `--follow-up`, record one actionable outstanding step: what to do,
+where to do it (system, repository/project, environment), and exact configuration
+names when known. Verify names from non-secret source/configuration; do not
+invent missing names. For credentials, record only names and destination and
+say to configure them on a trusted machine. Never request, read, store, or print
+secret values, including in CLI arguments or session records.
+
+Before the final response, use the latest `Completion summary` (available again
+with `seshx status --session <session-id>`) and check every recorded
+action against the response. Preserve every outstanding action and its essential
+details, even when concise: action, destination, exact names, and prerequisites.
+Do not collapse setup into a label such as “complete CWS setup.” Documentation
+links may supplement instructions but must not replace known essential steps.
+Keep completed actions separate from outstanding ones. After successful recovery,
+report resolved integration prerequisites as completed, not required follow-ups;
+do not copy old errors or incident fixes into the outstanding list. Record only
+outstanding external work in `--follow-up`, not prerequisites the session already
+resolved. Recovery alone does not resolve recorded external setup actions. If an
+external action was subsequently completed with evidence, explicitly report that
+completion instead of silently omitting it or repeating it as outstanding.
+
+Source promotion success is separate from external setup or rollout completion.
+`automated` means delegated, not verified complete. Use `No manual follow-up
+required.` only when no required actions remain, including review/merge and
+unresolved prerequisites. Requests for concision never override these details.
+
+## Concurrent integration
+
+If another session is integrating the repository, `seshx integrate` may wait for the repository lock.
+
+Do not start an alternative merge while waiting.
+
+The lock holder may integrate waiting sessions together as an integration batch.
+`integrate` then names the batch it joined and keeps waiting while the leader
+works. When the batch resolves the session, `integrate` exits with this
+session's completion summary: treat it like any other `integrate` result. A
+promoted session is done; do not integrate it again. A session left out after a
+merge conflict keeps waiting and then reports the normal resumable conflict. A
+failure from integrating it alone after a combined validation failed is a normal
+`validation_pending` result for this session; follow the recovery steps above.
+
+Never monitor that wait with an unbounded shell polling loop such as
+`while pgrep`. Use the execution tool's session-aware wait operation, or bounded
+retries against a specific process/session identifier with an explicit timeout.
+
+## Failure
+
+If `integrate` fails:
+
+- do not claim integration succeeded
+- do not run destructive Git cleanup
+- preserve the reported integration worktree
+- automatically follow the resumable-conflict procedure above when offered
+- otherwise report the status and recommended next action
+- distinguish a validated staging result from completed target promotion
+
+## Boundaries
+
+Never:
+
+- issue direct Git pushes without an explicit user request
+- force-push without an explicit user request
+- reset user worktrees
+- delete branches/worktrees
+- invoke the legacy daemon workflow
+- treat earlier start time as automatic precedence
+
+The `push` boundary applies to direct agent-issued Git commands. An explicitly
+configured `promotion.type: "pull-request"` authorizes `sesh-integrator` itself to
+perform its narrow non-force target push and create or update the configured PR.
+
+Use only the `sesh-integrator-workflow` skill. Compatible CLI command aliases
+do not require duplicate workflow skills. Archive obsolete skill copies outside
+harness discovery directories; preserve customized resources.

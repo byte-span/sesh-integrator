@@ -1,3 +1,4 @@
+import { harnessHomeEnv } from "./harness-env.js";
 import { execFileSync, spawnSync } from "node:child_process";
 import {
   cp,
@@ -54,16 +55,14 @@ async function fixture() {
     join(repo, ".gitignore"),
     "node_modules/\ndist/\n*.ignored\n",
   );
-  const env = {
-    ...process.env,
-    HOME: home,
+  const env = harnessHomeEnv(home, {
     GIT_CONFIG_GLOBAL: join(home, "gitconfig"),
     GIT_CONFIG_NOSYSTEM: "1",
     SESH_INTEGRATOR_HOME: runtime,
     SESH_INTEGRATOR_BIN_DIR: bin,
     SESH_INTEGRATOR_RELEASE_DIR: releases,
     PARALLEL_INTEGRATOR_TEST_INCIDENT_FALLBACK: "1",
-  };
+  });
   const git = (...args: string[]) =>
     execFileSync("git", args, {
       cwd: repo,

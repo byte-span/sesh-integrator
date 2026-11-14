@@ -3,16 +3,14 @@
     "name": "Codex CLI",
     "directory": ".codex",
     "instructions": "AGENTS.md",
-    "skillDirectory": ".agents",
-    "metadataFiles": ["agents/openai.yaml"],
+    "skillTarget": "agents",
     "versionArgs": ["--version"]
   },
   "claude": {
     "name": "Claude Code",
     "directory": ".claude",
     "instructions": "CLAUDE.md",
-    "skillDirectory": ".claude",
-    "metadataFiles": [],
+    "skillTarget": "claude",
     "versionArgs": ["--version"]
   },
   "antigravity": {
@@ -20,16 +18,14 @@
     "command": "agy",
     "directory": ".gemini",
     "instructions": "GEMINI.md",
-    "skillDirectory": ".gemini/antigravity-cli",
-    "metadataFiles": [],
+    "skillTarget": "antigravity-cli",
     "versionArgs": ["--version"]
   },
   "gemini": {
     "name": "Gemini CLI",
     "directory": ".gemini",
     "instructions": "GEMINI.md",
-    "skillDirectory": ".gemini",
-    "metadataFiles": [],
+    "skillTarget": null,
     "versionArgs": ["--version"],
     "legacy": true
   },
@@ -37,8 +33,7 @@
     "name": "Grok Build",
     "directory": ".grok",
     "instructions": "AGENTS.md",
-    "skillDirectory": ".grok",
-    "metadataFiles": [],
+    "skillTarget": "grok",
     "versionArgs": ["version"]
   }
 }
