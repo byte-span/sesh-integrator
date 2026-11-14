@@ -663,6 +663,7 @@ Usage:
   seshx sessions audit [--repo <path>] [--idle-days <n>] [--json]
   seshx sessions idle --repo <path>
   seshx abandon --session <session-id> --reason "..." [--include-unsaved]
+  seshx abandon --session <session-id> --superseded-by <session-id> [--reason "..."] [--include-unsaved]
   seshx abandon --all [--repo <path>] [--idle-days <n>] [--bucket <list>] [--include-unsaved] [--apply --reason "..."]
   seshx restore --session <session-id>
   seshx incident <ticket-id>

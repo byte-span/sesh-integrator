@@ -4,6 +4,22 @@ import { describeValidationFiles } from "./validation-files.js";
 // Follow-ups are declarations, not inferred from error messages or task summaries.
 // Recovery clears blockers; it does not prove external setup was performed.
 export function writeCompletionSummary(session: Session): void {
+  if (session.status === "abandoned") {
+    // A closed session's own obligations are no longer reported; a
+    // superseding session reports those of the work it delivered.
+    const abandonment = session.abandonment;
+    const superseding = abandonment?.supersededBy;
+    process.stdout.write(
+      `Completion summary:\n` +
+        `  Session: ${session.id}\n` +
+        `  Source commit: ${session.readyCommit ?? "Not recorded"}\n` +
+        `  Outcome: Abandoned${abandonment ? ` at ${abandonment.abandonedAt} from ${abandonment.previousStatus}` : ""}${superseding ? `; superseded by ${superseding.sessionId}, promoted to ${superseding.targetBranch} at ${superseding.promotedCommit}` : ""}.\n` +
+        (abandonment ? `  Reason: ${abandonment.reason}\n` : "") +
+        `  Required manual actions: None reported for this closed session.${superseding ? ` Outstanding actions for the delivered work are reported by seshx status --session ${superseding.sessionId}.` : ""}\n` +
+        `  Restore: seshx restore --session ${session.id}\n`,
+    );
+    return;
+  }
   const followUps = [
     ...(session.pullRequestUrl
       ? [`Review and merge ${session.pullRequestUrl}.`]
