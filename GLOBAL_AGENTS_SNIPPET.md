@@ -255,8 +255,10 @@ For each `--follow-up`, record one actionable outstanding step: what to do,
 where to do it (system, repository/project, environment), and exact configuration
 names when known. Verify names from non-secret source/configuration; do not
 invent missing names. For credentials, record only names and destination and
-say to configure them on a trusted machine. Never request, read, store, or print
-secret values, including in CLI arguments or session records.
+say to configure them on a trusted machine. For a Production action, once an
+operations surface such as an Agent Hub Ops tab is available, also name the Ops
+action that performs it. Never request, read, store, or print secret values,
+including in CLI arguments or session records.
 
 Before the final response, use the latest `Completion summary` (available again
 with `seshx status --session <session-id>`) and check every recorded
