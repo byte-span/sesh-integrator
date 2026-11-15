@@ -19,6 +19,10 @@ const SKILL_RELEASES = [
     version: "0.1.1",
     hash: "sha256:cef5d4712e3415c9a8e91eff7ea747e46d0896f03fa6b0b26204bdb18c96229b",
   },
+  {
+    version: "0.1.2",
+    hash: "sha256:4f208e5cf469c7e80aeab9a0f6c9f348a0af180f9a93157b0e49a4eea325a668",
+  },
 ];
 
 describe("bundled workflow trigger policy", () => {
@@ -75,6 +79,7 @@ describe("bundled workflow trigger policy", () => {
       expect(policy).toContain(
         "Recovery alone does not resolve recorded external setup actions",
       );
+      expect(policy).toMatch(/also name the Ops\s+action that performs it/);
     }
   });
 
