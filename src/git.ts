@@ -66,6 +66,36 @@ export async function isClean(cwd: string): Promise<boolean> {
   );
 }
 
+/**
+ * `isClean` for a checked-out target worktree, except that untracked paths
+ * under `.claude/worktrees/` (Claude Code desktop worktrees, local harness
+ * state) do not count. Tracked changes there and every other untracked path
+ * still make it dirty. `cwd` must be the worktree's top level.
+ */
+export async function isTargetClean(cwd: string): Promise<boolean> {
+  const status = await git(
+    ["status", "--porcelain=v1", "--untracked-files=normal"],
+    cwd,
+  );
+  if (status === "") return true;
+  // Git collapses a wholly untracked `.claude/` into one entry, so look
+  // inside only when every entry is untracked and under `.claude/`.
+  if (!status.split("\n").every((line) => line.startsWith("?? .claude/")))
+    return false;
+  const untracked = await git(
+    [
+      "ls-files",
+      "--others",
+      "--exclude-standard",
+      "--exclude=/.claude/worktrees/",
+      "--directory",
+      "--no-empty-directory",
+    ],
+    cwd,
+  );
+  return untracked === "";
+}
+
 export async function observeGitState(cwd: string): Promise<GitObservation> {
   const [head, status, worktreeDiff, stagedDiff, index] = await Promise.all([
     git(["rev-parse", "HEAD"], cwd),

@@ -241,6 +241,23 @@ Failed validation or blocked target promotion also preserves recovery state.
 Inspect the reported cause before retrying. Never delete locks or reset a
 worktree to force progress. [Recovery details →](docs/commands.md#resume)
 
+Two validation failures usually come from the environment, not the code:
+
+- **`Command process group N still exists after exit`.** A validation command
+  left a child running, such as a dotnet build server or an orphaned `sleep`.
+  Pass `--disable-build-servers` to dotnet commands and make spawned helpers
+  stop their own children. To check a command, run
+  `setsid -w sh -c 'echo "pgid $$"; exec <command>'`, then
+  `pgrep -l -g <pgid>` lists what it left behind. Once the reported pid and
+  pgid are gone, run `seshx queue recover <entry-id> --confirmed-stopped`
+  ([recovery steps](docs/build-queue.md#cancellation-and-recovery)), commit
+  the fix and rerun `seshx validate`.
+- **Tests that refuse to run inside a Git checkout fail at random**, sometimes
+  with no output. Concurrent Codex sessions' bwrap sandboxes briefly create
+  `/tmp/.git`. Confirm with a direct test run, then rerun `seshx validate`
+  unchanged, at most three attempts in all. Never touch the other session or
+  `/tmp/.git`.
+
 ## Boundaries worth knowing
 
 - **Local coordination.** JSON state and filesystem locks are designed for a
