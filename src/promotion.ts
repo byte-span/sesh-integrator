@@ -1,7 +1,7 @@
 import {
   hasMergeInProgress,
   inspectGit,
-  isClean,
+  isTargetClean,
   listWorktrees,
   refCommit,
 } from "./git.js";
@@ -121,7 +121,7 @@ export async function promoteValidatedCommit(
         context.branch === branch &&
         context.head === validatedCommit &&
         !(await hasMergeInProgress(holder.path)) &&
-        (await isClean(holder.path))
+        (await isTargetClean(holder.path))
       ) {
         return holder.path;
       }
@@ -194,7 +194,7 @@ export async function promoteValidatedCommit(
   }
   if (
     (await hasMergeInProgress(holder.path)) ||
-    !(await isClean(holder.path))
+    !(await isTargetClean(holder.path))
   ) {
     throw new PromotionBlockedError(
       `Target worktree ${holder.path} is dirty or has an unfinished merge. Clean it without discarding user changes, then run seshx resume from the source worktree. Validated commit: ${validatedCommit}.`,
@@ -220,7 +220,7 @@ export async function promoteValidatedCommit(
     afterRef !== validatedCommit ||
     after.head !== validatedCommit ||
     after.branch !== branch ||
-    !(await isClean(holder.path))
+    !(await isTargetClean(holder.path))
   ) {
     throw new PromotionBlockedError(
       `Target worktree ${holder.path} did not finish synchronized at ${validatedCommit}; inspect it before retrying.`,

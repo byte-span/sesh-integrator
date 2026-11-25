@@ -605,7 +605,9 @@ when no post-integration commands are configured. A target checked out in one cl
 fast-forwarded there and verified so its ref, index, and files remain aligned.
 A dirty, inaccessible, divergent, or unexpectedly moved target is never reset:
 the session becomes `promotion_pending` and the validated staging commit is
-preserved for `resume`.
+preserved for `resume`. Untracked Claude Code desktop worktrees under
+`.claude/worktrees/` do not make the target dirty; tracked changes there and
+any other untracked path still do.
 
 When the staged integration tree equals the source-validated tree, matching
 integration commands reuse their exact-tree results; integration-only commands
