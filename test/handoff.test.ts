@@ -2083,6 +2083,40 @@ process.stdout.write(JSON.stringify({status:"SUCCESS",response:"resolved",text:"
     );
   });
 
+  it("promotes past untracked Claude desktop worktrees but not other untracked .claude paths", async () => {
+    const fixture = await createFixture();
+    const desktop = join(fixture.repo, ".claude", "worktrees", "desktop");
+    git(fixture.repo, "worktree", "add", "-b", "claude-desktop", desktop);
+    await writeFile(join(fixture.repo, ".claude", "user-note.txt"), "keep\n");
+    const worktree = await addWorktree(fixture, "claude-desktop-target");
+    await runCliOk(fixture, worktree, [
+      "begin",
+      "--summary",
+      "claude desktop target",
+    ]);
+    commitFile(worktree, "claude-safe.txt", "safe\n", "claude-safe commit");
+
+    const blocked = await runCli(fixture, worktree, [
+      "integrate",
+      "--summary",
+      "claude desktop target complete",
+    ]);
+    expect(blocked.code).toBe(1);
+    expect(blocked.stderr).toContain("dirty");
+    expect((await sessions(fixture))[0]!.status).toBe("promotion_pending");
+
+    await rm(join(fixture.repo, ".claude", "user-note.txt"));
+    await runCliOk(fixture, worktree, ["resume"]);
+    const completed = (await sessions(fixture))[0]!;
+    expect(completed.status).toBe("succeeded");
+    expect(git(fixture.repo, "rev-parse", "main")).toBe(
+      completed.integratedCommit,
+    );
+    expect(git(desktop, "symbolic-ref", "--short", "HEAD")).toBe(
+      "claude-desktop",
+    );
+  });
+
   it.each(["clean", "conflict", "validation", "correction"])(
     "reconciles a committed dirty target through same-session resume (%s)",
     async (mode) => {

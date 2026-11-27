@@ -4,7 +4,7 @@ import { withCleanup } from "./file-lock.js";
 import {
   hasMergeInProgress,
   inspectGit,
-  isClean,
+  isTargetClean,
   listWorktrees,
   refCommit,
 } from "./git.js";
@@ -142,7 +142,7 @@ async function syncLocked(
     context.branch !== branch ||
     context.head !== before ||
     (await hasMergeInProgress(holder.path)) ||
-    !(await isClean(holder.path))
+    !(await isTargetClean(holder.path))
   )
     throw new CodedError(
       "target_dirty",
